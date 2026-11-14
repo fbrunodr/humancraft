@@ -373,6 +373,12 @@ function showBattle(): void {
   $('dHp').textContent = `${Math.max(0, battle.dHp)} HP`;
   const { A, D, bonus } = strengths();
   const alive = battle.aHp > 0 && battle.dHp > 0, how = howOf(), block = attackBlock(battle.aType, battle.dType, undefined, how);
+  // (A way of attacking the attacker hasn't (a machine gun never closes in, a swordsman never shoots): greyed out, and said so.)
+  for (const o of $<HTMLSelectElement>('how').options) {
+    const can = o.value === 'ranged' ? canShoot(battle.aType) : canAssault(battle.aType);
+    o.disabled = !can;
+    o.textContent = (o.value === 'ranged' ? 'Attack by fire' : 'Attack at close quarters') + (can ? '' : o.value === 'ranged' ? ' (it has nothing to shoot with)' : ' (it only ever shoots)');
+  }
   $<HTMLSelectElement>('how').value = how;
   $('odds').innerHTML = block ? `<b class="loss">The ${UNITS[battle.aType].name.toLowerCase()} ${block}</b> (${UNITS[battle.dType].name.toLowerCase()}).` : alive
     ? `Strength <b>${A.toFixed(2)}</b> against <b>${D.toFixed(2)}</b>${bonus ? ` (defence ${bonus > 0 ? '+' : ''}${Math.round(bonus * 100)}%)` : ''} · each exchange won <b>${Math.round((100 * A) / (A + D))}%</b> of the time${how === 'ranged' ? ' · fire: three exchanges at most, unanswered' : ' · at close quarters, to the end'}`

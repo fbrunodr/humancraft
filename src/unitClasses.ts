@@ -14,8 +14,8 @@ import { unitDef, domainOf, type UnitKey } from './rules.ts';
 
 export type UnitClass =
   | 'civilian' | 'recon' | 'leader'         // never attack
-  | 'melee' | 'antiCav' | 'gunline'         // foot that closes in: blades, spears and pikes, muskets and rifles
-  | 'archer' | 'mountedArcher' | 'gun'      // shooters: bows, chariot archers, Gatling and machine guns
+  | 'melee' | 'antiCav' | 'gunline'         // foot that closes in: blades, spears and pikes, muskets, rifles and machine guns
+  | 'archer' | 'mountedArcher' | 'gun'      // shooters: bows, chariot archers, crewed guns (Gatling guns, field cannon)
   | 'engine' | 'artillery'                  // siege: catapult and trebuchet; cannon and artillery
   | 'cavalry' | 'antiTank' | 'armor'
   | 'warship' | 'steamship' | 'gunship'     // at sea: rams and boards; steam and steel; bombards
@@ -29,7 +29,8 @@ export const UNIT_CLASS: Record<UnitKey, UnitClass> = {
   musketman: 'gunline', rifleman: 'gunline', infantry: 'gunline',
   archer: 'archer', compositeBowman: 'archer', crossbowman: 'archer',
   chariotArcher: 'mountedArcher',
-  gatlingGun: 'gun', machineGun: 'gun',
+  // (A machine gun is carried by its men, as a rifle is: they may close in with it. A Gatling gun, on its carriage, only shoots.)
+  gatlingGun: 'gun', machineGun: 'gunline',
   catapult: 'engine', trebuchet: 'engine',
   cannon: 'artillery', artillery: 'artillery',
   horseman: 'cavalry', knight: 'cavalry', lancer: 'cavalry', cavalry: 'cavalry',
