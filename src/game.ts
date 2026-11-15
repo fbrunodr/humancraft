@@ -9,6 +9,7 @@ import { mulberry32, type Rng } from './rng.ts';
 import {
   unitDef, buildDef, isUnitKey, isWonder, UNITS, BUILDINGS, CIVS, growthCost, UPGRADES, domainOf,
   type UnitKey, type BuildingKey, type BuildKey, type MapSizeKey, type MapScriptKey,
+  GAME_SPEEDS, DEFAULT_SPEED, type GameSpeedKey,
 } from './rules.ts';
 import {
   isWaterBiome, terrainMoveCost, terrainFireCost, terrainDefense,
@@ -338,8 +339,10 @@ export interface GameOptions {
   // otherwise).
   policies?: readonly AiPolicy[];
   level?: number;
-  // The last turn (the time victory then): TURN_LIMIT unless given.
+  // The last turn (the time victory then): TURN_LIMIT at the game's pace unless given.
   turnLimit?: number;
+  // The game's speed (rules.ts GAME_SPEEDS): Quick unless given.
+  speed?: GameSpeedKey;
   // Roads laid by themselves between cities (roads.ts routeRoads), as the
   // dev pages show them; in the game workers lay them (the default).
   autoRoads?: boolean;
@@ -402,6 +405,9 @@ export class Game {
   over: 'victory' | 'defeat' | null = null;
   winner: { player: number; how: Victory } | null = null; // who won the game, and how (checkVictory)
   readonly turnLimit: number;
+  // The game's speed, and its pace: what multiplies every cost of making (rules.ts GAME_SPEEDS).
+  readonly speed: GameSpeedKey;
+  readonly pace: number;
   readonly resources: (ResourceKey | null)[];  // the resource on each tile (resources.ts)
   readonly religions = new Map<ReligionKey, { founder: number; holyCity: number | null; turn: number }>();
   readonly relations: Relation[][];             // [a][b], symmetric
@@ -411,9 +417,11 @@ export class Game {
   readonly dealOffers: Deal[] = [];             // trades the computer offered the human, for this turn (sides[0]: the offerer)
   readonly events: GameEvent[] = [];            // everything every player did (gameLog.ts)
 
-  constructor({ size, seed, script = 'continents', everyCiv = false, autoRoads = false, policies, level = DEFAULT_LEVEL, turnLimit = TURN_LIMIT, civ: playAs }: GameOptions) {
+  constructor({ size, seed, script = 'continents', everyCiv = false, autoRoads = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs }: GameOptions) {
     this.seed = seed;
-    this.turnLimit = turnLimit;
+    this.speed = speed;
+    this.pace = GAME_SPEEDS[speed].pace;
+    this.turnLimit = turnLimit ?? Math.round(TURN_LIMIT * this.pace);
     this.autoRoads = autoRoads;
     this.world = generateWorld(size, seed, script);
     this.globe = this.world.globe;
@@ -1847,11 +1855,18 @@ export class Game {
     this.useVersion++;
   }
 
+  // What things cost to make at the game's pace (rules.ts GAME_SPEEDS).
+  paced(x: number): number { return Math.round(x * this.pace); }
+  costOf(k: BuildKey): number { return this.paced(buildDef(k).cost); }
+  techCost(k: TechKey): number { return this.paced(techDef(k).cost); }
+  politicsCost(k: PoliticsKey): number { return this.paced(politicsDef(k).cost); }
+  // (Prices rise with the turns as on a Quick game they would by the same point of it.)
+  get inflation(): number { return inflation(this.turn / this.pace); }
   // Food for a city's next citizen (`pop`: its size after), with its civ's
   // effects (which never take off more than GROWTH_CUT_MAX).
   growthCostOf(city: City, pop: number): number {
     const pct = Math.max(-GROWTH_CUT_MAX, total(this.effectsOf(this.players[city.owner]!), 'growth'));
-    return Math.max(1, Math.round(growthCost(pop) * (1 + pct / 100)));
+    return Math.max(1, Math.round(growthCost(pop) * (1 + pct / 100) * this.pace));
   }
 
   // A building can be queued once per city, and only while it has a place to go.
@@ -1904,7 +1919,7 @@ export class Game {
 
     const key = city.building;
     if (key) {
-      const item = buildDef(key);
+      const item = { ...buildDef(key), cost: this.costOf(key) };
       city.prod += Math.round(y.prod * (1 + prodBonus(this.effectsOf(p), this.prodKinds(key)) / 100));
       if (city.prod >= item.cost) {
         if (key === 'settler' && city.pop < 2) {
@@ -1941,7 +1956,8 @@ export class Game {
     this.addScience(p, y.science);
     this.addCohesion(p, y.cohesion);
     this.addCulture(p, y.culture);
-    city.culture += y.culture * (1 + total(this.effectsOf(p), 'border') / 100);
+    // (Toward its borders, at the game's pace: the rings come as much later as everything else.)
+    city.culture += (y.culture * (1 + total(this.effectsOf(p), 'border') / 100)) / this.pace;
     this.growBorders(city);
     this.turnIncome[p.id] = addOut(this.turnIncome[p.id] ?? ZERO, y);
   }
@@ -2198,7 +2214,7 @@ export class Game {
     if (tally) p.science += amount;
     if (!p.research) { p.scienceBank += amount; return; }
     const k = p.research, got = (p.techProgress[k] ?? 0) + amount;
-    if (got < techDef(k).cost) { p.techProgress[k] = got; return; }
+    if (got < this.techCost(k)) { p.techProgress[k] = got; return; }
     p.techs.add(k);
     delete p.techProgress[k];
     // (A tech that improves the land restyles it: rural/stages.)
@@ -2214,13 +2230,13 @@ export class Game {
     const next = p.researchQueue.shift() ?? null;
     p.research = next;
     if (!next && !p.isHuman) { const pick = aiPickTech(this, p); if (pick) this.setResearch(p, pick); }
-    this.addScience(p, got - techDef(k).cost, false);
+    this.addScience(p, got - this.techCost(k), false);
   }
   private addCohesion(p: Player, amount: number, tally = true): void {
     if (tally) p.cohesion += amount;
     if (!p.studying) { p.cohesionBank += amount; return; }
     const k = p.studying, got = (p.politicsProgress[k] ?? 0) + amount;
-    if (got < politicsDef(k).cost) { p.politicsProgress[k] = got; return; }
+    if (got < this.politicsCost(k)) { p.politicsProgress[k] = got; return; }
     p.politics.add(k);
     delete p.politicsProgress[k];
     this.record('politicsDone', p.id, { politics: k });
@@ -2229,7 +2245,7 @@ export class Game {
     p.studying = next;
     if (!next && !p.isHuman) { const pick = aiPickPolitics(this, p); if (pick) this.setPolitics(p, pick); }
     if (!p.isHuman) aiGovern(this, p);
-    this.addCohesion(p, got - politicsDef(k).cost, false);
+    this.addCohesion(p, got - this.politicsCost(k), false);
   }
   // Culture is identity points to spend (identity.ts); the computer spends them at once.
   private addCulture(p: Player, amount: number): void {
@@ -2242,7 +2258,7 @@ export class Game {
 
   founded(): Set<ReligionKey> { return new Set(this.religions.keys()); }
   // The identity points the civ's next trait costs.
-  nextTraitCost(p: Player): number { return traitCost(p.identity.size); }
+  nextTraitCost(p: Player): number { return this.paced(traitCost(p.identity.size)); }
   canAdopt(p: Player, k: TraitKey): boolean {
     return traitBlock(k, p.identity, p.era, this.founded()) === null && p.identityPoints >= this.nextTraitCost(p);
   }
@@ -2312,19 +2328,20 @@ export class Game {
     if (!mine) return 'Only the founder of a religion sends missionaries.';
     if (city.owner !== id) return 'Not your city.';
     if (city.religion !== mine.religion) return `${city.name} does not follow ${religionDef(mine.religion).name}.`;
-    return this.players[id]!.faith < MISSIONARY_FAITH ? `Needs ${MISSIONARY_FAITH} faith.` : null;
+    return this.players[id]!.faith < this.missionaryCost ? `Needs ${this.missionaryCost} faith.` : null;
   }
   trainMissionary(id: number, city: City): Unit | null {
     if (this.missionaryBlock(id, city) !== null) return null;
-    this.players[id]!.faith -= MISSIONARY_FAITH;
-    this.record('bought', id, { city: city.name, item: 'missionary', currency: 'faith', cost: MISSIONARY_FAITH });
+    this.players[id]!.faith -= this.missionaryCost;
+    this.record('bought', id, { city: city.name, item: 'missionary', currency: 'faith', cost: this.missionaryCost });
     return this.createUnit('missionary', id, city.tile);
   }
   // It preaches in a city it stands in or beside, anyone's: the city
   // takes up its civ's religion for faith by its size, and keeps to it
   // for DEVOUT_TURNS whatever presses on it or is preached to it; the
   // missionary is spent. (Not another religion's holy city.)
-  preachCost(city: City): number { return CONVERT_PER_POP * city.pop; }
+  get missionaryCost(): number { return this.paced(MISSIONARY_FAITH); }
+  preachCost(city: City): number { return this.paced(CONVERT_PER_POP * city.pop); }
   preachTarget(u: Unit): City | null {
     const here = this.cityByTile.get(u.tile);
     if (here && this.preachBlock(u, here) === null) return here;
@@ -2396,20 +2413,20 @@ export class Game {
     const cap = this.cityById.get(p.capital);
     const others = this.cities.filter((c) => c.owner === p.id).length - 1;
     const dist = cap ? Math.round(this.approxDist(city.tile, cap.tile)) : 0;
-    return cityUpkeep(dist, others, city.buildings.has('courthouse'), total(this.effectsOf(p), 'upkeep'), city.pop) * inflation(this.turn);
+    return cityUpkeep(dist, others, city.buildings.has('courthouse'), total(this.effectsOf(p), 'upkeep'), city.pop) * this.inflation;
   }
   // A city's buildings' upkeep.
   buildingUpkeepOf(city: City): number {
     let n = 0;
     for (const b of city.buildings) n += buildingUpkeep(CITY_BUILDINGS[b].cost);
-    return n * Math.max(0, 1 + total(this.effectsOf(this.players[city.owner]!), 'buildingUpkeep') / 100) * inflation(this.turn);
+    return n * Math.max(0, 1 + total(this.effectsOf(this.players[city.owner]!), 'buildingUpkeep') / 100) * this.inflation;
   }
   // A civ's upkeep this turn: its cities' (and their buildings'), its
   // fighting units' beyond the free ones.
   upkeep(p: Player): { cities: number; units: number } {
     const cities = this.cities.filter((c) => c.owner === p.id);
     const fighting = this.units.filter((u) => u.owner === p.id && !unitDef(u.type).civilian).map((u) => unitDef(u.type).cost);
-    return { cities: cities.reduce((s, c) => s + this.upkeepOf(c) + this.buildingUpkeepOf(c), 0), units: unitUpkeep(fighting, cities.length, total(this.effectsOf(p), 'freeUnits')) * inflation(this.turn) };
+    return { cities: cities.reduce((s, c) => s + this.upkeepOf(c) + this.buildingUpkeepOf(c), 0), units: unitUpkeep(fighting, cities.length, total(this.effectsOf(p), 'freeUnits')) * this.inflation };
   }
 
   // ---------- upgrades ----------
@@ -2430,7 +2447,7 @@ export class Game {
     return best;
   }
   // Gold to upgrade: one and a half times the difference in cost.
-  upgradeCost(u: Unit, to: UnitKey): number { return Math.max(10, Math.round(1.5 * (UNITS[to].cost - UNITS[u.type].cost))); }
+  upgradeCost(u: Unit, to: UnitKey): number { return Math.max(10, Math.round(1.5 * (UNITS[to].cost - UNITS[u.type].cost) * this.pace)); }
   // Upgrades a unit that stands in its own territory (or is packed in an
   // army there), with moves left; it keeps its HP share and spends its turn.
   canUpgrade(u: Unit): boolean {
@@ -2504,7 +2521,7 @@ export class Game {
     if (!k || isWonder(k)) return null;
     // (Faith buys shrines and temples; and, for a civ with a faith, fighting units, raised in that faith.)
     if (currency === 'faith' && !FAITH_BUYS.includes(k) && !(isUnitKey(k) && !unitDef(k).civilian && this.faithOf(city.owner) !== null)) return null;
-    const left = Math.max(0, buildDef(k).cost - city.prod);
+    const left = Math.max(0, this.costOf(k) - city.prod);
     const discount = currency === 'gold' ? Math.max(0.2, 1 + total(this.effectsOf(this.players[city.owner]!), 'buyCost') / 100) : 1;
     return Math.ceil(left * (currency === 'gold' ? GOLD_PER_PROD : FAITH_PER_PROD) * discount);
   }
@@ -2513,7 +2530,7 @@ export class Game {
     if (cost === null || (currency === 'gold' ? p.gold : p.faith) < cost) return false;
     if (currency === 'gold') p.gold -= cost; else p.faith -= cost;
     this.record('bought', p.id, { city: city.name, item: city.building, currency, cost });
-    city.prod = buildDef(city.building!).cost;
+    city.prod = this.costOf(city.building!);
     city.blessed = currency === 'faith';
     return true;
   }

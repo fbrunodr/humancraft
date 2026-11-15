@@ -3,13 +3,14 @@
 // the properties we want the best play to have. The rules are ours to
 // change: when the best play is not the game we mean, the rules are wrong,
 // not the players. Run after every breeding (scripts/train.ts):
-//   npx tsx scripts/properties.ts [--games 10] [--size small] [--level <index of LEVELS>]
+//   npx tsx scripts/properties.ts [--games 10] [--size small] [--speed quick] [--level <index of LEVELS>]
 
 import { Game } from '../src/game.ts';
-import { unitDef, type MapSizeKey } from '../src/rules.ts';
+import { unitDef, DEFAULT_SPEED, GAME_SPEEDS, type MapSizeKey, type GameSpeedKey } from '../src/rules.ts';
 import { LEVELS } from '../src/aiPolicy.ts';
 
 const arg = (k: string, d: string) => { const i = process.argv.indexOf(`--${k}`); return i >= 0 ? process.argv[i + 1]! : d; };
+const speed = arg('speed', DEFAULT_SPEED) as GameSpeedKey;
 const GAMES = Number(arg('games', '10')), size = arg('size', 'small') as MapSizeKey, level = LEVELS[Number(arg('level', String(LEVELS.length - 1)))]!;
 const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]! : NaN);
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
@@ -23,7 +24,7 @@ const warBy = { same: 0, rival: 0, none: 0 }, exposure = { same: 0, rival: 0, no
 const t0 = Date.now();
 
 for (let k = 0; k < GAMES; k++) {
-  const g = new Game({ size, seed: 5000 + k, policies: Array.from({ length: 12 }, () => level.policy) });
+  const g = new Game({ size, seed: 5000 + k, policies: Array.from({ length: 12 }, () => level.policy), speed });
   for (const p of g.players) p.isHuman = false;
   const peak = g.players.map(() => 0);
   while (!g.winner && g.turn <= g.turnLimit + 1) {
@@ -83,5 +84,5 @@ const rows: [string, string, string][] = [
   ['Strong play builds wonders and buildings', `${mean(wonders).toFixed(1)} wonders a civ; ${mean(buildings).toFixed(1)} buildings a city`, 'more than none of each'],
   ['Strategic resources shape armies', `${pct(needRes / Math.max(1, army))} of units need one`, 'a fifth or more'],
 ];
-console.log(`\nThe game as ${level.name} plays it against itself: ${GAMES} games on ${size} maps (${((Date.now() - t0) / 1000).toFixed(0)} s)\n`);
+console.log(`\nThe game as ${level.name} plays it against itself: ${GAMES} ${GAME_SPEEDS[speed].name} games on ${size} maps (${((Date.now() - t0) / 1000).toFixed(0)} s)\n`);
 for (const [what, now, want] of rows) console.log(`${what}\n    now:    ${now}\n    wanted: ${want}\n`);

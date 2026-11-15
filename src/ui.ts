@@ -6,12 +6,12 @@ import type { Selection } from './render.ts';
 import { canAssault, canShoot, type AttackMode } from './unitClasses.ts';
 import { techDef } from './techs.ts';
 import { politicsDef } from './politics.ts';
-import { RELIGIONS, DEVOUT_TURNS, CONVERT_PER_POP, MISSIONARY_FAITH } from './religion.ts';
+import { RELIGIONS, DEVOUT_TURNS, CONVERT_PER_POP } from './religion.ts';
 import { resourceDef, empireBonus } from './resources.ts';
 import { BORDER_AT, BORDER_MAX, OUTPUT_KEYS } from './cities.ts';
 import { icon, unitIcon, resourceIcon, YIELD_ICON, type IconKey } from './icons.ts';
 import { inkOn } from './mapIcons.ts';
-import { cityUpkeep, inflation } from './economy.ts';
+import { cityUpkeep } from './economy.ts';
 import { total } from './effects.ts';
 import { RESOURCE_KEYS } from './resources.ts';
 import {
@@ -275,8 +275,8 @@ export class UI {
     const tech = p.research ? techDef(p.research) : null, pol = p.studying ? politicsDef(p.studying) : null;
     const next = g.nextTraitCost(p), ready = p.identityPoints >= next;
     return [
-      track('research', 'Research', 'sci', 'science', tech?.name ?? null, p.research ? (p.techProgress[p.research] ?? 0) : 0, tech?.cost ?? 1, l.income.science, 'Choose research'),
-      track('politics', 'Politics', 'coh', 'politics', pol?.name ?? null, p.studying ? (p.politicsProgress[p.studying] ?? 0) : 0, pol?.cost ?? 1, l.income.cohesion, 'Choose politics'),
+      track('research', 'Research', 'sci', 'science', tech?.name ?? null, p.research ? (p.techProgress[p.research] ?? 0) : 0, tech && p.research ? g.techCost(p.research) : 1, l.income.science, 'Choose research'),
+      track('politics', 'Politics', 'coh', 'politics', pol?.name ?? null, p.studying ? (p.politicsProgress[p.studying] ?? 0) : 0, pol && p.studying ? g.politicsCost(p.studying) : 1, l.income.cohesion, 'Choose politics'),
       track('identity', 'Identity', 'cul', 'identity', ready ? null : 'Next trait', p.identityPoints, next, l.income.culture, 'Adopt a trait'),
     ].join('');
   }
@@ -309,12 +309,12 @@ export class UI {
       if (T.preaches) {
         const c = g.preachTarget(u), why = c ? g.preachBlock(u, c) : 'It must stand in a city or beside one.';
         const mine = g.foundedBy(u.owner);
-        orders.push(order('preach', 'faith', c ? `Preach in ${c.name}` : 'Preach', c && mine ? `${c.name} takes up ${RELIGIONS[mine.religion].name} for ${g.preachCost(c)} faith (${CONVERT_PER_POP} a citizen), and keeps to it for ${DEVOUT_TURNS} turns. The missionary is spent` : 'Converts the city it stands in or beside to your religion', 'V', why));
+        orders.push(order('preach', 'faith', c ? `Preach in ${c.name}` : 'Preach', c && mine ? `${c.name} takes up ${RELIGIONS[mine.religion].name} for ${g.preachCost(c)} faith (${g.paced(CONVERT_PER_POP)} a citizen), and keeps to it for ${DEVOUT_TURNS} turns. The missionary is spent` : 'Converts the city it stands in or beside to your religion', 'V', why));
       }
       if (u.type === 'settler') {
         // (Its bill, before it exists: what a city here would cost a turn now.)
         const me = g.players[u.owner]!, cap = me.capital === null ? undefined : g.cityById.get(me.capital), mine = g.cities.filter((c) => c.owner === u.owner).length;
-        const bill = cap ? cityUpkeep(Math.round(g.approxDist(u.tile, cap.tile)), mine, false, total(g.effectsOf(me), 'upkeep')) * inflation(g.turn) : 0;
+        const bill = cap ? cityUpkeep(Math.round(g.approxDist(u.tile, cap.tile)), mine, false, total(g.effectsOf(me), 'upkeep')) * g.inflation : 0;
         orders.push(order('found', 'flag', 'Found a city', cap ? `Here. It would cost ${bill.toFixed(1)} gold a turn in upkeep now (its distance from the capital, and your ${plural(mine, 'city', 'cities')}), more as it grows` : 'Here: your capital, which costs no upkeep',
           'B', g.canFoundCity(u.tile, u.owner) ? null : 'Too close to another city, or no ground for one'));
       }
@@ -416,7 +416,7 @@ export class UI {
     const mineFaith = g.foundedBy(HUMAN);
     if (mineFaith && mine && c.religion === mineFaith.religion) {
       const why = g.missionaryBlock(HUMAN, c);
-      more.push(`<button data-act="missionary" class="${why ? 'off' : ''}" ${tip('Send a missionary', why ?? `It goes where you send it and preaches ${RELIGIONS[mineFaith.religion].name} in a city, anyone's, for ${CONVERT_PER_POP} faith a citizen there`)}>${icon('faith')} Missionary <small>${MISSIONARY_FAITH} faith</small></button>`);
+      more.push(`<button data-act="missionary" class="${why ? 'off' : ''}" ${tip('Send a missionary', why ?? `It goes where you send it and preaches ${RELIGIONS[mineFaith.religion].name} in a city, anyone's, for ${g.paced(CONVERT_PER_POP)} faith a citizen there`)}>${icon('faith')} Missionary <small>${g.missionaryCost} faith</small></button>`);
     }
     if (mine && g.canRaze(c)) more.push(`<button data-act="raze" class="danger" ${tip(`Raze ${esc(c.name)}`, 'Burn the city down, a citizen a turn; ruins remain')}>${icon('fire')} Raze</button>`);
     const left = `<div class="cityhead" style="--civ:${p.color};--on:${inkOn(p.color)}"><div class="pop" ${tip('Citizens')}>${c.pop}</div>
@@ -432,13 +432,14 @@ export class UI {
     if (!mine) return [left, ''];
 
     // What it builds, and what it could.
-    const turnsFor = (k: BuildKey) => Math.max(1, Math.ceil((buildDef(k).cost - (c.building === k ? c.prod : 0)) / Math.max(1, y.prod)));
+    const turnsFor = (k: BuildKey) => Math.max(1, Math.ceil((g.costOf(k) - (c.building === k ? c.prod : 0)) / Math.max(1, y.prod)));
     let now = 'Wealth', sub = 'production becomes gold', frac = 0;
     if (c.building) {
       const item = buildDef(c.building);
       now = item.name;
-      sub = `${plural(turnsFor(c.building), 'turn')} · ${Math.min(c.prod, item.cost)}/${item.cost}`;
-      frac = c.prod / item.cost;
+      const cost = g.costOf(c.building);
+      sub = `${plural(turnsFor(c.building), 'turn')} · ${Math.min(c.prod, cost)}/${cost}`;
+      frac = c.prod / cost;
       if (c.building === 'settler' && c.pop < 2) sub += ' · <span class="warn">needs size 2</span>';
       if (isWonder(c.building) && c.wonderTile !== c.tile) sub += ' · on the marked tile';
     }
@@ -454,7 +455,7 @@ export class UI {
         note = U.civilian ? (U.desc ?? '') : `${icon('sword')} ${U.melee}${U.rangedAtk ? ` · ${icon('arrow')} ${U.rangedAtk}` : ''} · ${icon('shield')} ${U.rangedDef} · ${icon('moves')} ${U.mv}`;
       } else if (isWonder(k)) { ic = 'star'; cls = 'wonder'; note = bonusStr(WONDERS[k].yields) || esc(d.desc ?? ''); }
       else note = `${bonusStr(BUILDINGS[k].yields)}${buildingTag(k)}` || esc(d.desc ?? '');
-      return `<button class="prow ${cls} ${c.building === k ? 'active' : ''}" data-act="build" data-key="${k}" ${tip(esc(d.name), `${esc(d.desc ?? '')}${d.desc ? ' · ' : ''}${d.cost} production`)}>
+      return `<button class="prow ${cls} ${c.building === k ? 'active' : ''}" data-act="build" data-key="${k}" ${tip(esc(d.name), `${esc(d.desc ?? '')}${d.desc ? ' · ' : ''}${g.costOf(k)} production`)}>
         <span class="pic">${icon(ic)}</span><span class="pn"><b>${esc(d.name)}</b><small>${note}</small></span><span class="pt">${turnsFor(k)} t</span></button>`;
     };
     const buyGold = g.buyCost(c, 'gold'), buyFaith = g.buyCost(c, 'faith');

@@ -215,6 +215,21 @@ export const MAP_SIZES = {
   large:  { name: 'Large',  n: 24, players: 10, civEquivalent: 'Civ VI Large (96×60 = 5,760 tiles)' },
 } satisfies Record<string, MapSize>;
 export type MapSizeKey = keyof typeof MAP_SIZES;
+
+// The game's speed (as in Civilization): how long it is. A speed's pace
+// multiplies the last turn and what everything costs to make (research,
+// politics, traits, what cities build, their growth and their borders,
+// what faith and upgrades cost), so a game takes that much longer, era by
+// era. What happens on the map does not change: a unit moves and fights,
+// heals, and a truce lasts as on any speed. So the slower the game, the
+// more an army gets done within an era: wars have the room to be won.
+export interface GameSpeed { readonly name: string; readonly pace: number; readonly what: string }
+export const GAME_SPEEDS = {
+  quick:    { name: 'Quick',    pace: 1,   what: 'a game in an evening' },
+  standard: { name: 'Standard', pace: 1.5, what: 'half as long again: room for wars to be won' },
+} satisfies Record<string, GameSpeed>;
+export type GameSpeedKey = keyof typeof GAME_SPEEDS;
+export const DEFAULT_SPEED: GameSpeedKey = 'quick';
 export const tileCount = (n: number): number => 10 * n * n + 2;
 
 // Map scripts: where the land comes from (mapgen.ts). Continents are grown

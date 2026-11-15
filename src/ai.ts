@@ -13,7 +13,7 @@ import { BEST, type AiPolicy } from './aiPolicy.ts';
 import { militaryPhase, planWar, planning, onCampaign, operationOf } from './aiMilitary.ts';
 import { isShooter, canAssault } from './unitClasses.ts';
 import { canAttackType } from './unitClasses.ts';
-import { HOLY_STRIFE, MISSIONARY_FAITH } from './religion.ts';
+import { HOLY_STRIFE } from './religion.ts';
 import { MIN_WAR, FAITH_VICTORY, type Game, type Player, type Unit, type City, type DealSide } from './game.ts';
 
 // Deliberately simple AI: expand with settlers, improve the land with
@@ -130,7 +130,7 @@ export function aiTurn(g: Game, p: Player): void {
     if (out.length < 2 && g.rng() < P.faithConvert) {
       const homes = cities.filter((c) => c.religion === founded.religion);
       const from = founded.holy?.owner === p.id ? founded.holy : homes[0];
-      const target = from ? missionTarget(g, p.id, from.tile, p.faith - MISSIONARY_FAITH) : null;
+      const target = from ? missionTarget(g, p.id, from.tile, p.faith - g.missionaryCost) : null;
       if (target && homes.length) {
         const home = homes.reduce((a, b) => (g.approxDist(b.tile, target.tile) < g.approxDist(a.tile, target.tile) ? b : a));
         const m = g.trainMissionary(p.id, home);
@@ -561,7 +561,8 @@ function aiDiplomacy(g: Game, p: Player): void {
     // (Weaker than it will bear; or the war grown long and going nowhere for it: one it is winning it keeps up.)
     if (g.canMakePeace(p.id, o.id) && (1 / RANK_WORTH[standing(g, p.id, o.id).army] < P.peaceRatio || (long > 30 && gains(g, p.id, o.id) <= 0 && g.rng() < 0.15))) g.offerPeace(p.id, o.id);
   }
-  if (wars.length || g.turn < P.warAfter || g.rng() > P.warChance) return;
+  // (Its policy's turns are a Quick game's: at the game's pace.)
+  if (wars.length || g.turn < P.warAfter * g.pace || g.rng() > P.warChance) return;
   if (planning(g, p)) return;
   if (!g.cities.some((c) => c.owner === p.id)) return;
   // The civ to fall on: the one it has most appetite for (appetite), if
@@ -646,7 +647,7 @@ export const ATTITUDES: Record<Attitude, { name: string; tells: string }> = {
 export function attitude(g: Game, o: Player, toward: number): Attitude {
   if (g.atWar(o.id, toward)) return 'war';
   const P = mind(g, o), a = appetite(g, o, g.players[toward]!, false), st = standing(g, o.id, toward);
-  if (a.near && a.want >= 1 && P.warChance > 0.005 && g.turn >= P.warAfter) return 'hostile';
+  if (a.near && a.want >= 1 && P.warChance > 0.005 && g.turn >= P.warAfter * g.pace) return 'hostile';
   if (st.army === 4) return 'afraid';
   const f = g.faithOf(o.id), bond = (f !== null && f === g.faithOf(toward)) || g.deals.some((d) => d.sides.some((s) => s.civ === o.id) && d.sides.some((s) => s.civ === toward));
   if (bond) return 'friendly';

@@ -9,10 +9,10 @@ import { Worker, isMainThread, parentPort } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Game, FAITH_VICTORY } from '../src/game.ts';
-import { unitDef, type MapSizeKey } from '../src/rules.ts';
+import { unitDef, type MapSizeKey, type GameSpeedKey } from '../src/rules.ts';
 import { LEVELS, type AiPolicy } from '../src/aiPolicy.ts';
 
-export interface Match { readonly seed: number; readonly size: MapSizeKey; readonly turns: number; readonly policies: readonly AiPolicy[] }
+export interface Match { readonly seed: number; readonly size: MapSizeKey; readonly turns: number; readonly policies: readonly AiPolicy[]; readonly speed?: GameSpeedKey }
 export interface Result { readonly scores: number[]; readonly stats: Stats[] }
 export interface Stats { cities: number; pop: number; techs: number; army: number; alive: boolean; wars: number; won: string | null; turns: number }
 
@@ -23,7 +23,7 @@ export interface Stats { cities: number; pop: number; techs: number; army: numbe
 // the others did; and more for how near it came to a conquest or to its
 // faith's victory (nearness).
 export function playMatch(m: Match): Result {
-  const g = new Game({ size: m.size, seed: m.seed, policies: m.policies, turnLimit: m.turns });
+  const g = new Game({ size: m.size, seed: m.seed, policies: m.policies, turnLimit: m.turns, ...(m.speed ? { speed: m.speed } : {}) });
   for (const p of g.players) p.isHuman = false;
   for (let t = 0; t <= m.turns && !g.winner; t++) g.endTurn();
   const wars = g.events.filter((e) => e.kind === 'war').length;

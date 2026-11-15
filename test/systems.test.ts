@@ -13,7 +13,7 @@ import { KIT_MODELS, kitModel } from '../src/rural/kit.ts';
 import { unitModel } from '../src/unitModels.ts';
 import { cityUpkeep } from '../src/economy.ts';
 import { BORDER_AT, CITY_REACH, USE } from '../src/cities.ts';
-import { UNITS, BUILDINGS, WONDERS, type BuildKey } from '../src/rules.ts';
+import { UNITS, BUILDINGS, WONDERS, GAME_SPEEDS, type BuildKey } from '../src/rules.ts';
 
 // The game's systems: research, politics (governments and policies),
 // identity (traits, faiths), religion, resources, borders, upkeep,
@@ -25,6 +25,24 @@ const fresh = () => {
   return g;
 };
 const settle = (g: Game, owner: number) => g.foundCity(g.units.find((u) => u.owner === owner && u.type === 'settler')!)!;
+
+describe('S0: the game\'s speed', () => {
+  it('a slower game is longer and everything costs more to make, by its pace; the map\'s rules do not change', () => {
+    const q = new Game({ size: 'small', seed: 5 }), s = new Game({ size: 'small', seed: 5, speed: 'standard' });
+    expect(q.pace).toBe(1);
+    expect(s.pace).toBe(GAME_SPEEDS.standard.pace);
+    expect(s.turnLimit).toBe(Math.round(q.turnLimit * s.pace));
+    expect(s.costOf('warrior')).toBe(Math.round(q.costOf('warrior') * s.pace));
+    expect(s.techCost('pottery')).toBe(Math.round(q.techCost('pottery') * s.pace));
+    expect(s.nextTraitCost(s.players[0]!)).toBe(Math.round(q.nextTraitCost(q.players[0]!) * s.pace));
+    const cq = q.foundCity(q.units.find((u) => u.owner === 0 && u.type === 'settler')!)!, cs = s.foundCity(s.units.find((u) => u.owner === 0 && u.type === 'settler')!)!;
+    expect(s.growthCostOf(cs, 2)).toBe(Math.round(q.growthCostOf(cq, 2) * s.pace));
+    expect(s.missionaryCost).toBe(Math.round(q.missionaryCost * s.pace));
+    // (What happens on the map is the same.)
+    expect(s.maxMoves('warrior', 0)).toBe(q.maxMoves('warrior', 0));
+    expect(s.unitStrength(s.units[0]!, 'melee', 'atk', s.units[0]!.tile)).toBe(q.unitStrength(q.units[0]!, 'melee', 'atk', q.units[0]!.tile));
+  });
+});
 
 describe('S1: the trees hold together', () => {
   it('every tech and politics item needs only earlier ones, of its era or before, without cycles', () => {

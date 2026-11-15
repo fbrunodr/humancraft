@@ -8,7 +8,7 @@ import {
   PATHS, FAITH_KEYS, PAIR_SLOTS, MAX_TRAITS, openSlots, traitDef, pathTraits, traitBlock, pathLevels, epithet, traitOfReligion, BLOCK_TEXT, isTraitKey,
   type PathKey, type TraitKey,
 } from './identity.ts';
-import { RELIGION_KEYS, religionDef, FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, MISSIONARY_FAITH, CONVERT_PER_POP, DEVOUT_TURNS } from './religion.ts';
+import { RELIGION_KEYS, religionDef, FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, CONVERT_PER_POP, DEVOUT_TURNS } from './religion.ts';
 import { RESOURCE_KEYS, resourceDef, empireBonus, type ResourceKey } from './resources.ts';
 import { describe as describeEffect, describeAll, flat } from './effects.ts';
 import { ERAS, BUILDINGS, WONDERS, type EraIndex } from './cities.ts';
@@ -269,6 +269,8 @@ export class Sheets {
     const progress = (k: string) => (kind === 'tech' ? p.techProgress[k as TechKey] : p.politicsProgress[k as PoliticsKey]) ?? 0;
     const rate = kind === 'tech' ? p.ledger.income.science : p.ledger.income.cohesion;
     const unit = kind === 'tech' ? 'science' : 'cohesion';
+    // (What it costs at the game's pace.)
+    const cost = (k: string): number => this.game.paced(def(k).cost);
     const node = (k: string): string => {
       const d = def(k), done = known.has(k);
       const ready = (d.needs as readonly string[]).every((n) => known.has(n));
@@ -276,12 +278,12 @@ export class Sheets {
       const chips = this.unlockChips(kind, k);
       const fx = 'effects' in d ? (d.effects ?? []).map(describeEffect).join(' · ') : '';
       const pathCost = done ? 0 : (kind === 'tech' ? techPath(k as TechKey, p.techs) : politicsPath(k as PoliticsKey, p.politics) as string[])
-        .reduce((s, n) => s + def(n).cost - progress(n), 0);
+        .reduce((s, n) => s + cost(n) - progress(n), 0);
       const turns = done ? '' : rate > 0 ? `${Math.max(1, Math.ceil(pathCost / rate))} turns` : '—';
-      const bar = !done && progress(k) > 0 ? `<div class="bar ${kind === 'tech' ? 'sci' : 'coh'}"><i style="width:${(100 * progress(k) / d.cost).toFixed(1)}%"></i></div>` : '';
+      const bar = !done && progress(k) > 0 ? `<div class="bar ${kind === 'tech' ? 'sci' : 'coh'}"><i style="width:${(100 * progress(k) / cost(k)).toFixed(1)}%"></i></div>` : '';
       const state = done ? 'Known' : k === current ? 'Being worked on' : queue.has(k) ? 'Queued' : ready ? 'Click to work on it' : 'Click to work toward it, through what it needs';
       return `<div class="node ${cls}" style="left:${x(col.get(k)!)}px;top:${y(row.get(k)!)}px;width:${NODE_W}px;height:${NODE_H}px" data-node="${k}" ${done ? '' : `data-do="${kind}" data-key="${k}"`}
-        ${tip(esc(d.name), `${d.cost} ${unit}${fx ? ` · ${esc(fx)}` : ''} · ${state}`)}>
+        ${tip(esc(d.name), `${cost(k)} ${unit}${fx ? ` · ${esc(fx)}` : ''} · ${state}`)}>
         <div class="name"><span>${esc(d.name)}</span><small>${turns}</small></div>
         <div class="unl">${chips.slice(0, 7).join('')}${chips.length > 7 ? `<small>+${chips.length - 7}</small>` : ''}</div>
         <div class="fxl">${esc(fx)}</div>${bar}</div>`;
@@ -436,7 +438,7 @@ export class Sheets {
     const g = this.game, mine = g.foundedBy(HUMAN);
     if (!mine) return '';
     const out = g.units.filter((u) => u.owner === HUMAN && u.type === 'missionary').length;
-    return `<h3>Missionaries</h3><p class="note">As the founder of ${religionDef(mine.religion).name} you raise missionaries with faith (${MISSIONARY_FAITH}; you have ${this.me.faith}) in your cities that follow it: the button is in the city's panel. A missionary goes where you send it, over land and sea, and preaches in a city it stands in or beside, anyone's, for ${CONVERT_PER_POP} faith a citizen there; the city keeps to your religion for ${DEVOUT_TURNS} turns whatever presses on it, and the missionary is spent. Not in another religion's holy city.${out ? ` You have ${out} on the map.` : ''}</p>`;
+    return `<h3>Missionaries</h3><p class="note">As the founder of ${religionDef(mine.religion).name} you raise missionaries with faith (${g.missionaryCost}; you have ${this.me.faith}) in your cities that follow it: the button is in the city's panel. A missionary goes where you send it, over land and sea, and preaches in a city it stands in or beside, anyone's, for ${g.paced(CONVERT_PER_POP)} faith a citizen there; the city keeps to your religion for ${DEVOUT_TURNS} turns whatever presses on it, and the missionary is spent. Not in another religion's holy city.${out ? ` You have ${out} on the map.` : ''}</p>`;
   }
 
   private diplomacyHtml(): string {
