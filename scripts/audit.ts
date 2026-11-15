@@ -20,9 +20,13 @@ const unlockedEver = new Set<string>();
 for (let k = 0; k < GAMES; k++) {
   const g = new Game({ size, seed: 6000 + k, policies: Array.from({ length: 12 }, () => level.policy), speed });
   for (const p of g.players) p.isHuman = false;
+  const wasIdle = new Set<number>();
   while (!g.winner && g.turn <= g.turnLimit + 1) {
     g.endTurn();
-    if (g.turn % 5 === 0) for (const c of g.cities) { cityTurns++; if (!c.building) idleCityTurns++; }
+    // (A city is idle when it had nothing in production at the end of two turns running: one that has just finished something chooses again on its civ's next turn.)
+    for (const c of g.cities) { cityTurns++; if (!c.building && wasIdle.has(c.id)) idleCityTurns++; }
+    wasIdle.clear();
+    for (const c of g.cities) if (!c.building) wasIdle.add(c.id);
   }
   for (const e of g.events) {
     add(count, e.kind);
