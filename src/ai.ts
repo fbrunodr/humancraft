@@ -682,6 +682,7 @@ export function power(g: Game, owner: number): number {
   return g.units.reduce((s, u) => s + (u.owner === owner && !unitDef(u.type).civilian ? (Math.max(unitDef(u.type).melee, unitDef(u.type).rangedAtk ?? 0) + unitDef(u.type).rangedDef) * (0.5 + u.hp / 200) : 0), 0);
 }
 
+const PEACE_ASK_EVERY = 8; // turns between a civ's offers of peace to the same enemy
 // War when much stronger than a civ it has met nearby (warlike civs sooner);
 // peace when the war goes badly or has lasted.
 function aiDiplomacy(g: Game, p: Player): void {
@@ -690,7 +691,10 @@ function aiDiplomacy(g: Game, p: Player): void {
   for (const o of wars) {
     const long = g.turn - g.relations[p.id]![o.id]!.since;
     // (Weaker than it will bear; or the war grown long and going nowhere for it: one it is winning it keeps up.)
-    if (g.canMakePeace(p.id, o.id) && (1 / RANK_WORTH[standing(g, p.id, o.id).army] < P.peaceRatio || (long > 30 && gains(g, p.id, o.id) <= 0 && g.rng() < 0.15))) g.offerPeace(p.id, o.id);
+    // (Refused, it does not ask again for a while: an offer every turn is noise.)
+    const rel = g.relations[p.id]![o.id]!;
+    if (g.turn - (rel.asked ?? -99) < PEACE_ASK_EVERY) continue;
+    if (g.canMakePeace(p.id, o.id) && (1 / RANK_WORTH[standing(g, p.id, o.id).army] < P.peaceRatio || (long > 30 && gains(g, p.id, o.id) <= 0 && g.rng() < 0.15))) { rel.asked = g.turn; g.offerPeace(p.id, o.id); }
   }
   // (Its policy's turns are a Quick game's: at the game's pace.)
   if (wars.length || g.turn < P.warAfter * g.pace || g.rng() > P.warChance) return;

@@ -100,7 +100,7 @@ export interface Ledger {
 const EMPTY_LEDGER: Ledger = { income: ZERO, cityUpkeep: 0, unitUpkeep: 0, tithes: 0, luxuries: ZERO, trade: 0 };
 
 // Relations between two civs: at peace (the start), or at war since a turn.
-export interface Relation { war: boolean; since: number }
+export interface Relation { war: boolean; since: number; asked?: number } // (asked: the turn peace was last offered, by the first of the two)
 // War, peace: a war lasts at least MIN_WAR turns before peace can be made.
 // How the game is won (game.ts checkVictory).
 export type Victory = 'conquest' | 'science' | 'religion' | 'time';
