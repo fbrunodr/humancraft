@@ -161,14 +161,15 @@ export function militaryPhase(g: Game, p: Player, P: AiPolicy, cities: readonly 
     const threatened = cities.filter((c) => near(foeUnits, c.tile, 3) > 0);
     const army = [...free].filter((u) => canAttackType(u.type) && !threatened.some((c) => dist(u.tile, c.tile) <= 3));
     if (army.length >= P.offensiveSpare) {
-      // The city to take: near, weak, worth having.
+      // The city to take: near, weak, worth having. (A first capital the more, the nearer its civ is to the conquest: with one or two to go, it goes for them.)
+      const drive = 1 + 2 * (g.capitalsHeld(p.id) / Math.max(1, g.capitalsToWin - 1));
       let best: City | null = null, bestS = -Infinity, from = cities[0]!;
       for (const c of g.cities) {
         if (!wantVs.includes(c.owner) || !g.known[p.id]![c.tile]) continue;
         const home = cities.reduce((a, b) => (dist(b.tile, c.tile) < dist(a.tile, c.tile) ? b : a));
         const d = dist(home.tile, c.tile);
         if (d > 16) continue;
-        const s = -d - 1.5 * g.cityStrength(c) / (1 + 0.5 * g.players[c.owner]!.era) + (g.cityStrength(c) === 0 ? 4 : 0) + (g.players.some((x) => x.firstCapital === c.id) ? P.capitalLust : 0) - 0.02 * near(g.units.filter((u) => u.owner === c.owner && landFighter(u)), c.tile, 3) + 0.3 * c.pop;
+        const s = -d - 1.5 * g.cityStrength(c) / (1 + 0.5 * g.players[c.owner]!.era) + (g.cityStrength(c) === 0 ? 4 : 0) + (g.players.some((x) => x.firstCapital === c.id) ? P.capitalLust * drive : 0) - 0.02 * near(g.units.filter((u) => u.owner === c.owner && landFighter(u)), c.tile, 3) + 0.3 * c.pop;
         if (s > bestS) { best = c; bestS = s; from = home; }
       }
       if (best) {

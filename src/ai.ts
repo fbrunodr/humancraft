@@ -120,7 +120,8 @@ export function aiTurn(g: Game, p: Player): void {
     if (cost !== null && p.gold > P.goldReserve && cost < p.gold * (p.gold > 1000 ? Math.max(0.5, P.buyShare) : P.buyShare)) g.buy(c, 'gold');
     // Faith buys too: a shrine or a temple whenever it can; a unit while the army is short.
     const fc = g.buyCost(c, 'faith');
-    if (fc !== null && p.faith >= fc && (!(c.building! in UNITS) || (military + coming <= armyTarget && g.rng() < P.faithUnits))) g.buy(c, 'faith');
+    // (Or whatever faith buys, once more of it is laid by than its missionaries will ever spend: faith kept is faith wasted.)
+    if (fc !== null && p.faith >= fc && (!(c.building! in UNITS) || (military + coming <= armyTarget && g.rng() < P.faithUnits) || p.faith > 600 * g.pace)) g.buy(c, 'faith');
     // Running out of room to grow: buy the best tile of the ring beyond (while the gold lasts).
     while (g.growthOptions(c).filter((o) => o.kind !== 'specialist').length < 2) {
       const t = g.governorTileToBuy(c);
@@ -770,7 +771,10 @@ function appetite(g: Game, p: Player, o: Player, react = true): { want: number; 
   // to a victory is one to stop, the more the nearer: stopLeader.)
   const near = Math.max(g.capitalsHeld(o.id) / g.capitalsToWin, Math.round(10 * g.faithShare(o.id)) / 10 / FAITH_VICTORY, 0.9 * (o.era / (ERAS.length - 1)));
   const stop = 1 + P.stopLeader * Math.max(0, Math.min(1, near) - 0.5) * 2;
-  const want = (ratio * Math.max(0, faith) * Math.max(0, truce) * lead * strike * stop) / P.warRatio;
+  // (And its own conquest: within two first capitals of it, a civ that holds one draws its wars, by its lust for them.)
+  const held = g.capitalsHeld(p.id), need = g.capitalsToWin;
+  const conquest = held >= need - 2 && held >= 2 && g.capitalsHeld(o.id) > 0 ? 1 + 0.3 * P.capitalLust * (held / Math.max(1, need - 1)) : 1;
+  const want = (ratio * Math.max(0, faith) * Math.max(0, truce) * lead * strike * stop * conquest) / P.warRatio;
   return { want, near: d <= 14, score: want * (1 + 6 / d) * (g.players.some((x) => x.id !== p.id && g.atWar(o.id, x.id)) ? 1.3 : 1) };
 }
 // How a computer civ stands toward another, in broad: what the other may
