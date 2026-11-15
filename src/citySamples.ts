@@ -1,11 +1,12 @@
 // City samples (dev tool, /city_samples.html): a sheet of cities painted
 // as the game paints them (cityPainter.ts, dressed by cityDress.ts), each
-// with its own civ, era, size, wonders and walls, on a real tile: 200
+// with its own civ, era, size and walls, on a real tile: 400
 // buildable hexes of the default world (medium, seed 7), with their own
 // heights, water and colour from the game's terrain (as render.ts builds
-// it). To look many over at once and find what looks wrong. Filters keep
-// one civ, era, kind of ground or wonder count; "New samples" draws the
-// next sheet.
+// it). To look many over at once and find what looks wrong: 8 columns
+// by how many wonders they hold (none in the first, seven in the last),
+// 32 cities down each. Filters keep one civ, era or kind of ground; "New samples" draws
+// the next sheet.
 
 import './style.css';
 import './topbar.ts';
@@ -74,12 +75,12 @@ const groundOf = (t: number): Ground =>
   game.tiles[t]!.corners.some((c) => riverCorners.has(c)) ? 'river'
     : game.tiles[t]!.neighbors.some((n) => game.isWater(n)) ? 'coast'
       : game.map.relief[t] === 'hills' ? 'hills' : 'flat';
-// 200 buildable hexes (land, not mountains or ice), in a fixed order.
+// 400 buildable hexes (land, not mountains or ice), in a fixed order.
 const TILES: readonly number[] = (() => {
   const r = mulberry32(2026);
   const ok = game.tiles.map((t) => t.id).filter((t) => game.tiles[t]!.corners.length === 6 && !game.isWater(t) && game.map.relief[t] !== 'mountains' && game.map.biome[t] !== 'iceSheet');
   for (let i = ok.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [ok[i], ok[j]] = [ok[j]!, ok[i]!]; }
-  return ok.slice(0, 200);
+  return ok.slice(0, 400);
 })();
 // Each tile a city stands on, as the game reshapes it (terraform.ts:
 // wetlands drained).
@@ -164,9 +165,10 @@ function drawSample(s: Sample, cx: number, cz: number): void {
 // ---------- the sheet ----------
 
 type Any<T> = T | 'any';
-const filters: { civ: Any<ArchCiv>; era: Any<DressEra>; ground: Any<Ground>; wonders: Any<'none' | 'few' | 'many'>; walls: Any<'yes' | 'no'> } = { civ: 'any', era: 'any', ground: 'any', wonders: 'any', walls: 'any' };
+const filters: { civ: Any<ArchCiv>; era: Any<DressEra>; ground: Any<Ground>; walls: Any<'yes' | 'no'> } = { civ: 'any', era: 'any', ground: 'any', walls: 'any' };
 let sheet = 1;
-const COLS = 6, ROWS = 6, GAP = 1.25;
+// (A column for each count of wonders: none, then one more each column.)
+const COLS = 8, ROWS = 32, GAP = 1.25;
 const pick = <T>(r: Rng, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
 // The tiles a sheet takes, in order (the next sheet the next ones, round again).
 let pool: number[] = [];
@@ -177,7 +179,7 @@ const fillPool = () => {
 function sample(i: number): Sample {
   const r = mulberry32(sheet * 100003 + i * 7919);
   const era = filters.era === 'any' ? pick(r, [0, 1, 2, 3, 4] as const) : filters.era;
-  const nw = filters.wonders === 'none' ? 0 : filters.wonders === 'few' ? 1 + Math.floor(r() * 3) : filters.wonders === 'many' ? 4 + Math.floor(r() * (MAX_WONDERS - 3)) : (r() < 0.45 ? 0 : 1 + Math.floor(r() * r() * MAX_WONDERS));
+  const nw = Math.min(MAX_WONDERS, i % COLS);
   // (Wonders standing beside their city, on the sea or flat land, are not in it.)
   const kinds = SITE_MODELS.filter((m) => m !== 'scaffold' && !wonderBeside(m)), start = Math.floor(r() * kinds.length);
   return {
@@ -194,13 +196,19 @@ function build(): void {
   disposeLabels(world); disposeGroup(world); scene.remove(world);
   world = new THREE.Group(); scene.add(world);
   for (let i = 0; i < COLS * ROWS; i++) drawSample(sample(i), (i % COLS) * GAP, Math.floor(i / COLS) * GAP);
+  for (let col = 0; col < COLS; col++) {
+    const o = new WorldLabel([{ text: col === 0 ? 'No wonders' : `${col} wonder${col > 1 ? 's' : ''}`, bold: true }], 0.11);
+    o.position.set(col * GAP, 0.05, -GAP * 0.75);
+    world.add(o);
+  }
   paint.flush(world);
   $('count').textContent = `sheet ${sheet} · ${COLS * ROWS} cities`;
 }
 function frame(): void {
-  const w = (COLS - 1) * GAP, d = (ROWS - 1) * GAP, m = Math.max(w, d);
-  controls.target.set(w / 2, 0, d / 2);
-  camera.position.set(w / 2, m * 0.8, d / 2 + m * 0.7);
+  // (On the sheet's head, every column in view: the rest is on down it.)
+  const w = (COLS - 1) * GAP;
+  controls.target.set(w / 2, 0, w * 0.3);
+  camera.position.set(w / 2, w * 1.1, w * 0.3 + w * 0.95);
 }
 
 // The filters: any, or one of each.
@@ -212,7 +220,6 @@ const options = <T extends string | number>(id: string, xs: readonly T[], name: 
 options('fCiv', ARCH_CIVS, (c) => c, (v) => { filters.civ = v; });
 options('fEra', [0, 1, 2, 3, 4] as const, (e) => DRESS_ERA_NAME[e]!, (v) => { filters.era = v; });
 options('fGround', GROUNDS, (g) => g, (v) => { filters.ground = v; });
-options('fWonders', ['none', 'few', 'many'] as const, (w) => ({ none: 'none', few: '1–3', many: '4–10' })[w], (v) => { filters.wonders = v; });
 options('fWalls', ['yes', 'no'] as const, (w) => w, (v) => { filters.walls = v; });
 $('again').addEventListener('click', (e) => { sheet++; build(); (e.target as HTMLElement).blur(); });
 

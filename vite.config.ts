@@ -80,6 +80,7 @@ export default defineConfig({
         buildings: resolve(import.meta.dirname, 'buildings.html'),
         units: resolve(import.meta.dirname, 'units.html'),
         wonders: resolve(import.meta.dirname, 'wonders.html'),
+        icons: resolve(import.meta.dirname, 'icons.html'),
       },
     },
   },

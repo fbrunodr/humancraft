@@ -285,6 +285,21 @@ function makeBattleView(): UnitView {
   return view;
 }
 
+// The camera as the battle's unit view sees it, on its own patch of globe (the view is scaled up and lowered onto
+// the field: makeBattleView): what it takes to be in sight is judged there, not on the page (else, the camera close,
+// its units were taken to be off the screen, and not drawn).
+const globeCamera = new THREE.PerspectiveCamera();
+function viewCamera(view: UnitView): THREE.Camera {
+  camera.updateMatrixWorld();
+  globeCamera.copy(camera, false);
+  globeCamera.position.copy(camera.position).multiplyScalar(view.size).add(new THREE.Vector3(0, 1, 0));
+  globeCamera.near = camera.near * view.size;
+  globeCamera.far = camera.far * view.size;
+  globeCamera.updateProjectionMatrix();
+  globeCamera.updateMatrixWorld(true);
+  return globeCamera;
+}
+
 function frame(d: { w: number; d: number }): void {
   if (mode === 'battle') {
     controls.target.set(0, 0, BATTLE_GAP / 2);
@@ -551,7 +566,7 @@ renderer.setAnimationLoop(() => {
   time.value = now;
   if (fight && !fight.loop && now - fight.t0 >= fight.dur + AFTER) endFight();
   movieTick(now);
-  if (battleView) battleView.update(now, camera, Infinity); else pose(now);
+  if (battleView) battleView.update(now, viewCamera(battleView), Infinity); else pose(now);
   keyboard();
   controls.update();
   renderer.render(scene, camera);

@@ -40,7 +40,7 @@ import { GpuTimer } from './gpuTimer.ts';
 import { Billboards, type Billboard } from './billboards.ts';
 import { resourceDef } from './resources.ts';
 import { unitIcon, resourceIcon } from './icons.ts';
-import { drawUnitFlag, drawCityBanner, drawResourceIcon, drawTileYields } from './mapIcons.ts';
+import { drawUnitFlag, drawCityBanner, drawResourceIcon, drawTileYields, RESOURCE_COLORS } from './mapIcons.ts';
 import { isUnitKey, isWonder, buildDef, type BuildKey } from './rules.ts';
 import { UnitView, type FightResult, type ShownUnit } from './unitView.ts';
 import { loadGroundTextures, groundUniform, GROUND_LAYER } from './groundTextures.ts';
@@ -2844,8 +2844,6 @@ function fmtTris(n: number): string {
 }
 
 
-// A resource's medallion (mapIcons.ts): its rim, by kind.
-const RESOURCE_COLORS = { bonus: '#8fd47f', luxury: '#c79be8', strategic: '#e8a94f' } as const;
 // The yields lens covers the tiles this many steps round where the camera looks, at the least.
 const YIELDS_REACH = 9;
 const buildCost = (k: BuildKey): number => buildDef(k).cost;

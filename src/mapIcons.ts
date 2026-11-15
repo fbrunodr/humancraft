@@ -191,6 +191,8 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
 
 // A resource's medallion (a 96 × 96 cell): its pictogram on dark enamel, a
 // rim of its kind's colour (bonus, luxury, strategic).
+// (The rims: a bonus resource's, a luxury's, a strategic one's.)
+export const RESOURCE_COLORS = { bonus: '#8fd47f', luxury: '#c79be8', strategic: '#e8a94f' } as const;
 export function drawResourceIcon(ctx: CanvasRenderingContext2D, glyph: IconKey, color: string): void {
   ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
   ctx.shadowBlur = 8;

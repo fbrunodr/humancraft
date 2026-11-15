@@ -29,6 +29,7 @@ const DEV_TOOLS: readonly { href: string; name: string; what: string }[] = [
   { href: '/city_samples.html', name: 'City samples', what: 'Painted cities, one beside another' },
   { href: '/world_view.html', name: 'World view', what: 'A generated world, with no game on it' },
   { href: '/map_editor.html', name: 'Map editor', what: 'Draw a map by hand' },
+  { href: '/icons.html', name: 'Icons', what: 'Every pictogram, and what it stands for' },
 ];
 const isCiv = (s: string): s is ArchCiv => CIVS.some((c) => c.name === s);
 
