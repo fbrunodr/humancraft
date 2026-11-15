@@ -314,6 +314,12 @@ export function militaryPhase(g: Game, p: Player, P: AiPolicy, cities: readonly 
   // enemy. With no campaign it keeps to its civ's city nearest a rival's,
   // where its garrison fights the better for it.
   const held = new Set(garrison.values());
+  // (Onto the tile of the nearest of some of its units: that unit defends it.)
+  const join = (c: Unit, among: readonly Unit[]): void => {
+    let to: number | null = null, d = Infinity;
+    for (const u of among) { if (u.dead || u.tile === c.tile || !g.canStand(c, u.tile)) continue; const x = dist(u.tile, c.tile); if (x < d) { to = u.tile; d = x; } }
+    if (to !== null && c.moves > 0) g.goTo(c, to);
+  };
   for (const c of g.units.filter((x) => x.owner === p.id && x.type === 'commander' && !x.dead && x.packedIn === null)) {
     const foeNear = foeUnits.some((e) => !e.dead && dist(e.tile, c.tile) <= 3.5);
     const city = op ? g.cityById.get(op.target) : undefined;
@@ -325,10 +331,14 @@ export function militaryPhase(g: Game, p: Player, P: AiPolicy, cities: readonly 
       continue;
     }
     if (c.moves <= 0) continue;
+    // (Alone where it could be struck: to the nearest of its own units, before anything else.)
+    if (!g.armyOf(c).length && (danger.get(c.tile) ?? 0) > 0 && !mine.some((u) => !u.dead && u.tile === c.tile) && !g.cityByTile.has(c.tile)) { join(c, mine); continue; }
     if (op.state === 'gather') { if (dist(c.tile, op.muster) > 1.5) go(c, stand(c, op.muster, 1)); continue; }
     if (op.state === 'march') {
       if (!foeNear && dist(c.tile, city.tile) > 5.5 && g.armyOf(c).length < COMMANDER_CAPACITY) g.rally(c, (u) => op!.units.has(u.id) && !held.has(u) && unitDef(u.type).mv <= 1 && u.hp >= 50);
-      if (dist(c.tile, city.tile) > 4.5) go(c, stand(c, city.tile, 5, (t) => dist(t, city.tile) >= 3.5 && !(danger.get(t) ?? 0)) ?? stand(c, city.tile, 5, (t) => dist(t, city.tile) >= 3.5));
+      // (Carrying its army, it goes ahead: they defend it. With none, it keeps with the army: onto the tile of one of its units, the nearest to it of those well on their way.)
+      if (g.armyOf(c).length) { if (dist(c.tile, city.tile) > 4.5) go(c, stand(c, city.tile, 5, (t) => dist(t, city.tile) >= 3.5 && !(danger.get(t) ?? 0)) ?? stand(c, city.tile, 5, (t) => dist(t, city.tile) >= 3.5)); }
+      else join(c, mine.filter((u) => op!.units.has(u.id) && dist(u.tile, city.tile) >= 3));
       continue;
     }
     let spot: number | null = null, spotS = -Infinity;
