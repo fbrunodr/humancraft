@@ -99,6 +99,8 @@ export function aiTurn(g: Game, p: Player): void {
   const menaced = !atWar && g.players.some((o) => o.alive && o.id !== p.id && g.met[p.id]![o.id] && attitude(g, o, p.id) === 'hostile');
   const armyTarget = broke ? 0 : (P.armyBase + P.armyPerCity * cities.length) * (atWar || planning(g, p) ? P.armyWar : menaced ? P.armyThreat : 1);
   let coming = cities.filter((c) => c.building && c.building in UNITS && !unitDef(c.building as UnitKey).civilian && domainOf(unitDef(c.building as UnitKey)) === 'land').length;
+  // A commander once its army is six strong, a second at sixteen.
+  let commanderShort = !broke && units.filter((u) => u.type === 'commander').length + cities.filter((c) => c.building === 'commander').length < (military >= 16 ? 2 : military >= 6 ? 1 : 0);
   // A fleet: for a civ with ports, while a rival has a coast in its reach or ships it has seen: a share of its army.
   const ports = cities.filter((c) => g.cityCoast(c));
   const seaRival = ports.length > 0 && (g.cities.some((c) => c.owner !== p.id && g.known[p.id]![c.tile] && g.cityCoast(c) && ports.some((h) => g.approxDist(h.tile, c.tile) <= 20))
@@ -109,8 +111,9 @@ export function aiTurn(g: Game, p: Player): void {
   for (const c of cities) {
     g.rework(c);
     if (!c.building) {
-      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort, canSettle });
+      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort, canSettle, commander: commanderShort });
       if (c.building === 'worker') workers++;
+      else if (c.building === 'commander') commanderShort = false;
       else if (c.building === 'settler') expansion++;
       else if (c.building && c.building in UNITS) coming++;
     }
@@ -245,7 +248,7 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
 // What a city builds next: each kind of thing pulls by how much it is
 // needed now and by its civ's policy; the strongest pull that can be
 // answered wins (with a little chance, so cities differ).
-interface BuildNeeds { canSettle: boolean; expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
+interface BuildNeeds { commander: boolean; canSettle: boolean; expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
 function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey | null {
   // (A garrison first: a city with none is anyone's who walks in; the unit that holds best at close quarters.)
   if (!n.garrisoned) return bestUnit(g, city, 'front') ?? bestUnit(g, city, 'ranged') ?? 'warrior';
@@ -264,6 +267,8 @@ function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey 
     [n.canSettle && n.expansion < P.cityTarget && city.pop >= 2 && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
     [n.workersShort > 0 && city.pop >= 2 ? P.wWorker * Math.min(1, n.workersShort / 2) : 0, () => 'worker'],
     [short > 0 ? P.wArmy * (0.25 + short) * (n.threatened ? 2.5 : 1) : n.threatened && short > -0.5 ? P.wArmy * 0.5 : 0, unit],
+    // (A commander for an army worth leading: its units fight the better beside it, and it carries the slow ones on the march.)
+    [n.commander && g.canBuild(city, 'commander') ? P.wArmy * 0.9 : 0, () => 'commander'],
     [ship && !n.threatened ? P.wArmy * (0.3 + Math.min(1, n.navyShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => ship],
     [plane ? P.wArmy * (0.3 + Math.min(1, n.airShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => plane],
     [city.pop >= 2 ? P.wBuild * 0.6 : P.wBuild * 0.15, () => bestBuilding(g, city)],

@@ -236,6 +236,10 @@ export const slotOf = (type: UnitKey): Slot => {
   return d.civilian || type === 'commander' ? 'civilian' : dom === 'sea' ? 'naval' : dom === 'air' ? 'air' : 'military';
 };
 export const COMMANDER_CAPACITY = 4;
+// What a commander adds to the strength of its civ's units on its tile and
+// the tiles next to it, attacking and defending (one commander's worth,
+// however many stand by): an army fights better under its general's eye.
+export const COMMANDER_AURA = 0.15;
 export const AIR_PER_CITY = 4;
 // A land unit embarked on the water (its civ has Shipbuilding) defends at
 // this share of its strength, and can't attack.
@@ -882,17 +886,17 @@ export class Game {
 
   // The units a commander could rally now: its owner's military units on
   // its tile and the tiles next to it, while its army has room.
-  rallyable(c: Unit): Unit[] {
+  rallyable(c: Unit, only?: (u: Unit) => boolean): Unit[] {
     if (c.type !== 'commander') return [];
     const room = COMMANDER_CAPACITY - this.armyOf(c).length;
     const nbs = new Set([c.tile, ...this.tiles[c.tile].neighbors]);
-    return this.units.filter((u) => u.owner === c.owner && u.packedIn === null && nbs.has(u.tile) && slotOf(u.type) === 'military' && u.type !== 'commander').slice(0, Math.max(0, room));
+    return this.units.filter((u) => u.owner === c.owner && u.packedIn === null && nbs.has(u.tile) && slotOf(u.type) === 'military' && u.type !== 'commander' && (!only || only(u))).slice(0, Math.max(0, room));
   }
 
-  // The commander rallies every unit it can: each marches in (its turn
+  // The commander rallies every unit it can (`only`: of those): each marches in (its turn
   // spent) and is carried from now on.
-  rally(c: Unit): number {
-    const units = this.rallyable(c);
+  rally(c: Unit, only?: (u: Unit) => boolean): number {
+    const units = this.rallyable(c, only);
     if (units.length) this.record('rally', c.owner, { commander: c.id, units: units.map((u) => u.type) });
     for (const u of units) {
       u.packedIn = c.id;
@@ -987,7 +991,9 @@ export class Game {
 
   // A unit's strength in an attack made so (`mode`), attacking or defending.
   unitStrength(u: Unit, mode: AttackMode, role: 'atk' | 'def', tile: number): number {
-    const fx = this.effectsOf(this.players[u.owner]!), combat = 1 + total(fx, 'combat') / 100, stat = statOf(mode, role);
+    // (Under a commander's eye: where the unit stands, attacking from its own tile, defending on the tile struck.)
+    const led = u.type !== 'commander' && domainOf(unitDef(u.type)) === 'land' && this.commanded(u.owner, role === 'atk' ? u.tile : tile) ? COMMANDER_AURA : 0;
+    const fx = this.effectsOf(this.players[u.owner]!), combat = 1 + total(fx, 'combat') / 100 + led, stat = statOf(mode, role);
     if (role === 'atk') return combatStrength(u.type, stat, u.hp, 0) * (combat + (this.cityByTile.has(tile) ? total(fx, 'vsCities') / 100 : 0));
     let bonus = this.defenseBonus(tile) + (this.ownerOf(tile) === u.owner ? total(fx, 'homeDefense') / 100 : 0);
     const city = this.cityByTile.get(tile);
@@ -996,6 +1002,15 @@ export class Game {
     if (u.fortified) bonus += FORTIFY_BONUS;
     if (this.isEmbarked(u)) return combatStrength(u.type, stat, u.hp, 0) * combat * EMBARKED_DEF;
     return combatStrength(u.type, stat, u.hp, bonus) * combat;
+  }
+
+  // Whether one of a civ's commanders stands on a tile or next to it (COMMANDER_AURA).
+  private leaders: { key: string; of: Unit[] } = { key: '', of: [] };
+  commanded(owner: number, tile: number): boolean {
+    const key = `${this.units.length}|${this.nextId}`;
+    if (this.leaders.key !== key) this.leaders = { key, of: this.units.filter((c) => c.type === 'commander') };
+    for (const c of this.leaders.of) if (c.owner === owner && c.packedIn === null && !c.dead && (c.tile === tile || this.tiles[c.tile]!.neighbors.includes(tile))) return true;
+    return false;
   }
 
   // The unit that defends a tile against an attack made so (the strongest against it).

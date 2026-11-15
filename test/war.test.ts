@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Game, PILLAGE_GOLD, PILLAGE_REPAIR, REPAIR_TURNS, WALLS_DEFENSE, CITY_DEFENSE, type City } from '../src/game.ts';
+import { Game, PILLAGE_GOLD, PILLAGE_REPAIR, REPAIR_TURNS, WALLS_DEFENSE, CITY_DEFENSE, COMMANDER_AURA, type City } from '../src/game.ts';
 import { USE } from '../src/cities.ts';
 
 // War guarantees (design doc "Cities: Feel & Play", war and life).
@@ -67,6 +67,34 @@ describe('WR1: a city is its garrison\'s to hold', () => {
     const c = g.createUnit('catapult', 1, nb);
     const atCity = g.combatPreview(c, city.tile, 'ranged')!, inField = g.combatPreview(c, far, 'ranged')!;
     expect(atCity.atk).toBeCloseTo(4 * inField.atk);
+  });
+});
+
+describe('WR1b: a commander', () => {
+  it('its civ\'s units on its tile and next to it fight stronger, attacking and defending; further off, or another civ\'s, not', () => {
+    const { g, city, nb } = setup();
+    const far = g.tiles.findIndex((t) => !g.isWater(t.id) && g.relief[t.id] !== 'mountains' && g.approxDist(t.id, city.tile) > 6 && g.approxDist(t.id, city.tile) < 9);
+    const w = g.createUnit('warrior', 0, nb);
+    w.tile = nb;
+    const atk = g.unitStrength(w, 'melee', 'atk', far), def = g.unitStrength(w, 'melee', 'def', nb);
+    const c = g.createUnit('commander', 0, city.tile);
+    c.tile = city.tile; // (next to the warrior)
+    expect(g.commanded(0, nb)).toBe(true);
+    expect(g.unitStrength(w, 'melee', 'atk', far)).toBeCloseTo(atk * (1 + COMMANDER_AURA));
+    expect(g.unitStrength(w, 'melee', 'def', nb)).toBeCloseTo(def * (1 + COMMANDER_AURA));
+    // (A second commander adds nothing; an enemy's unit there gets nothing.)
+    const c2 = g.createUnit('commander', 0, nb);
+    c2.tile = nb;
+    expect(g.unitStrength(w, 'melee', 'atk', far)).toBeCloseTo(atk * (1 + COMMANDER_AURA));
+    const foe = g.createUnit('warrior', 1, far);
+    foe.tile = far;
+    expect(g.commanded(1, nb)).toBe(false);
+    // (Out of its reach: as before.)
+    g.removeUnit(c2);
+    w.tile = far;
+    expect(g.commanded(0, far)).toBe(false);
+    expect(g.unitStrength(w, 'melee', 'atk', nb)).toBeCloseTo(atk);
+    void foe;
   });
 });
 
