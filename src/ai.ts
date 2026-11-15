@@ -156,6 +156,28 @@ export function aiTurn(g: Game, p: Player): void {
   militaryPhase(g, p, P, cities);
 }
 
+// What the armies a civ faces are made of: the land fighters of the civs
+// it is at war with, or else of its neighbours it has met, that it has
+// seen: the shares of them that ride, that shoot, that are armoured.
+const facingCache = new WeakMap<Game, { turn: number; of: ({ mounted: number; ranged: number; armored: number } | undefined)[] }>();
+function facing(g: Game, id: number): { mounted: number; ranged: number; armored: number } {
+  let c = facingCache.get(g);
+  if (!c || c.turn !== g.turn) facingCache.set(g, c = { turn: g.turn, of: [] });
+  const had = c.of[id];
+  if (had) return had;
+  const wars = g.players.filter((o) => o.alive && g.atWar(id, o.id)).map((o) => o.id);
+  const whose = wars.length ? wars : g.players.filter((o) => o.alive && o.id !== id && g.met[id]![o.id]).map((o) => o.id);
+  let n = 0, mounted = 0, ranged = 0, armored = 0;
+  for (const u of g.units) {
+    const d = unitDef(u.type);
+    if (!whose.includes(u.owner) || d.civilian || domainOf(d) !== 'land' || !g.known[id]![u.tile]) continue;
+    n++;
+    if (d.armored) armored++; else if (d.mounted) mounted++;
+    if (isShooter(u.type) && !d.siege) ranged++;
+  }
+  return (c.of[id] = n < 3 ? { mounted: 0, ranged: 0, armored: 0 } : { mounted: mounted / n, ranged: ranged / n, armored: armored / n });
+}
+
 // The best unit a city can build now for a role: defending (its defense),
 // attacking (its attack), from those it has unlocked (and the resources).
 // (`siege`: the best siege engine, for an army that means to take cities;
@@ -164,6 +186,7 @@ type Role = 'front' | 'ranged' | 'mounted' | 'siege' | 'sea' | 'air';
 function bestUnit(g: Game, city: City, role: Role): UnitKey | null {
   let best: UnitKey | null = null, bestS = -1;
   const domain = role === 'sea' || role === 'air' ? role : 'land';
+  const foe = facing(g, city.owner);
   for (const k of Object.keys(UNITS) as UnitKey[]) {
     const d: UnitDef = unitDef(k);
     // (The AI builds no nuclear weapons.)
@@ -174,7 +197,9 @@ function bestUnit(g: Game, city: City, role: Role): UnitKey | null {
     }
     // (Its punch and its staying power, a little for being cheap: the newest it can build, mostly.)
     const hit = Math.max(d.melee, d.rangedAtk ?? 0), hold = (d.melee + d.rangedDef) / 2;
-    const s = (hit * 1.5 + hold + (d.mv > 1 ? 0.5 : 0)) / d.cost ** 0.25;
+    // (And what it is made to beat, by how much of that the armies it faces are: pikes where they ride, horse where they shoot, guns where they roll.)
+    const counters = 1 + 1.5 * ((d.vsMounted ?? 0) * foe.mounted + (d.vsRanged ?? 0) * foe.ranged + (d.vsArmor ?? 0) * foe.armored);
+    const s = ((hit * 1.5 + hold + (d.mv > 1 ? 0.5 : 0)) * counters) / d.cost ** 0.25;
     if (s > bestS) { best = k; bestS = s; }
   }
   return best;
