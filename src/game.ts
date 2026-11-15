@@ -204,12 +204,19 @@ export const HIT_MIN = 14, HIT_MAX = 22;
 export const MELEE_ROUNDS = 4;
 // A volley of fire is this many (the target never answering): lighter than a clash, as it costs the shooter nothing.
 export const VOLLEY_ROUNDS = 2;
+export const CRUSH_FROM = 2, CRUSH_MAX = 3;
+const crush = (edge: number): number => Math.min(CRUSH_MAX, Math.max(1, edge / CRUSH_FROM));
 export function fightRounds(hpA: number, hpD: number, A: number, D: number, kind: Fight, rng: () => number): { attacker: number; defender: number } {
   // (An air strike: a volley's exchanges, and what it strikes fires back at half effect: an aircraft comes home hurt from troops that can shoot.)
   const back = kind === 'melee' ? 1 : kind === 'dogfight' || kind === 'strike' ? 0.5 : 0;
   for (let round = 0; hpA > 0 && hpD > 0 && round < (kind === 'melee' ? MELEE_ROUNDS : kind === 'ranged' || kind === 'strike' ? VOLLEY_ROUNDS : 3); round++) {
     const dmg = HIT_MIN + Math.floor(rng() * (HIT_MAX - HIT_MIN + 1));
-    if (rng() < A / (A + D)) hpD -= dmg; else hpA -= Math.round(dmg * back);
+    // (At close quarters a side more than twice as strong hits the harder
+    // for it, to three times: riflemen do not trade blows with warriors,
+    // they sweep them away. Between units of a kind, bonuses and all,
+    // nothing changes; nor for fire, which is weighed by its own odds.)
+    const close = kind === 'melee';
+    if (rng() < A / (A + D)) hpD -= Math.round(dmg * (close ? crush(A / D) : 1)); else hpA -= Math.round(dmg * back * (close ? crush(D / A) : 1));
   }
   return { attacker: hpA, defender: hpD };
 }
