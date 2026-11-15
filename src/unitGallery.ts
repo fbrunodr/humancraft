@@ -23,7 +23,9 @@ import { ARCH_CIVS, type ArchCiv } from './architecture.ts';
 import { CIVS, UNITS, domainOf, type UnitKey } from './rules.ts';
 import { TECHS, TECH_KEYS } from './techs.ts';
 import { POLITICS } from './politics.ts';
-import { FORTIFY_BONUS, combatStrength, fightRounds, matchup, statOf } from './game.ts';
+import { FORTIFY_BONUS, FORT_DEFENSE, combatStrength, fightRounds, matchup, statOf } from './game.ts';
+import { FORT_SIDE, modelGeometry } from './buildingCatalog.ts';
+import { FORT_FIT } from './cityProps.ts';
 import { HAIR_STYLES, UNIT_LOOK, colsOf, formationSlots, hairModel, headOffset, isMachine, rides, unitModel, variantOf, whirls, bowman, cuts, thrusts, draws, longArms, womenShare } from './unitModels.ts';
 import { FIGHT, PLAYS, UnitView, Volleys, durOf, defendPlay, falls, figureLooks, makeUnitMaterial, playAt, playOf, prepareUnitGeometry, shareCorners, type Play, type ShownUnit } from './unitView.ts';
 import type { P2 } from './duel.ts';
@@ -84,7 +86,10 @@ const PAUSE = 0.8, CHARGE_SHARE = 0.42, SHEET_CHARGE = 1.6;
 const GROUNDS = [
   { name: 'Open ground', bonus: 0 }, { name: 'Forest (+25%)', bonus: 0.25 }, { name: 'Hills (+50%)', bonus: 0.5 },
   { name: 'Forested hills (+75%)', bonus: 0.75 }, { name: 'Mountains (+100%)', bonus: 1 }, { name: 'Marsh (−15%)', bonus: -0.15 },
+  // (A fort a worker built: the defender stands in its yard, the model as it stands on the map.)
+  { name: `In a fort (+${Math.round(100 * FORT_DEFENSE)}%)`, bonus: FORT_DEFENSE, fort: true },
 ] as const;
+let fortMesh: THREE.Mesh | null = null; // (the fort the defender stands in: showFort)
 
 const time = { value: 0 };
 // The page's clock (seconds): real time, or slowed (Slow: `rate`).
@@ -181,6 +186,7 @@ function build(): { w: number; d: number } {
   battleView?.dispose();
   battleView = mode === 'battle' ? makeBattleView() : null;
   if (battleView) world.add(battleView.group);
+  showFort();
   // Each model's figures (and each hair style's): its colour and skin.
   type Fig = { cell: Cell; fx: number; fz: number; lift: readonly [number, number]; color: THREE.Color; skin: THREE.Color; phase: number; hair: boolean; soul: Soul };
   const figs = new Map<string, Fig[]>();
@@ -383,7 +389,22 @@ function strengths(): { A: number; D: number; bonus: number } {
     bonus,
   };
 }
+// The fort the defender stands in, when the ground chosen is one: the
+// game's model (buildingCatalog.ts fort), as large against a figure as on
+// the map (FORT_FIT of the way from one tile to the next), its gate
+// toward the attacker.
+function showFort(): void {
+  const want = mode === 'battle' && 'fort' in GROUNDS[battle.ground]! && battleView !== null;
+  if (!want) { if (fortMesh) { world.remove(fortMesh); fortMesh = null; } return; }
+  if (!fortMesh) {
+    const side = (FORT_FIT * BATTLE_STEP) / battleView!.size;
+    fortMesh = new THREE.Mesh(modelGeometry('fort').clone().scale(side / FORT_SIDE, side / FORT_SIDE, side / FORT_SIDE), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, side: THREE.DoubleSide }));
+    fortMesh.castShadow = fortMesh.receiveShadow = true;
+  }
+  world.add(fortMesh);
+}
 function showBattle(): void {
+  showFort();
   $('aHp').textContent = `${Math.max(0, battle.aHp)} HP`;
   $('dHp').textContent = `${Math.max(0, battle.dHp)} HP`;
   const { A, D, bonus } = strengths();

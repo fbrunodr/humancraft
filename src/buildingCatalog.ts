@@ -28,6 +28,8 @@ const STONE = 0xb8b0a0;
 const DARK_STONE = 0x8d877c;
 const TIMBER = 0x7a5f45;
 const IRON = 0x4a4744;
+// A fort's side (its model's, before it is fitted to its tile: cityProps.ts fort).
+export const FORT_SIDE = 0.06;
 
 // Four walls (open box: no floor, the roof covers the top), w along x, d along z.
 function walls(w: number, d: number, h: number, color: number, o: Tf = {}): THREE.BufferGeometry {
@@ -139,6 +141,66 @@ export const BUILDINGS_CATALOG = {
     ...block(0.005, 0.0024, 0.0016, 0xa49c8c, { y: 0.0044 }),
     part(new THREE.PlaneGeometry(0.005, 0.0024).rotateX(Math.PI / 2), 0x8a8274, tf({ y: 0.0044 })),
   ] },
+  // ---------- a fort (game.ts fort): a tile's own stronghold ----------
+  // A square of curtain walls, FORT_SIDE across, their walks crenellated;
+  // a tower at each corner under a pyramid roof; a gatehouse in the front
+  // wall (two taller towers, the passage between them under a lintel, its
+  // doors of timber); the yard left open for the unit that holds it, but
+  // for a lean-to barrack along the back wall, a stair up to the walk, a
+  // well and a stack of stores in the corners. Stone, timber and slate:
+  // told from a city's walls by its shape.
+  fort: { name: 'Fort', leaf: 0x6a625a, build: (p) => {
+    const S = FORT_SIDE, h = S / 2, wallH = 0.0078, thick = 0.0036, walk = 0.0011, tower = 0.0105, towerH = 0.0118;
+    const WALL = 0xaaa293, TOWER = 0x9c9486, MERLON = 0xb4ac9c, DOOR = 0x5d4630;
+    const out: THREE.BufferGeometry[] = [];
+    // (The merlons of a stretch of wall walk: along x, or along z.)
+    const merlons = (len: number, y: number, o: Tf, alongZ: boolean, n = Math.max(2, Math.round(len / 0.0058))) => {
+      for (let k = 0; k < n; k++) {
+        const u = -len / 2 + (len * (k + 0.5)) / n;
+        out.push(...block(alongZ ? 0.0012 : 0.0026, alongZ ? 0.0026 : 0.0012, 0.0017, MERLON, { x: (o.x ?? 0) + (alongZ ? 0 : u), y, z: (o.z ?? 0) + (alongZ ? u : 0) }));
+      }
+    };
+    const span = S - tower; // (a wall between two towers)
+    // The back and the side walls: a wall, its walk, merlons along its outer edge.
+    out.push(...block(span, thick, wallH, WALL, { z: -h }));
+    merlons(span, wallH, { z: -h - thick / 2 + 0.0006 }, false);
+    for (const sx of [-1, 1]) {
+      out.push(...block(thick, span, wallH, WALL, { x: sx * h }));
+      merlons(span, wallH, { x: sx * (h + thick / 2 - 0.0006) }, true);
+    }
+    // The front wall, in two, and the gatehouse between.
+    const gate = 0.0066, flank = 0.0062, flankH = 0.0132, wing = (span - gate - 2 * flank) / 2;
+    for (const sx of [-1, 1]) {
+      const cx = sx * (gate / 2 + flank + wing / 2);
+      out.push(...block(wing, thick, wallH, WALL, { x: cx, z: h }));
+      merlons(wing, wallH, { x: cx, z: h + thick / 2 - 0.0006 }, false);
+      // (A gate tower: taller than the wall, a slate cap, a slit of shadow to the front.)
+      out.push(...block(flank, flank, flankH, TOWER, { x: sx * (gate / 2 + flank / 2), z: h }), hip(flank * 1.18, flank * 1.18, 0.0034, p.leaf, { x: sx * (gate / 2 + flank / 2), y: flankH, z: h }));
+      out.push(part(new THREE.PlaneGeometry(0.0007, 0.003), 0x3a352f, tf({ x: sx * (gate / 2 + flank / 2), y: flankH * 0.62, z: h + flank / 2 + 0.00005 })));
+    }
+    // (The passage: a lintel over it carrying the walk, the doors set back in it, ajar.)
+    out.push(...block(gate, thick * 1.25, wallH * 0.32, WALL, { y: wallH * 0.68, z: h }));
+    out.push(part(new THREE.PlaneGeometry(gate, thick * 1.25).rotateX(Math.PI / 2), 0x847c70, tf({ y: wallH * 0.68, z: h })));
+    for (const sx of [-1, 1]) out.push(part(new THREE.PlaneGeometry(gate * 0.5, wallH * 0.66), DOOR, tf({ x: sx * gate * 0.27, y: wallH * 0.33, z: h - 0.0006, ry: sx * 0.5 })).clone());
+    // The corner towers.
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      out.push(...block(tower, tower, towerH, TOWER, { x: sx * h, z: sz * h }), hip(tower * 1.16, tower * 1.16, 0.0042, p.leaf, { x: sx * h, y: towerH, z: sz * h }));
+      out.push(part(new THREE.PlaneGeometry(0.0008, 0.0032), 0x3a352f, tf({ x: sx * (h + tower / 2 + 0.00005), y: towerH * 0.66, z: sz * h, ry: (sx * Math.PI) / 2 })));
+    }
+    // In the yard, out of the garrison's way: a lean-to barrack along the back wall,
+    const hutW = S * 0.34, hutD = 0.0062, hutH = 0.0042;
+    out.push(walls(hutW, hutD, hutH, PLASTER, { x: -S * 0.12, z: -h + thick / 2 + hutD / 2 }));
+    out.push(part(new THREE.PlaneGeometry(hutW * 1.04, hutD * 1.25).rotateX(-Math.PI / 2 + 0.42), p.leaf, tf({ x: -S * 0.12, y: hutH + 0.0011, z: -h + thick / 2 + hutD / 2 })));
+    // a stair up to the walk by the side wall,
+    for (let k = 0; k < 5; k++) out.push(...block(0.0034, 0.0019, (wallH * (k + 1)) / 5, WALL, { x: h - thick / 2 - 0.0017, z: -S * 0.02 + k * 0.0019 }));
+    // a well, and a stack of stores.
+    out.push(cyl(0.0019, 0.0019, 0.0016, 7, STONE, { x: S * 0.27, z: S * 0.27 }), ...[-1, 1].map((sx) => cyl(0.00022, 0.00022, 0.0042, 3, TIMBER, { x: S * 0.27 + sx * 0.0019, z: S * 0.27 })),
+      ...block(0.0046, 0.0005, 0.0005, TIMBER, { x: S * 0.27, y: 0.0042, z: S * 0.27 }));
+    out.push(...block(0.0026, 0.0026, 0.0024, TIMBER, { x: -S * 0.3, z: S * 0.28 }), ...block(0.0022, 0.0022, 0.002, 0x8a6f52, { x: -S * 0.3 + 0.003, z: S * 0.28 + 0.0006, ry: 0.4 }),
+      cyl(0.0012, 0.0012, 0.0026, 6, 0x6f5a44, { x: -S * 0.3 + 0.0004, z: S * 0.28 - 0.0032 }), cyl(0.0012, 0.0012, 0.0026, 6, 0x6f5a44, { x: -S * 0.3 - 0.0026, z: S * 0.28 - 0.0026 }));
+    void walk;
+    return out;
+  } },
   wallTower: { name: 'Wall tower', leaf: 0x6a625a, build: (p) => [
     cyl(0.0022, 0.0022, 0.0062, 6, 0xa49c8c), cone(0.0027, 0.0028, 6, p.leaf, { y: 0.0062 }),
   ] },

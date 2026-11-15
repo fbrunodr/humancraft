@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import type { Game, City } from './game.ts';
 import { USE, BORDER_MAX, wonderBeside, isWonderKey, type ImprovementKey, type EraIndex } from './cities.ts';
-import { ROOFS, buildingEntry, isFloraModel, isLotModel, placedGeometry, waterRule, type BuildingKind, type LotModelKind, type PlacedKind } from './buildingCatalog.ts';
+import { ROOFS, FORT_SIDE, buildingEntry, isFloraModel, isLotModel, placedGeometry, waterRule, type BuildingKind, type LotModelKind, type PlacedKind } from './buildingCatalog.ts';
 import { CLEARANCE, ON_BARE_GROUND, ON_SUMMIT, groundsBox, isWonderModelKind, landHalf, seaScale, siteModelOf, wonderGrounds, wonderModelKind, wonderPieces, type SiteModel, type WonderGrounds, type WonderModelKind } from './wonderModels.ts';
 import { ROUND_SIDES } from './wonders/kit.ts';
 import type { TerrainHole } from './terrainMaterial.ts';
@@ -123,6 +123,7 @@ export { PADDY_DEPTH };
 // Models are enlarged a little over true scale so towns read from afar
 // (the drawings' lot sizes assume this scale).
 const HOUSE_SCALE = 1.5;
+export const FORT_FIT = 0.6; // a fort's side, in the distance between two tiles' middles
 // A wall gate's passage and half length, and a wall tower's radius (model units: buildingCatalog.ts).
 const GATE_PASSAGE = 0.005, GATE_HALF = 0.0059, WALL_TOWER_R = 0.0022;
 // The most a gate is scaled up over the walls (the rest of its passage's room: widened).
@@ -424,6 +425,8 @@ export class CityProps {
   private signature(t: number, memo?: Map<number, string>): string {
     const g = this.game;
     const u = g.use[t];
+    // (A fort: the tile's own, whatever else it was.)
+    if (g.fort[t]) return `fort|${g.ownerOf(t)}`;
     if (u === USE.wild && !g.builtAt(t)) {
       const owner = g.cityById.get(g.tileCity[t]);
       if (owner && this.landWonderOf(t)) return `town|${this.citySig(owner, memo)}`;
@@ -480,6 +483,7 @@ export class CityProps {
 
   private build(t: number): PlacedBuilding[] {
     const g = this.game;
+    if (g.fort[t]) return this.fort(t);
     if (g.use[t] === USE.wild && !g.builtAt(t)) {
       // (A wonder beside a city: Machu Picchu on its summit, the Great
       // Lighthouse on the sea, on flat land with the city's layout;
@@ -1098,7 +1102,7 @@ export class CityProps {
   // Whether the flora of tile t keeps clear of what the city's layout puts there.
   keepsFloraClear(t: number): boolean {
     const g = this.game;
-    return g.use[t] === USE.center || isFarmland(g, t) || (g.use[t] === USE.wild && (this.landWonderOf(t) !== null || g.wonderOn(t) === 'machuPicchu'));
+    return g.fort[t] === 1 || g.use[t] === USE.center || isFarmland(g, t) || (g.use[t] === USE.wild && (this.landWonderOf(t) !== null || g.wonderOn(t) === 'machuPicchu'));
   }
 
   // Where a wonder on the sea stands: on the line from the middle of its
@@ -1166,6 +1170,24 @@ export class CityProps {
     return out;
   }
 
+  // A fort (game.ts fort): in the middle of its tile, FORT_FIT of a tile's
+  // edge across, so the unit that holds it stands in its yard; its gate
+  // toward the nearest city of its owner's (the way its garrison comes),
+  // or as the tile happens to lie. On a slope it stands on a foundation,
+  // as a house does.
+  private fort(t: number): PlacedBuilding[] {
+    const g = this.game, rand = mulberry32((t + 11) * 2246822519), D = g.globe.avgEdgeAngle;
+    // (Where the unit that holds it stands: the tile's middle.)
+    const s = this.sampleDir(g.tiles[t]!.center);
+    const owner = g.ownerOf(t);
+    let home: City | null = null, hd = Infinity;
+    for (const c of g.cities) { if (owner >= 0 && c.owner !== owner) continue; const d = g.approxDist(c.tile, t); if (d < hd) { home = c; hd = d; } }
+    // (The model's gate looks down +z: turned so that looks toward the city.)
+    const yaw = home && home.tile !== t ? facing(s.dir, g.tiles[home.tile]!.center) - Math.PI / 2 : rand() * Math.PI * 2;
+    const size = (FORT_FIT * D) / (FORT_SIDE * this.scale * PROP_SCALE);
+    return this.stand('fort', s.dir, yaw, size, buildingEntry('fort').leaf, rand, owner);
+  }
+
   // A landmark (wonder or scaffolding) as close to the tile's heart as it can stand.
   private landmark(t: number, kind: BuildingKind, rand: Rng): PlacedBuilding[] {
     const s0 = this.sample(t, 0, 0.03, 0.03);
@@ -1189,6 +1211,8 @@ export class CityProps {
   // every building and street of its town by FLORA_GAP, off its squares.
   // (So a town keeps the trees that grew there, never more than the wild.)
   floraClear(t: number, d: THREE.Vector3): boolean {
+    // (Nothing grows in a fort, nor against its walls.)
+    if (this.game.fort[t]) return d.angleTo(this.game.tiles[t]!.center) > FORT_FIT * this.game.globe.avgEdgeAngle * 0.86;
     if (this.game.use[t] === USE.wild && this.game.wonderOn(t) === 'machuPicchu') {
       // (Clear of Machu Picchu's houses by most of a cell.)
       const gap = 0.75 * CITY_CELL * tileFrame(this.game, t).k, at = new THREE.Vector3();

@@ -198,12 +198,12 @@ export const draws = (type: UnitKey): boolean => type === 'archer' || type === '
 type Gun = 'musket' | 'rifle' | 'boltRifle' | 'selfLoader' | 'smg' | 'assaultRifle' | 'carbine' | 'mg';
 const GUN_KINDS: ReadonlySet<string> = new Set<Gun>(['musket', 'rifle', 'boltRifle', 'selfLoader', 'smg', 'assaultRifle', 'carbine', 'mg']);
 const isGun = (h: Hold): h is Gun => GUN_KINDS.has(h);
-type Hold = 'spear' | 'pike' | 'club' | 'sword' | 'longsword' | 'bow' | 'recurve' | 'sling' | 'crossbow' | Gun | 'staff' | 'hoe' | 'banner' | 'none';
+type Hold = 'spear' | 'pike' | 'club' | 'sword' | 'longsword' | 'bow' | 'recurve' | 'sling' | 'crossbow' | Gun | 'staff' | 'pilgrim' | 'hoe' | 'banner' | 'none';
 
 // How far forward of upright each weapon is made to point (radians): a
 // spear upright, a sword a little forward (what is held in both hands lies through them: figure).
 const REST_PITCH: Record<Hold, number> = {
-  spear: 0, pike: 0, club: 0.23, sword: 0.25, longsword: 0.31, bow: 0, recurve: 0, sling: Math.PI, crossbow: 0.4, musket: 0.4, rifle: 0.4, boltRifle: 0.4, selfLoader: 0.4, smg: 0.4, assaultRifle: 0.4, carbine: 0.4, mg: 0.4, staff: 0, hoe: 0, banner: 0, none: 0,
+  spear: 0, pike: 0, club: 0.23, sword: 0.25, longsword: 0.31, bow: 0, recurve: 0, sling: Math.PI, crossbow: 0.4, musket: 0.4, rifle: 0.4, boltRifle: 0.4, selfLoader: 0.4, smg: 0.4, assaultRifle: 0.4, carbine: 0.4, mg: 0.4, staff: 0, pilgrim: 0, hoe: 0, banner: 0, none: 0,
 };
 // A body (people.ts) tagged for the units' shader.
 // (A skirt follows the legs (RIG.skirt; the shader: unitView.ts): each
@@ -235,13 +235,14 @@ const v3 = (p: THREE.Vector3) => V(p.x, p.y, p.z);
 // (The figure faces +z: its right hand is at -x.)
 // `still`: standing (in a chariot), its legs never swinging; `helmetAs`,
 // `shieldAs`: the unit's own headgear or shield whatever its civ's.
-function figure(gear0: Gear, hold: Hold, shield: boolean, opts: { armor?: Armor; helmet?: boolean; pack?: boolean; quiver?: boolean; female?: boolean; civilian?: boolean; modern?: boolean; still?: boolean; helmetAs?: Helmet; shieldAs?: Shield } = {}): THREE.BufferGeometry[] {
+function figure(gear0: Gear, hold: Hold, shield: boolean, opts: { armor?: Armor; helmet?: boolean; pack?: boolean; quiver?: boolean; female?: boolean; civilian?: boolean; modern?: boolean; still?: boolean; robe?: boolean; helmetAs?: Helmet; shieldAs?: Shield } = {}): THREE.BufferGeometry[] {
   const gear1: Gear = opts.modern ? { ...gear0, legs: 0x4a4e44, helmet: 'kettle' } : gear0;
   const gear: Gear = { ...gear1, helmet: opts.helmetAs ?? gear1.helmet, shield: opts.shieldAs ?? gear1.shield };
   const f = opts.female === true;
   const dress: Dress = {
-    fine: FINE, heroic: true, broad: opts.civilian !== true, female: f, skirt: opts.modern ? 'none' : opts.civilian && f ? 'ankle' : 'knee', legs: gear.legs,
-    sleeves: gear.legs === 'bare' && !opts.modern ? 'short' : 'long',
+    fine: FINE, heroic: true, broad: opts.civilian !== true, female: f, skirt: opts.modern ? 'none' : opts.robe || (opts.civilian && f) ? 'ankle' : 'knee', legs: gear.legs,
+    // (`robe`: a gown to the ankles and long sleeves, whoever wears it: a missionary's.)
+    sleeves: gear.legs === 'bare' && !opts.modern && !opts.robe ? 'short' : 'long',
     // (Painted from the units' sheet; before the modern uniform, the skirt and sleeves undyed.)
     painted: FINE, civ: CIV, ...(opts.modern ? {} : { undyed: LINEN }), ...(opts.armor ? { armor: opts.armor } : {}),
   };
@@ -284,6 +285,10 @@ function figure(gear0: Gear, hold: Hold, shield: boolean, opts: { armor?: Armor;
   // (A sling hanging from the hand: its cords and the stone's pouch.)
   if (hold === 'sling') out.push(rod(v3(hR), v3(hR).add(V(0.01, -0.21, 0.02)), 0.004, 0.004, 3, 0xb8a888, w), ball(0.025, 0x8a7a62, { x: hR.x + 0.01, y: hR.y - 0.23, z: hR.z + 0.02 }, w));
   if (hold === 'staff') out.push(rod(up(-0.42), up(0.6), 0.013, 0.011, 5, WOOD, { limb: STILL_ARM }));
+  // (A pilgrim's staff: taller than its bearer, a knob at its head, a bronze bell hung under it on a cord, a gourd tied lower down.)
+  if (hold === 'pilgrim') out.push(rod(up(-0.42), up(0.82), 0.014, 0.011, 5, WOOD, { limb: STILL_ARM }), ball(0.024, WOOD, { x: hR.x, y: hR.y + 0.84, z: hR.z }, { limb: STILL_ARM }),
+    rod(up(0.76), up(0.69).add(V(0, 0, 0.035)), 0.003, 0.003, 3, 0xb8a888, { limb: STILL_ARM }), ball(0.026, 0xb08a3c, { x: hR.x, y: hR.y + 0.665, z: hR.z + 0.037 }, { limb: STILL_ARM }),
+    ball(0.034, 0xa8894e, { x: hR.x, y: hR.y + 0.44, z: hR.z + 0.03 }, { limb: STILL_ARM }));
   // (A worker's hoe: its shaft upright in the hand, the iron blade at its top, bent forward.)
   if (hold === 'hoe') out.push(rod(up(-0.42), up(0.62), 0.013, 0.011, 5, WOOD, { limb: STILL_ARM }), box(0.07, 0.016, 0.1, IRON, { x: hR.x, y: hR.y + 0.6, z: hR.z + 0.05 }, { limb: STILL_ARM }));
   // (A gun or a crossbow, carried muzzle up and across the body, through both hands: the right at its grip, the left
@@ -1118,8 +1123,8 @@ export function unitModel(type: UnitKey, civ: ArchCiv, variant = 0, female = fal
       case 'scout': return figure(gear, 'staff', false, { helmet: false, pack: true, female, civilian: true });
       case 'settler': return figure(gear, variant % 2 ? 'staff' : 'none', false, { pack: variant % 2 === 0, female, civilian: true });
       case 'worker': return figure(gear, 'hoe', false, { female, civilian: true });
-      // (A first, plain figure: a walker with a staff, bare-headed, a pack on its back. To be drawn properly: a robe, a book.)
-      case 'missionary': return figure(gear, 'staff', false, { helmet: false, pack: variant % 2 === 0, female, civilian: true });
+      // (A missionary: robed to the ankles, bare-headed, a pilgrim's staff with its bell in hand; one of the two carries the books on its back.)
+      case 'missionary': return figure(gear, 'pilgrim', false, { helmet: false, pack: variant % 2 === 0, female, civilian: true, robe: true });
       // (Its two figures: the commander mounted, and the standard-bearer.)
       case 'swordsman': return figure(gear, 'sword', true, { armor: 'mail', helmet: true, female });
       case 'pikeman': return figure(gear, 'pike', false, { armor: 'plate', helmet: true, female });

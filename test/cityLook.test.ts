@@ -14,8 +14,9 @@ import { locate } from '../src/terrainMesh.ts';
 // City look guarantees (design doc "Cities: Feel & Play", city look v1).
 
 describe('L1: building models', () => {
-  it('houses, rural structures and buildings stay within 40 triangles, wonders within 120', () => {
-    const over = BUILDING_KINDS.map((k) => [k, triangles(buildBuildingGeometry(k))] as const).filter(([k, t]) => t > (isWonderKey(k) ? 120 : 40));
+  it('houses, rural structures and buildings stay within 40 triangles, wonders within 120; a fort within 700', () => {
+    // (A fort stands one to a tile, and few to a world: a showpiece, not one of a town's hundred houses.)
+    const over = BUILDING_KINDS.map((k) => [k, triangles(buildBuildingGeometry(k))] as const).filter(([k, t]) => t > (k === 'fort' ? 700 : isWonderKey(k) ? 120 : 40));
     expect(over).toEqual([]);
   });
   // (Machu Picchu on its summit, the catalog; the others on their square, wonderModels.ts.)
