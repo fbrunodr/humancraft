@@ -28,19 +28,23 @@ const warlike = (g: Game, p: Player): boolean => (g.seed + p.id * 7) % 3 === 0;
 // The numbers its decisions turn on: its policy (aiPolicy.ts; the game
 // gives each civ one), leaned by its bent: the warlike sooner to war and
 // fonder of what arms them, the builders the other way.
-const leaned = new WeakMap<Game, AiPolicy[]>();
+const leaned = new WeakMap<Game, { w: boolean; policy: AiPolicy }[]>();
 function pol(g: Game, p: Player): AiPolicy {
   let all = leaned.get(g);
   if (!all) leaned.set(g, all = []);
-  let mine = all[p.id];
-  if (!mine || g.policyVersion !== versions.get(g)) {
-    if (g.policyVersion !== versions.get(g)) { all.length = 0; versions.set(g, g.policyVersion); }
-    const b = g.aiPolicies[p.id]!, w = warlike(g, p);
-    mine = all[p.id] = { ...b,
+  if (g.policyVersion !== versions.get(g)) { all.length = 0; versions.set(g, g.policyVersion); }
+  // (By its bent as it is now: the same whether the game was played through or loaded.)
+  const w = warlike(g, p), had = all[p.id];
+  if (had && had.w === w) return had.policy;
+  let mine: AiPolicy;
+  {
+    const b = g.aiPolicies[p.id]!;
+    mine = { ...b,
       techUnits: b.techUnits * (w ? 1.33 : 0.67), techBuildings: b.techBuildings * (w ? 0.78 : 1.22), techWonders: b.techWonders * (w ? 0.67 : 1.33),
       warAfter: b.warAfter * (w ? 0.67 : 1.33), warChance: b.warChance * (w ? 1.6 : 0.6),
       policyMilitary: b.policyMilitary * (w ? 1.5 : 0.5), policySocial: b.policySocial * (w ? 0.67 : 1.33) };
   }
+  all[p.id] = { w, policy: mine };
   return mine;
 }
 const versions = new WeakMap<Game, number>();

@@ -7,6 +7,8 @@ import { TECH_KEYS } from './techs.ts';
 import { POLITICS_KEYS } from './politics.ts';
 import { TRAIT_KEYS } from './identity.ts';
 import { LEVELS, DEFAULT_LEVEL } from './aiPolicy.ts';
+import { saveGame, loadGame, saveInfo } from './save.ts';
+import { putSave, getSave, downloadSave, pickSave, AUTOSAVE } from './saveStore.ts';
 import { GlobeRenderer, RESOLUTIONS, type DebugView, type Selection, type TileMark } from './render.ts';
 import { UI, assertNever, attackInput, modeOf, wonderPicked, tip, type Action, type Placing, type NextStep } from './ui.ts';
 import { Sheets } from './sheets.ts';
@@ -52,9 +54,27 @@ function showStartScreen(): void {
   const BACK = '<button class="back" data-go="home">‹ Back</button>';
 
   function home(): void {
-    menu.innerHTML = `<div>${TITLE}<div class="home"><button class="primary" data-go="play">Play</button><button data-go="tools">Dev tools</button></div></div>`;
+    menu.innerHTML = `<div>${TITLE}<div class="home"><button class="primary" data-go="play">Play</button><button data-go="continue" hidden></button><button data-go="load">Load a saved game</button><button data-go="tools">Dev tools</button><p class="note" id="loadNote" hidden></p></div></div>`;
     on('[data-go="play"]', setup);
     on('[data-go="tools"]', tools);
+    // (A saved game, loaded: the world made again from its seed, its state put back.)
+    const load = (text: string): void => {
+      const info = saveInfo(text), note = document.getElementById('loadNote');
+      const say = (m: string) => { if (note) { note.textContent = m; note.hidden = false; } };
+      if (!info) { say('That is not a saved game.'); return; }
+      if (!info.current) { say(`That game was saved under version ${info.version} of the rules, and this is another: it cannot be loaded.`); return; }
+      menu.innerHTML = '<div class="loading">Shaping the world…</div>';
+      setTimeout(() => { startGame(loadGame(text)); menu.remove(); }, 40);
+    };
+    on('[data-go="load"]', () => { void pickSave().then((text) => { if (text !== null) load(text); }); });
+    // (The game left off: kept at the end of every turn.)
+    void getSave(AUTOSAVE).then((text) => {
+      const info = text === null ? null : saveInfo(text), b = menu.querySelector<HTMLElement>('[data-go="continue"]');
+      if (!b || !info?.current || text === null) return;
+      b.textContent = `Continue · ${info.civ}, turn ${info.turn}`;
+      b.hidden = false;
+      b.addEventListener('click', () => load(text));
+    });
   }
   function tools(): void {
     menu.innerHTML = `<div>${TITLE}<div class="card">
@@ -108,7 +128,7 @@ function showStartScreen(): void {
       const as = civ === 'random' ? CIVS[Math.floor(Math.random() * CIVS.length)]!.name : civ;
       // (The world takes a moment to make: said so first, then made.)
       menu.innerHTML = '<div class="loading">Shaping the world…</div>';
-      setTimeout(() => { startGame(size, seed, script, level, as, speed); menu.remove(); }, 40);
+      setTimeout(() => { startGame(new Game({ size, seed, script, level, civ: as, speed })); menu.remove(); }, 40);
     });
   }
   // (Esc: back to the first screen.)
@@ -116,8 +136,8 @@ function showStartScreen(): void {
   home();
 }
 
-function startGame(sizeKey: MapSizeKey, seed: number, script: MapScriptKey, level: number, civ: ArchCiv, speed: GameSpeedKey): void {
-  const game = new Game({ size: sizeKey, seed, script, level, civ, speed });
+function startGame(game: Game): void {
+  const sizeKey = game.options.size, seed = game.seed;
   const view = new GlobeRenderer(document.getElementById('c') as HTMLCanvasElement, game);
   const ui = new UI(game, act);
   // (Dev: the game to look at from the console: select a unit, redraw.)
@@ -225,13 +245,14 @@ function startGame(sizeKey: MapSizeKey, seed: number, script: MapScriptKey, leve
       </div>
       <span class="label">Controls</span>
       <div class="keys">${KEYS.map(([k, what]) => `<span>${k}</span><span>${what}</span>`).join('')}</div>
-      <div class="foot"><button data-menu="new" class="danger">Leave for a new game</button><button data-menu="close" class="primary">Back to the game</button></div></div>`;
+      <div class="foot"><button data-menu="save">Save to a file</button><button data-menu="new" class="danger">Leave for a new game</button><button data-menu="close" class="primary">Back to the game</button></div></div>`;
   };
   document.getElementById('menuBtn')!.addEventListener('click', () => openMenu(menuBox.classList.contains('hidden')));
   menuBox.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (t === menuBox || t.dataset['menu'] === 'close') openMenu(false);
     else if (t.dataset['menu'] === 'new') location.reload();
+    else if (t.dataset['menu'] === 'save') downloadSave(`human-craft-${game.players[HUMAN]!.name.toLowerCase()}-turn-${game.turn}.json`, saveGame(game));
   });
   menuBox.addEventListener('change', (e) => {
     const t = e.target as HTMLInputElement | HTMLSelectElement, on = t instanceof HTMLInputElement && t.checked;
@@ -327,6 +348,8 @@ function startGame(sizeKey: MapSizeKey, seed: number, script: MapScriptKey, leve
     const before = game.events.length;
     game.endTurn();
     flushLog();
+    // (Kept at the end of every turn: the game can be gone back to from the first screen.)
+    void putSave(AUTOSAVE, saveGame(game)).catch(() => {});
     sel = null;
     // (An attack on the player's units or cities while the others moved: the camera goes there, to see it fought.)
     const struck = game.events.slice(before).find((e) => (e.kind === 'attack' && e.data['defenderOwner'] === HUMAN) || (e.kind === 'cityCaptured' && e.data['from'] === HUMAN));
