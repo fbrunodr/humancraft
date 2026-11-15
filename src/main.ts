@@ -12,67 +12,105 @@ import { UI, assertNever, attackInput, modeOf, wonderPicked, tip, type Action, t
 import { Sheets } from './sheets.ts';
 import { gameLogId } from './gameLog.ts';
 import { USE } from './cities.ts';
-import { MAP_SCRIPTS, MAP_SIZES, isMapScript, tileCount, unitDef, domainOf, isWonder, type MapScriptKey, type MapSizeKey } from './rules.ts';
+import type { ArchCiv } from './architecture.ts';
+import { CIVS, MAP_SCRIPTS, MAP_SIZES, isMapScript, tileCount, unitDef, domainOf, isWonder, type MapScriptKey, type MapSizeKey } from './rules.ts';
 import { canShoot } from './unitClasses.ts';
 
 const isMapSize = (s: string): s is MapSizeKey => s in MAP_SIZES;
 
+// The dev tools (each its own page), and what each is for.
+const DEV_TOOLS: readonly { href: string; name: string; what: string }[] = [
+  { href: '/gallery.html', name: 'Gallery', what: 'Every prop, plant and animal' },
+  { href: '/buildings.html', name: 'Buildings', what: 'Houses and city buildings, civ by civ' },
+  { href: '/units.html', name: 'Units', what: 'Every unit, its animations, and battles' },
+  { href: '/wonders.html', name: 'Wonders', what: 'The wonders, side by side' },
+  { href: '/city_lab.html', name: 'City lab', what: 'Cities of every civ on a globe' },
+  { href: '/city_lab.html?stress', name: 'Stress test', what: 'The heaviest scene, for the frame rate' },
+  { href: '/city_samples.html', name: 'City samples', what: 'Painted cities, one beside another' },
+  { href: '/world_view.html', name: 'World view', what: 'A generated world, with no game on it' },
+  { href: '/map_editor.html', name: 'Map editor', what: 'Draw a map by hand' },
+];
+const isCiv = (s: string): s is ArchCiv => CIVS.some((c) => c.name === s);
+
+// The start screen: Play (then the game's setup: who to play as, the world, the rivals) or the dev tools.
 function showStartScreen(): void {
   const menu = document.getElementById('start')!;
   const params = new URLSearchParams(location.search);
-  const sizes = (Object.keys(MAP_SIZES) as MapSizeKey[]).map((k) => {
-    const s = MAP_SIZES[k];
-    return `<button data-size="${k}" class="${k === 'small' ? 'active' : ''}">
-      <b>${s.name}</b><span>${tileCount(s.n).toLocaleString()} tiles · ${s.players} civs</span><small>≈ ${s.civEquivalent}</small></button>`;
-  }).join('');
-  const scripts = (Object.keys(MAP_SCRIPTS) as MapScriptKey[])
-    .map((k) => `<button data-script="${k}">${MAP_SCRIPTS[k].name}</button>`).join('');
-  menu.innerHTML = `<div><div class="title"><h1>Globe Civ</h1><p>An empire to stand the test of time, on a world that is round</p></div>
-  <div class="card">
-    <span class="label">World</span>
-    <div class="sizes">${sizes}</div>
-    <span class="label">Lands</span>
-    <div class="scripts">${scripts}</div>
-    <span class="label">Rivals <small>· how well they decide: no level is given, or spared, anything</small></span>
-    <div class="scripts">${LEVELS.map((l, i) => `<button data-level="${i}">${l.name}</button>`).join('')}</div>
-    <span class="label">Seed <small>· the same seed makes the same world</small></span>
-    <div class="seedrow"><input id="seed" type="text" inputmode="numeric" value="${params.get('seed') ?? Math.floor(Math.random() * 1e6)}"><button id="dice">Another</button></div>
-    <button id="go" class="primary">Begin</button>
-    <p class="tools">Workshop: <a href="/gallery.html">Gallery</a> · <a href="/buildings.html">Buildings</a> · <a href="/units.html">Units</a> · <a href="/wonders.html">Wonders</a> · <a href="/city_lab.html">City lab</a> · <a href="/city_lab.html?stress">Stress test</a> · <a href="/city_samples.html">City samples</a> · <a href="/world_view.html">World view</a> · <a href="/map_editor.html">Map editor</a></p>
-  </div></div>`;
-  let size: MapSizeKey = 'small', script: MapScriptKey = 'continents', level = DEFAULT_LEVEL;
+  const TITLE = '<div class="title"><h1>Human craft</h1><p>An empire to stand the test of time, on a world that is round</p></div>';
+  // (What is chosen is kept while going back and forth.)
+  let size: MapSizeKey = 'small', script: MapScriptKey = 'continents', level = DEFAULT_LEVEL, civ: ArchCiv | 'random' = 'random', seedText = params.get('seed') ?? String(Math.floor(Math.random() * 1e6));
   const pLevel = Number(params.get('level') ?? NaN);
   if (Number.isInteger(pLevel) && pLevel >= 0 && pLevel < LEVELS.length) level = pLevel;
-  const pSize = params.get('size'), pMap = params.get('map');
+  const pSize = params.get('size'), pMap = params.get('map'), pCiv = params.get('civ');
   if (pSize && isMapSize(pSize)) size = pSize;
   if (pMap && isMapScript(pMap)) script = pMap;
-  const mark = () => {
-    menu.querySelectorAll<HTMLElement>('[data-size]').forEach((b) => b.classList.toggle('active', b.dataset['size'] === size));
-    menu.querySelectorAll<HTMLElement>('[data-script]').forEach((b) => b.classList.toggle('active', b.dataset['script'] === script));
-    menu.querySelectorAll<HTMLElement>('[data-level]').forEach((b) => b.classList.toggle('active', Number(b.dataset['level']) === level));
-  };
-  menu.querySelectorAll<HTMLElement>('[data-level]').forEach((b) => b.addEventListener('click', () => { level = Number(b.dataset['level']); mark(); }));
-  mark();
-  menu.querySelectorAll<HTMLElement>('[data-script]').forEach((b) => b.addEventListener('click', () => {
-    const s = b.dataset['script'] ?? '';
-    if (isMapScript(s)) { script = s; mark(); }
-  }));
-  menu.querySelectorAll<HTMLElement>('[data-size]').forEach((b) => b.addEventListener('click', () => {
-    const s = b.dataset['size'] ?? '';
-    if (isMapSize(s)) { size = s; mark(); }
-  }));
-  const seedBox = document.getElementById('seed') as HTMLInputElement;
-  document.getElementById('dice')!.addEventListener('click', () => { seedBox.value = String(Math.floor(Math.random() * 1e6)); });
-  document.getElementById('go')!.addEventListener('click', () => {
-    const seed = Number(seedBox.value) || 1;
-    // (The world takes a moment to make: said so first, then made.)
-    menu.innerHTML = '<div class="loading">Shaping the world…</div>';
-    setTimeout(() => { startGame(size, seed, script, level); menu.remove(); }, 40);
-  });
+  if (pCiv && isCiv(pCiv)) civ = pCiv;
+  const on = (sel: string, f: (b: HTMLElement) => void) => menu.querySelectorAll<HTMLElement>(sel).forEach((b) => b.addEventListener('click', () => f(b)));
+  const BACK = '<button class="back" data-go="home">‹ Back</button>';
+
+  function home(): void {
+    menu.innerHTML = `<div>${TITLE}<div class="home"><button class="primary" data-go="play">Play</button><button data-go="tools">Dev tools</button></div></div>`;
+    on('[data-go="play"]', setup);
+    on('[data-go="tools"]', tools);
+  }
+  function tools(): void {
+    menu.innerHTML = `<div>${TITLE}<div class="card">
+      <div class="cardhead">${BACK}<h2>Dev tools</h2></div>
+      <div class="toollist">${DEV_TOOLS.map((t) => `<a href="${t.href}"><b>${t.name}</b><span>${t.what}</span></a>`).join('')}</div>
+    </div></div>`;
+    on('[data-go="home"]', home);
+  }
+  function setup(): void {
+    const sizes = (Object.keys(MAP_SIZES) as MapSizeKey[]).map((k) => {
+      const s = MAP_SIZES[k];
+      return `<button data-size="${k}"><b>${s.name}</b><span>${tileCount(s.n).toLocaleString()} tiles · ${s.players} civs</span><small>≈ ${s.civEquivalent}</small></button>`;
+    }).join('');
+    const scripts = (Object.keys(MAP_SCRIPTS) as MapScriptKey[]).map((k) => `<button data-script="${k}">${MAP_SCRIPTS[k].name}</button>`).join('');
+    menu.innerHTML = `<div>${TITLE}<div class="card">
+      <div class="cardhead">${BACK}<h2>New game</h2></div>
+      <span class="label">Play as</span>
+      <div class="civs"><button data-civ="random"><i class="any">?</i>Random</button>${CIVS.map((c) => `<button data-civ="${c.name}"><i style="background:${c.color}"></i>${c.name}</button>`).join('')}</div>
+      <span class="label">World</span>
+      <div class="sizes">${sizes}</div>
+      <span class="label">Lands</span>
+      <div class="scripts">${scripts}</div>
+      <span class="label">Rivals <small>· how well they decide: no level is given, or spared, anything</small></span>
+      <div class="scripts">${LEVELS.map((l, i) => `<button data-level="${i}">${l.name}</button>`).join('')}</div>
+      <span class="label">Seed <small>· the same seed makes the same world</small></span>
+      <div class="seedrow"><input id="seed" type="text" inputmode="numeric" value="${seedText.replace(/[^0-9]/g, '')}"><button id="dice">Another</button></div>
+      <button id="go" class="primary">Begin</button>
+    </div></div>`;
+    const mark = () => {
+      menu.querySelectorAll<HTMLElement>('[data-civ]').forEach((b) => b.classList.toggle('active', b.dataset['civ'] === civ));
+      menu.querySelectorAll<HTMLElement>('[data-size]').forEach((b) => b.classList.toggle('active', b.dataset['size'] === size));
+      menu.querySelectorAll<HTMLElement>('[data-script]').forEach((b) => b.classList.toggle('active', b.dataset['script'] === script));
+      menu.querySelectorAll<HTMLElement>('[data-level]').forEach((b) => b.classList.toggle('active', Number(b.dataset['level']) === level));
+    };
+    mark();
+    const seedBox = document.getElementById('seed') as HTMLInputElement;
+    seedBox.addEventListener('input', () => { seedText = seedBox.value; });
+    on('[data-go="home"]', home);
+    on('[data-civ]', (b) => { const c = b.dataset['civ'] ?? ''; civ = isCiv(c) ? c : 'random'; mark(); });
+    on('[data-level]', (b) => { level = Number(b.dataset['level']); mark(); });
+    on('[data-script]', (b) => { const s = b.dataset['script'] ?? ''; if (isMapScript(s)) { script = s; mark(); } });
+    on('[data-size]', (b) => { const s = b.dataset['size'] ?? ''; if (isMapSize(s)) { size = s; mark(); } });
+    on('#dice', () => { seedBox.value = seedText = String(Math.floor(Math.random() * 1e6)); });
+    on('#go', () => {
+      const seed = Number(seedBox.value) || 1;
+      // (Random: any civ, drawn here, not by the seed: the same seed makes the same world whoever plays it.)
+      const as = civ === 'random' ? CIVS[Math.floor(Math.random() * CIVS.length)]!.name : civ;
+      // (The world takes a moment to make: said so first, then made.)
+      menu.innerHTML = '<div class="loading">Shaping the world…</div>';
+      setTimeout(() => { startGame(size, seed, script, level, as); menu.remove(); }, 40);
+    });
+  }
+  // (Esc: back to the first screen.)
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && menu.isConnected && menu.querySelector('[data-go="home"]')) home(); });
+  home();
 }
 
-function startGame(sizeKey: MapSizeKey, seed: number, script: MapScriptKey, level: number): void {
-  const game = new Game({ size: sizeKey, seed, script, level });
+function startGame(sizeKey: MapSizeKey, seed: number, script: MapScriptKey, level: number, civ: ArchCiv): void {
+  const game = new Game({ size: sizeKey, seed, script, level, civ });
   const view = new GlobeRenderer(document.getElementById('c') as HTMLCanvasElement, game);
   const ui = new UI(game, act);
   // (Dev: the game to look at from the console: select a unit, redraw.)
@@ -164,7 +202,7 @@ function startGame(sizeKey: MapSizeKey, seed: number, script: MapScriptKey, leve
   const openMenu = (on: boolean) => {
     menuBox.classList.toggle('hidden', !on);
     if (!on) return;
-    menuBox.innerHTML = `<div class="card"><h2>Globe Civ</h2>
+    menuBox.innerHTML = `<div class="card"><h2>Human craft</h2>
       <span class="label">Graphics</span>
       <div class="opts">
         <label class="opt">Shadows <input type="checkbox" data-set="shadows" ${settings.shadows ? 'checked' : ''}></label>

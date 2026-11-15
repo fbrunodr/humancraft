@@ -329,6 +329,8 @@ export interface GameOptions {
   size: MapSizeKey;
   seed: number;
   script?: MapScriptKey;
+  // Who the human plays as (the first player): that civ, the others following in their order (CIVS); the first of them unless given.
+  civ?: ArchCiv;
   // Every civ a player (the City Lab): those past the map's starts begin with no units.
   everyCiv?: boolean;
   // How each computer civ decides (aiPolicy.ts), by player id; or one
@@ -409,7 +411,7 @@ export class Game {
   readonly dealOffers: Deal[] = [];             // trades the computer offered the human, for this turn (sides[0]: the offerer)
   readonly events: GameEvent[] = [];            // everything every player did (gameLog.ts)
 
-  constructor({ size, seed, script = 'continents', everyCiv = false, autoRoads = false, policies, level = DEFAULT_LEVEL, turnLimit = TURN_LIMIT }: GameOptions) {
+  constructor({ size, seed, script = 'continents', everyCiv = false, autoRoads = false, policies, level = DEFAULT_LEVEL, turnLimit = TURN_LIMIT, civ: playAs }: GameOptions) {
     this.seed = seed;
     this.turnLimit = turnLimit;
     this.autoRoads = autoRoads;
@@ -438,7 +440,8 @@ export class Game {
     this.explored = new Uint8Array(this.N);
     this.visible = new Uint8Array(this.N);
 
-    this.players = (everyCiv ? CIVS : CIVS.slice(0, this.world.starts.length)).map((civ, id) => ({
+    const civs = playAs ? [...CIVS.filter((c) => c.name === playAs), ...CIVS.filter((c) => c.name !== playAs)] : CIVS;
+    this.players = (everyCiv ? civs : civs.slice(0, this.world.starts.length)).map((civ, id) => ({
       id, name: civ.name, color: civ.color, cityNames: civ.cities,
       isHuman: id === HUMAN, alive: true, gold: 0, science: 0, culture: 0, cohesion: 0, faith: 0, era: 0, citiesFounded: 0, offensive: false,
       techs: new Set(), research: null, researchQueue: [], techProgress: {}, scienceBank: 0,

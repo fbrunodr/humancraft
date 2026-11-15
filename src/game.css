@@ -259,7 +259,22 @@ h1, h2, h3, h4 { font-family: var(--display); font-weight: 600; letter-spacing: 
 .card input[type=text], .card input:not([type]) { font: inherit; flex: 1; background: rgba(0, 0, 0, 0.35); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; user-select: text; }
 .card input:focus { outline: none; border-color: var(--brass); }
 #go { width: 100%; margin-top: 20px; padding: 13px; font-family: var(--display); font-size: 17px; letter-spacing: 0.14em; text-transform: uppercase; border-radius: 26px; }
-.card .tools { margin: 16px 0 0; font-size: 11.5px; }
+.home { position: relative; display: flex; flex-direction: column; gap: 12px; width: min(340px, 86vw); margin: 34px auto 0; }
+.home button { padding: 14px; font-family: var(--display); font-size: 17px; letter-spacing: 0.14em; text-transform: uppercase; border-radius: 26px; }
+.home button:not(.primary) { font-size: 14px; padding: 11px; background: rgba(10, 13, 20, 0.55); backdrop-filter: blur(6px); }
+.cardhead { position: relative; display: grid; place-items: center; min-height: 30px; margin-bottom: 14px; }
+.cardhead h2 { margin: 0; font-family: var(--display); font-size: 17px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brass-hi); }
+.cardhead .back { position: absolute; left: 0; top: 0; padding: 5px 11px; font-size: 12.5px; }
+.civs { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
+.civs button { display: flex; align-items: center; gap: 7px; padding: 6px 8px; font-size: 12.5px; text-align: left; }
+.civs i { flex: none; width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.5); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14); }
+.civs i.any { display: grid; place-items: center; background: none; border: 0; box-shadow: none; font-style: normal; font-weight: 700; color: var(--brass-hi); }
+.toollist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; text-align: left; }
+.toollist a { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: rgba(0, 0, 0, 0.25); text-decoration: none; color: var(--text); }
+.toollist a:hover, .toollist a:focus-visible { border-color: var(--brass); outline: none; }
+.toollist a b { font-family: var(--display); letter-spacing: 0.06em; font-size: 13.5px; color: var(--brass-hi); }
+.toollist a span { font-size: 12px; color: var(--muted); }
+@media (max-width: 520px) { .toollist { grid-template-columns: 1fr; } }
 .card .tools a { color: var(--faint); text-decoration: none; }
 .card .tools a:hover { color: var(--brass-hi); }
 .loading { font-family: var(--display); letter-spacing: 0.2em; text-transform: uppercase; color: var(--brass-hi); font-size: 15px; animation: breathe 1.4s ease-in-out infinite; position: relative; }

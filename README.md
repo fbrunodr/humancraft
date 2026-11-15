@@ -1,4 +1,4 @@
-# Globe Civ
+# Human craft
 
 A Civilization-style 4X game played on a **Goldberg polyhedron**: a sphere
 tiled with hexagons plus exactly 12 pentagons. A globe of frequency `n` has
