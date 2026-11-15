@@ -878,8 +878,11 @@ function aircraft(type: UnitKey): THREE.BufferGeometry[] {
   const tail = (len: number, color: number) => [wing(0.5, 0.18, AIR_Y, -len / 2 + 0.08, color, false), lp(plate([[0, 0], [0.2, 0], [0.05, 0.22]], color), { y: AIR_Y, z: -len / 2 + 0.02, ry: -Math.PI / 2 })];
   const prop = (x: number, z: number) => lp(plate([[-0.02, -0.18], [0.02, -0.18], [0.02, 0.18], [-0.02, 0.18]], 0x2a2420), { x, y: AIR_Y, z }, { spin: { axis: 'z', at: [x, AIR_Y] } });
   const gear = [1, -1].map((s) => rod(V(s * 0.1, AIR_Y - 0.05, 0.15), V(s * 0.14, 0.04, 0.18), 0.012, 0.012, 3, GUNMETAL));
-  if (type === 'airship') return [lp(hull([R([0, AIR_Y + 0.75, -1.5], 0, 0), R([0, AIR_Y + 0.75, -1.0], 0.34, 0.34), R([0, AIR_Y + 0.75, 0.5], 0.42, 0.42), R([0, AIR_Y + 0.75, 1.25], 0.26, 0.26), R([0, AIR_Y + 0.75, 1.55], 0, 0)], 6, PAINT, { side: [1, 0, 0] }), {}, { team: true }), box(0.2, 0.14, 0.5, 0x5a4a38, { y: AIR_Y + 0.2, z: 0.1 }),
-    ...[1, -1].map((s) => rod(V(s * 0.08, AIR_Y + 0.27, 0.1), V(s * 0.2, AIR_Y + 0.45, 0.1), 0.008, 0.008, 3, GUNMETAL)), lp(plate([[0, 0], [0.5, 0], [0.15, 0.4]], 0xd8d0c0), { y: AIR_Y + 0.75, z: -1.3, ry: -Math.PI / 2 })];
+  // (An airship: three quarters the size it was first drawn, one to a unit: two of them hid the city they were based in.)
+  if (type === 'airship') return [lp(hull([R([0, AIR_Y + 0.75, -1.5], 0, 0), R([0, AIR_Y + 0.75, -1.0], 0.34, 0.34), R([0, AIR_Y + 0.75, 0.5], 0.42, 0.42), R([0, AIR_Y + 0.75, 1.25], 0.26, 0.26), R([0, AIR_Y + 0.75, 1.55], 0, 0)], 6, 0xd2cab8, { side: [1, 0, 0] })),
+    // (Its envelope of doped canvas; a band of its civ's colour round it, and its fin.)
+    lp(hull([R([0, AIR_Y + 0.75, -0.05], 0.428, 0.428), R([0, AIR_Y + 0.75, 0.4], 0.432, 0.432)], 6, PAINT, { side: [1, 0, 0], caps: [false, false] }), {}, { team: true }), box(0.2, 0.14, 0.5, 0x5a4a38, { y: AIR_Y + 0.2, z: 0.1 }),
+    ...[1, -1].map((s) => rod(V(s * 0.08, AIR_Y + 0.27, 0.1), V(s * 0.2, AIR_Y + 0.45, 0.1), 0.008, 0.008, 3, GUNMETAL)), lp(plate([[0, 0], [0.5, 0], [0.15, 0.4]], PAINT), { y: AIR_Y + 0.75, z: -1.3, ry: -Math.PI / 2 }, { team: true })].map((g) => g.scale(0.75, 0.75, 0.75));
   if (type === 'jetFighter') return [body(1.3, 0.08, 0x8a9096), lp(plate([[-0.75, -0.25], [0.75, -0.25], [0.08, 0.35], [-0.08, 0.35]], PAINT), { y: AIR_Y, z: -0.1, rx: Math.PI / 2 }, { team: true }),
     ...tail(1.3, 0x8a9096), ...gear];
   if (type === 'heavyBomber') return [body(2.3, 0.15, 0x7a7e76), wing(3.4, 0.5, AIR_Y + 0.03, 0.15, PAINT, true), ...[0.55, 1.1, -0.55, -1.1].flatMap((x) => [lp(hull([R([x, AIR_Y - 0.02, -0.15], 0.055, 0.055), R([x, AIR_Y - 0.02, 0.42], 0.065, 0.065)], 4, 0x4a4e48, { side: [1, 0, 0] })), prop(x, 0.44)]),
@@ -1024,7 +1027,7 @@ export const UNIT_LOOK: Record<UnitKey, UnitLook> = {
   cruiser:    { party: 'formation', count: 2, cols: 2, spacing: [1.5, 3.8] },
   submarine:  { party: 'formation', count: 3, cols: 3, spacing: [1.0, 3.4] },
   carrier:    { party: 'formation', count: 1, cols: 1, spacing: [1.5, 4.5] },
-  airship:    { party: 'formation', count: 2, cols: 2, spacing: [1.5, 3.6] },
+  airship:    { party: 'formation', count: 1, cols: 1, spacing: [1.5, 3.6] },
   heavyBomber: { party: 'formation', count: 2, cols: 2, spacing: [4.1, 2.8] },
   jetFighter: { party: 'formation', count: 3, cols: 3, spacing: [2.0, 1.8] },
   helicopter: { party: 'formation', count: 3, cols: 3, spacing: [2.4, 2.4] },

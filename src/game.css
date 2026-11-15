@@ -81,7 +81,7 @@ h1, h2, h3, h4 { font-family: var(--display); font-weight: 600; letter-spacing: 
 #yields .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 #yields .res { display: flex; align-items: center; gap: 4px; padding: 5px 7px; border-radius: 6px; color: var(--muted); font-weight: 600; }
 #yields .res .ic { font-size: 15px; color: #e8a94f; }
-#turn { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; margin-right: 8px; }
+#turn { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; margin-right: 8px; white-space: nowrap; flex: none; }
 #turn b { font-family: var(--display); font-size: 13px; letter-spacing: 0.08em; color: var(--brass-hi); }
 #turn small { font-size: 11px; }
 #civ { white-space: nowrap; font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; display: flex; align-items: center; gap: 6px; padding: 0 12px;
