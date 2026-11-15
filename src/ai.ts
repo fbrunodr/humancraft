@@ -11,7 +11,7 @@ import { routeRoads } from './roads.ts';
 import { RESOURCE_KEYS } from './resources.ts';
 import { BEST, type AiPolicy } from './aiPolicy.ts';
 import { militaryPhase, planWar, planning, onCampaign, operationOf } from './aiMilitary.ts';
-import { isShooter, canAssault } from './unitClasses.ts';
+import { isShooter, canAssault, canShoot } from './unitClasses.ts';
 import { canAttackType } from './unitClasses.ts';
 import { HOLY_STRIFE } from './religion.ts';
 import { MIN_WAR, FAITH_VICTORY, type Game, type Player, type Unit, type City, type DealSide } from './game.ts';
@@ -58,7 +58,9 @@ export function aiTurn(g: Game, p: Player): void {
   // (A garrison is a land unit: ships in port and aircraft don't hold a city.)
   const garrisoned = (c: City) => units.some((u) => u.tile === c.tile && isMilitary(u) && domainOf(unitDef(u.type)) === 'land');
   const P = pol(g, p), atWar = g.players.some((o) => o.alive && g.atWar(p.id, o.id));
-  const military = units.filter((u) => isMilitary(u) && canAttackType(u.type)).length;
+  // (Its army is its land units: ships and aircraft are counted apart, each against its own share.)
+  const dom = (u: Unit) => domainOf(unitDef(u.type));
+  const military = units.filter((u) => isMilitary(u) && canAttackType(u.type) && dom(u) === 'land').length;
   p.offensive = onCampaign(g, p);
   const threatened = (c: City) => g.units.some((u) => g.atWar(p.id, u.owner) && !unitDef(u.type).civilian && g.approxDist(u.tile, c.tile) <= 3);
 
@@ -84,11 +86,18 @@ export function aiTurn(g: Game, p: Player): void {
   // (A civ hostile toward it, as it reads them: it arms.)
   const menaced = !atWar && g.players.some((o) => o.alive && o.id !== p.id && g.met[p.id]![o.id] && attitude(g, o, p.id) === 'hostile');
   const armyTarget = broke ? 0 : (P.armyBase + P.armyPerCity * cities.length) * (atWar || planning(g, p) ? P.armyWar : menaced ? P.armyThreat : 1);
-  let coming = cities.filter((c) => c.building && c.building in UNITS && !unitDef(c.building as UnitKey).civilian).length;
+  let coming = cities.filter((c) => c.building && c.building in UNITS && !unitDef(c.building as UnitKey).civilian && domainOf(unitDef(c.building as UnitKey)) === 'land').length;
+  // A fleet: for a civ with ports, while a rival has a coast in its reach or ships it has seen: a share of its army.
+  const ports = cities.filter((c) => g.cityCoast(c));
+  const seaRival = ports.length > 0 && (g.cities.some((c) => c.owner !== p.id && g.known[p.id]![c.tile] && g.cityCoast(c) && ports.some((h) => g.approxDist(h.tile, c.tile) <= 20))
+    || g.units.some((u) => u.owner !== p.id && domainOf(unitDef(u.type)) === 'sea' && g.known[p.id]![u.tile] && g.atWar(p.id, u.owner)));
+  const building = (d: 'sea' | 'air') => cities.filter((c) => c.building && c.building in UNITS && domainOf(unitDef(c.building as UnitKey)) === d).length;
+  const navyShort = broke || !seaRival ? 0 : Math.round(P.navyShare * armyTarget * Math.min(1, (2 * ports.length) / Math.max(1, cities.length))) - units.filter((u) => dom(u) === 'sea').length - building('sea');
+  const airShort = broke ? 0 : Math.round(P.airShare * armyTarget) - units.filter((u) => dom(u) === 'air').length - building('air');
   for (const c of cities) {
     g.rework(c);
     if (!c.building) {
-      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c) });
+      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort });
       if (c.building === 'worker') workers++;
       else if (c.building === 'settler') expansion++;
       else if (c.building && c.building in UNITS) coming++;
@@ -121,13 +130,14 @@ export function aiTurn(g: Game, p: Player): void {
     else if (domainOf(unitDef(u.type)) === 'sea') seaTurn(g, u);
   }
   // Faith sends missionaries: the founder of a religion raises one when it
-  // can pay for it and for the city it would go to (two out at most), in
+  // can pay for it and for the city it would go to, in
   // its city nearest that one; each then goes and preaches.
   const founded = g.foundedBy(p.id);
   if (founded) {
     const out = g.units.filter((u) => u.owner === p.id && u.type === 'missionary' && !u.dead);
     for (const u of out) missionaryTurn(g, u);
-    if (out.length < 2 && g.rng() < P.faithConvert) {
+    // (Two out, and one more for every 300 faith it has laid by, six at most: faith kept is faith wasted.)
+    if (out.length < Math.min(6, 2 + Math.floor(p.faith / (300 * g.pace))) && g.rng() < P.faithConvert) {
       const homes = cities.filter((c) => c.religion === founded.religion);
       const from = founded.holy?.owner === p.id ? founded.holy : homes[0];
       const target = from ? missionTarget(g, p.id, from.tile, p.faith - g.missionaryCost) : null;
@@ -186,7 +196,7 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
 // What a city builds next: each kind of thing pulls by how much it is
 // needed now and by its civ's policy; the strongest pull that can be
 // answered wins (with a little chance, so cities differ).
-interface BuildNeeds { expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean }
+interface BuildNeeds { expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
 function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey | null {
   // (A garrison first: a city with none is anyone's who walks in; the unit that holds best at close quarters.)
   if (!n.garrisoned) return bestUnit(g, city, 'front') ?? bestUnit(g, city, 'ranged') ?? 'warrior';
@@ -196,18 +206,17 @@ function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey 
     const t = w ? g.governorWonderSpot(city, w) : null;
     return w && t !== null && g.startWonder(city, w, t) ? w : null;
   };
-  const unit = (): BuildKey | null => {
-    // (Now and then a ship from a port, an aircraft, once there are any to build.)
-    const r = g.rng(), ship = bestUnit(g, city, 'sea'), plane = bestUnit(g, city, 'air');
-    if (r < P.navyShare && ship) return ship;
-    if (r >= P.navyShare && r < P.navyShare + P.airShare && plane) return plane;
-    return armyRole(g, city, P);
-  };
+  const unit = (): BuildKey | null => armyRole(g, city, P);
+  // (Ships from a port while its fleet is short of what it wants, aircraft likewise: each a share of its army, by its policy.)
+  const ship = n.navyShort > 0 && g.cityCoast(city) ? bestUnit(g, city, 'sea') : null;
+  const plane = n.airShort > 0 ? bestUnit(g, city, 'air') : null;
   const short = (n.armyTarget - n.military) / Math.max(1, n.armyTarget);
   const pulls: [number, () => BuildKey | null][] = [
     [n.expansion < P.cityTarget && city.pop >= 2 && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
     [n.workersShort > 0 && city.pop >= 2 ? P.wWorker * Math.min(1, n.workersShort / 2) : 0, () => 'worker'],
     [short > 0 ? P.wArmy * (0.25 + short) * (n.threatened ? 2.5 : 1) : n.threatened && short > -0.5 ? P.wArmy * 0.5 : 0, unit],
+    [ship && !n.threatened ? P.wArmy * (0.3 + Math.min(1, n.navyShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => ship],
+    [plane ? P.wArmy * (0.3 + Math.min(1, n.airShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => plane],
     [city.pop >= 2 ? P.wBuild * 0.6 : P.wBuild * 0.15, () => bestBuilding(g, city)],
     [city.pop >= 5 && !n.atWar ? P.wWonder * 0.5 : 0, wonder],
     [!city.buildings.has('walls') && g.turn > 40 && g.canBuild(city, 'walls') ? P.wWalls * (n.threatened || n.atWar ? 0.8 : 0.3) : 0, () => 'walls'],
@@ -417,26 +426,105 @@ function roadTarget(g: Game, u: Unit): number | null {
 // An aircraft strikes the best target in its range it is likely to win
 // against; else it waits in its city.
 function airTurn(g: Game, u: Unit): void {
-  let best: number | null = null, bestOdds = 0.55;
+  // (It strikes what it can reach from its base, where the odds are best: a hurt unit, a garrison, an engine.)
+  let best: number | null = null, bestS = 0.5;
   for (const t of g.tilesWithin(u.tile, unitDef(u.type).range ?? 1)) {
     if (!g.isEnemyOccupied(t, u.owner) || g.attackBlockAt(u, t) !== null) continue;
     const pv = g.combatPreview(u, t), odds = pv ? pv.atk / (pv.atk + pv.def) : 0.6;
-    if (odds > bestOdds) { best = t; bestOdds = odds; }
+    const s = odds + (pv && pv.defender.hp < 50 ? 0.15 : 0) + (g.cityByTile.has(t) ? 0.1 : 0);
+    if (s > bestS) { best = t; bestS = s; }
   }
-  if (best !== null) g.goTo(u, best);
+  if (best !== null) { g.goTo(u, best); return; }
+  // Nothing in reach: it moves to the base of its civ's nearest the fighting (an enemy unit, else an enemy city), a hop at a time.
+  if (u.hp < 50) return;
+  const foe = (t: number) => g.isEnemyOccupied(t, u.owner);
+  let front: number | null = null, frontD = Infinity;
+  for (const v of g.units) if (v.owner !== u.owner && g.atWar(u.owner, v.owner) && g.known[u.owner]![v.tile]) { const d = g.approxDist(u.tile, v.tile); if (d < frontD) { front = v.tile; frontD = d; } }
+  if (front === null) for (const c of g.cities) if (g.atWar(u.owner, c.owner) && g.known[u.owner]![c.tile]) { const d = g.approxDist(u.tile, c.tile); if (d < frontD) { front = c.tile; frontD = d; } }
+  void foe;
+  if (front === null) return;
+  let base: number | null = null, baseD = frontD - 1;
+  for (const c of g.cities) {
+    if (c.owner !== u.owner || !g.canRebase(u, c.tile)) continue;
+    const d = g.approxDist(c.tile, front);
+    if (d < baseD) { base = c.tile; baseD = d; }
+  }
+  if (base !== null) g.goTo(u, base);
 }
-// A ship goes for an enemy within a few tiles it can reach and likely beat;
-// else it keeps to port (or where it is).
+// A ship's turn. Hurt, it makes for port. Else it fires on what it
+// reaches (a ship that shoots: the enemy's ships and embarked units
+// first, then a garrison on the coast, its army's target above all), or
+// closes with an enemy ship or an embarked unit it would likely beat.
+// With nothing in reach it sails for where it is of use: the coast of the
+// city its army is out to take; else the nearest enemy at sea it knows
+// of; else an enemy port; and at peace it keeps to its own.
 function seaTurn(g: Game, u: Unit): void {
-  for (const t of g.tilesWithin(u.tile, 3)) {
-    if (!g.isEnemyOccupied(t, u.owner) || g.attackBlockAt(u, t) !== null) continue;
-    const pv = g.combatPreview(u, t);
-    if (pv && pv.atk / (pv.atk + pv.def) < 0.55) continue;
-    if (g.tiles[u.tile].neighbors.includes(t)) { g.attack(u, t); return; }
-    const path = g.findPath(u, t);
-    if (path && path.length <= 3) { g.goTo(u, t); return; }
+  const T = unitDef(u.type), p = u.owner;
+  const home = (): City | null => { let best: City | null = null, d = Infinity; for (const c of g.cities) if (c.owner === p && g.cityCoast(c)) { const x = g.approxDist(c.tile, u.tile); if (x < d) { best = c; d = x; } } return best; };
+  if (u.hp < 50) { const h = home(); if (h && u.tile !== h.tile) { g.goTo(u, h.tile); if (u.tile !== h.tile) return; } u.fortified = true; return; }
+  const op = operationOf(g, p), goal = op ? g.cityById.get(op.target) : undefined;
+  const strike = (): boolean => {
+    if (u.moves <= 0) return false;
+    let best: number | null = null, bestS = 0, mode: 'ranged' | 'melee' = 'ranged';
+    if (canShoot(u.type)) {
+      for (const t of g.fireReach(u)) {
+        if (!g.isEnemyOccupied(t, p) || g.attackBlockAt(u, t, 'ranged') !== null) continue;
+        const pv = g.combatPreview(u, t, 'ranged');
+        if (!pv) continue;
+        const s = pv.atk / (pv.atk + pv.def) + (g.isWater(t) ? 0.3 : 0) + (goal && t === goal.tile ? 0.3 : 0) + (pv.defender.hp < 50 ? 0.2 : 0);
+        if (s > bestS) { best = t; bestS = s; mode = 'ranged'; }
+      }
+    }
+    if (best === null && canAssault(u.type)) {
+      for (const t of g.tilesWithin(u.tile, Math.max(1, Math.floor(u.moves)))) {
+        if (!g.isWater(t) || !g.isEnemyOccupied(t, p) || g.attackBlockAt(u, t, 'melee') !== null) continue;
+        const pv = g.combatPreview(u, t, 'melee');
+        if (!pv) continue;
+        const odds = pv.atk / (pv.atk + pv.def);
+        if (odds < 0.5 && pv.defender.hp > 40) continue;
+        const path = g.findPath(u, t);
+        if (!path || g.pathTurns(u, path) > 1) continue;
+        if (odds > bestS) { best = t; bestS = odds; mode = 'melee'; }
+      }
+    }
+    if (best === null) return false;
+    if (mode === 'ranged') g.attack(u, best, 'ranged'); else g.goTo(u, best, 'melee');
+    return true;
+  };
+  if (strike()) return;
+  // Where to: a tile of water within its reach of the place, the nearest to it.
+  const reach = canShoot(u.type) ? T.reach ?? 1 : 1;
+  const toward = (place: number): boolean => {
+    let best: number | null = null, bestD = Infinity;
+    for (const [t, d] of g.tilesWithinMap(place, reach)) {
+      if (d === 0 || !g.isWater(t) || !g.canStand(u, t) || g.isEnemyOccupied(t, p) || g.isForeignBlocked(t, p)) continue;
+      const x = g.approxDist(t, u.tile);
+      if (x < bestD) { best = t; bestD = x; }
+    }
+    if (best === null || best === u.tile) return best !== null;
+    if (!g.findPath(u, best)) return false;
+    g.goTo(u, best);
+    return true;
+  };
+  const wars = g.players.filter((o) => o.alive && g.atWar(p, o.id)).map((o) => o.id);
+  let went = false;
+  if (wars.length) {
+    if (goal && wars.includes(goal.owner) && g.cityCoast(goal)) went = toward(goal.tile);
+    if (!went) {
+      let foe: number | null = null, d = 12;
+      for (const v of g.units) if (wars.includes(v.owner) && g.isWater(v.tile) && g.known[p]![v.tile]) { const x = g.approxDist(v.tile, u.tile); if (x < d) { foe = v.tile; d = x; } }
+      if (foe !== null) went = toward(foe);
+    }
+    if (!went) {
+      let port: City | null = null, d = 16;
+      for (const c of g.cities) if (wars.includes(c.owner) && g.cityCoast(c) && g.known[p]![c.tile]) { const x = g.approxDist(c.tile, u.tile); if (x < d) { port = c; d = x; } }
+      if (port) went = toward(port.tile);
+    }
   }
-  u.fortified = true;
+  if (went) { if (!u.dead && u.moves > 0) strike(); return; }
+  // (Nothing to do at sea: its own port, to hold it.)
+  const h = home();
+  if (h && g.approxDist(h.tile, u.tile) > 2 && g.findPath(u, h.tile)) g.goTo(u, h.tile); else u.fortified = true;
 }
 
 // ---- research, civics, government ----

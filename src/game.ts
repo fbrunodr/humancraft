@@ -134,6 +134,7 @@ export const CLASH_MARGIN = 1.5;
 export const GROWTH_CUT_MAX = 40;
 // Buying: gold per point of production left (faith for religious buildings).
 export const GOLD_PER_PROD = 3;
+export const UPGRADE_GOLD = 2.5;
 export const FAITH_PER_PROD = 2;
 const FAITH_BUYS: readonly BuildKey[] = ['shrine', 'temple'];
 // What anyone can build from the start (the rest: techs.ts, politics.ts).
@@ -2446,8 +2447,10 @@ export class Game {
     }
     return best;
   }
-  // Gold to upgrade: one and a half times the difference in cost.
-  upgradeCost(u: Unit, to: UnitKey): number { return Math.max(10, Math.round(1.5 * (UNITS[to].cost - UNITS[u.type].cost) * this.pace)); }
+  // Gold to upgrade: UPGRADE_GOLD for each point of the difference in cost
+  // (under what buying the new unit outright costs, GOLD_PER_PROD, but not
+  // by so much that an army is best made of the cheapest units, upgraded).
+  upgradeCost(u: Unit, to: UnitKey): number { return Math.max(10, Math.round(UPGRADE_GOLD * (UNITS[to].cost - UNITS[u.type].cost) * this.pace)); }
   // Upgrades a unit that stands in its own territory (or is packed in an
   // army there), with moves left; it keeps its HP share and spends its turn.
   canUpgrade(u: Unit): boolean {
