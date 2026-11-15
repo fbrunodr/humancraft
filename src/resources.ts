@@ -134,7 +134,7 @@ export const empireBonus = (k: ResourceKey, era: number): Output => {
 const BONUS_CHANCE = 0.035;
 const FIT_PER_CLUSTER = { luxury: 700, strategic: 420 } as const;
 const CLUSTER = [1, 3] as const; // tiles a cluster has
-const STRATEGIC_PER_CIV = 0.5;   // clusters of each strategic resource a civ, at least
+const STRATEGIC_PER_CIV = 0.75;  // clusters of each strategic resource a civ, at least
 // What fits at sea counts this much against land for a kind found on both
 // (oil): the shallow seas are wide, and would otherwise take most of it.
 const SEA_FIT = 0.6;
@@ -177,7 +177,7 @@ export function placeResources(globe: Globe, m: TerrainView, starts: readonly nu
     for (let t = 0; t < N; t++) if (fitsResource(k, m, t)) fit.push(t);
     const sea = fit.filter((t) => BIOMES[m.biome[t]!].water).length, mixed = sea > 0 && sea < fit.length;
     const weight = mixed ? fit.length - sea + SEA_FIT * sea : fit.length;
-    // (A strategic: a cluster for every two civs at least, wherever the land puts them: not one for each, but no world where an era's arms cannot be had at all.)
+    // (A strategic: three clusters for every four civs at least, wherever the land puts them: not one for each, but no world where an era's arms cannot be had at all.)
     const clusters = Math.max(kind === 'strategic' ? Math.ceil(STRATEGIC_PER_CIV * starts.length) : 1, Math.round(weight / FIT_PER_CLUSTER[kind]));
     // (A seed drawn at sea, for a kind also on land, kept only SEA_FIT of the time.)
     const draw = () => { let s = fit[Math.floor(rand() * fit.length)]!; while (mixed && BIOMES[m.biome[s]!].water && rand() >= SEA_FIT) s = fit[Math.floor(rand() * fit.length)]!; return s; };

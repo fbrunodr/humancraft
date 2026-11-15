@@ -102,7 +102,7 @@ export const UNITS = {
   gatlingGun: { name: 'Gatling Gun', icon: 'A', melee: 6, rangedAtk: 8.5, rangedDef: 9, reach: 2, mv: 1, cost: 230, desc: 'Ranged and a stout defender.' },
   cavalry: { name: 'Cavalry', icon: 'K', melee: 10.5, rangedDef: 8, mv: 3, cost: 280, needs: 'horses', mounted: true, vsRanged: 0.5, desc: 'Fast; +50% attacking ranged and siege units. Needs Horses.' },
   artillery: { name: 'Artillery', icon: 'G', melee: 3, rangedAtk: 14, reach: 2, rangedDef: 5, mv: 1, cost: 330, siege: true, needs: 'niter', desc: 'Ranged siege: twice as strong against a city, weaker against units. Needs Niter.' },
-  machineGun: { name: 'Machine Gun', icon: 'A', melee: 7, rangedAtk: 10, reach: 2, rangedDef: 11, mv: 1, cost: 310, desc: 'Ranged and a stout defender.' },
+  machineGun: { name: 'Machine Gun', icon: 'A', melee: 7, rangedAtk: 10, reach: 2, rangedDef: 11, mv: 1, cost: 310, vsAir: 0.5, aaRange: 1, desc: 'Ranged and a stout defender. Fires on aircraft passing over it and the tiles next to it.' },
   // ---- Modern ----
   marine: { name: 'Marine', icon: 'I', melee: 15.5, rangedAtk: 11, rangedDef: 15, mv: 2, cost: 410, amphibious: true, desc: 'Amphibious: attacks straight from the water onto the shore.' },
   infantry: { name: 'Infantry', icon: 'I', melee: 16, rangedAtk: 10.5, reach: 2, rangedDef: 17, mv: 2, cost: 370, desc: 'Modern infantry.' },

@@ -51,7 +51,7 @@ export interface TechDef {
 export const TECH_COST_SCALE = 2.5;
 // And by era (a civ's science grows faster than the costs above: the first
 // techs come in a few turns, the last in many).
-const ERA_COST: Record<EraIndex, number> = { 0: 0.14, 1: 0.36, 2: 0.7, 3: 1.8, 4: 2.9, 5: 3.3, 6: 5.2 };
+const ERA_COST: Record<EraIndex, number> = { 0: 0.14, 1: 0.36, 2: 0.7, 3: 1.8, 4: 3.3, 5: 4.1, 6: 6.6 };
 const t = (name: string, era: EraIndex, cost: number, needs: readonly TechKey[], unlocks: Omit<TechDef, 'name' | 'era' | 'cost' | 'needs'> = {}): TechDef => ({ name, era, cost: Math.round(cost * TECH_COST_SCALE * ERA_COST[era]), needs, ...unlocks });
 
 // The last tech: it rests on every branch's end, and whoever discovers it first wins the game (game.ts checkVictory).

@@ -159,23 +159,25 @@ export function aiTurn(g: Game, p: Player): void {
 // What the armies a civ faces are made of: the land fighters of the civs
 // it is at war with, or else of its neighbours it has met, that it has
 // seen: the shares of them that ride, that shoot, that are armoured.
-const facingCache = new WeakMap<Game, { turn: number; of: ({ mounted: number; ranged: number; armored: number } | undefined)[] }>();
-function facing(g: Game, id: number): { mounted: number; ranged: number; armored: number } {
+interface Facing { mounted: number; ranged: number; armored: number; air: number }
+const facingCache = new WeakMap<Game, { turn: number; of: (Facing | undefined)[] }>();
+function facing(g: Game, id: number): Facing {
   let c = facingCache.get(g);
   if (!c || c.turn !== g.turn) facingCache.set(g, c = { turn: g.turn, of: [] });
   const had = c.of[id];
   if (had) return had;
   const wars = g.players.filter((o) => o.alive && g.atWar(id, o.id)).map((o) => o.id);
   const whose = wars.length ? wars : g.players.filter((o) => o.alive && o.id !== id && g.met[id]![o.id]).map((o) => o.id);
-  let n = 0, mounted = 0, ranged = 0, armored = 0;
+  let n = 0, mounted = 0, ranged = 0, armored = 0, air = 0;
   for (const u of g.units) {
     const d = unitDef(u.type);
+    if (whose.includes(u.owner) && domainOf(d) === 'air' && !d.nuke && g.known[id]![u.tile]) air++;
     if (!whose.includes(u.owner) || d.civilian || domainOf(d) !== 'land' || !g.known[id]![u.tile]) continue;
     n++;
     if (d.armored) armored++; else if (d.mounted) mounted++;
     if (isShooter(u.type) && !d.siege) ranged++;
   }
-  return (c.of[id] = n < 3 ? { mounted: 0, ranged: 0, armored: 0 } : { mounted: mounted / n, ranged: ranged / n, armored: armored / n });
+  return (c.of[id] = n < 3 ? { mounted: 0, ranged: 0, armored: 0, air } : { mounted: mounted / n, ranged: ranged / n, armored: armored / n, air });
 }
 
 // The best unit a city can build now for a role: defending (its defense),
@@ -214,6 +216,15 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
     if (u.owner !== p.id || d.civilian || domainOf(d) !== 'land' || !canAttackType(u.type)) continue;
     have[d.siege ? 'siege' : d.mounted ? 'mounted' : isShooter(u.type) ? 'ranged' : 'front']++;
     n++;
+  }
+  // (Aircraft seen among those it faces: guns against them, one for every two, four at most.)
+  const foe = facing(g, p.id);
+  if (foe.air > 0) {
+    const guns = g.units.filter((u) => u.owner === p.id && unitDef(u.type).aaRange).length + g.cities.filter((c) => c.owner === p.id && c.building && c.building in UNITS && unitDef(c.building as UnitKey).aaRange).length;
+    if (guns < Math.min(4, Math.ceil(foe.air / 2))) {
+      const gun = (Object.keys(UNITS) as UnitKey[]).filter((k) => unitDef(k).aaRange && g.canBuild(city, k)).sort((a, b) => unitDef(b).aaRange! - unitDef(a).aaRange! || unitDef(b).cost - unitDef(a).cost)[0];
+      if (gun) return gun;
+    }
   }
   const siege = onCampaign(g, p) ? P.siegeShare : P.siegeShare / 3;
   const want = { ranged: P.rangedShare, mounted: P.mountedShare, siege, front: Math.max(0.15, 1 - P.rangedShare - P.mountedShare - siege) };
@@ -254,14 +265,16 @@ function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey 
   ];
   const order = pulls.filter(([w]) => w > 0).map(([w, make]) => ({ w: w + 0.15 * g.rng(), make })).sort((a, b) => b.w - a.w);
   for (const o of order) { const k = o.make(); if (k) return k; }
-  // (Nothing to build: a wonder rather than idle production; else the production is banked as gold.)
-  return wonder();
+  // (Nothing to build: a wonder rather than idle production; at war, more arms, while they can be paid; else the production is banked as gold.)
+  return wonder() ?? (n.atWar && n.armyTarget > 0 && n.military < 1.5 * n.armyTarget ? unit() : null);
 }
 
 // The share of the land within ten tiles of a city its civ has not explored.
 function unknownNear(g: Game, city: City): number {
   let land = 0, dark = 0;
-  for (const t of g.tilesWithin(city.tile, 10)) { if (g.isWater(t)) continue; land++; if (!g.known[city.owner]![t]) dark++; }
+  // (Of the land a scout could walk to: its own landmass. What lies over the water is not a scout's to find.)
+  const mass = g.flora.landmass[city.tile];
+  for (const t of g.tilesWithin(city.tile, 10)) { if (g.isWater(t) || g.flora.landmass[t] !== mass) continue; land++; if (!g.known[city.owner]![t]) dark++; }
   return dark / Math.max(1, land);
 }
 
@@ -278,7 +291,8 @@ function bestBuilding(g: Game, city: City): BuildingKey | null {
     const upkeep = buildingUpkeep(buildDef(k).cost);
     const gain = weigh(city.focus, yields) - upkeep * (broke ? 4 : 1.5) + (broke ? 3 * yields.gold : 0)
       + (k === 'courthouse' ? g.upkeepOf(city) * (broke ? 4 : 2) : 0);
-    const defense = k === 'barracks' || k === 'stable' ? 3 : 0;
+    // (And what yields do not show: a city's defences; the food an Aqueduct keeps, and the Hospital it opens.)
+    const defense = k === 'barracks' || k === 'stable' ? 3 : k === 'aqueduct' ? 1.5 + 0.25 * city.pop : 0;
     if (gain + defense <= 0) continue;
     scored.push({ k, s: (gain + defense) / buildDef(k).cost });
   }
