@@ -55,6 +55,9 @@ function stateOf(g: Game, id: number): State {
   if (!all) states.set(g, all = []);
   return all[id] ??= { op: null, plan: null, lastOp: -100 };
 }
+// (A saved game keeps what each civ's army was about: save.ts.)
+export const militaryMemory = (g: Game): unknown => states.get(g) ?? [];
+export const setMilitaryMemory = (g: Game, s: unknown): void => { states.set(g, s as State[]); };
 // A war the civ means to start (ai.ts aiDiplomacy): its army gathers first.
 export function planWar(g: Game, p: Player, vs: number): void { const s = stateOf(g, p.id); if (!s.plan && !s.op) s.plan = { vs, turn: g.turn }; }
 export const planning = (g: Game, p: Player): boolean => stateOf(g, p.id).plan !== null;

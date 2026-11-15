@@ -5,7 +5,7 @@ import type { Globe, Tile } from './goldberg.ts';
 import type { MapData } from './mapgen.ts';
 import { generateWorld, type World } from './world.ts';
 import { tileYieldOf } from './mapRules.ts';
-import { mulberry32, type Rng } from './rng.ts';
+import { mulberry32, type SeededRng } from './rng.ts';
 import {
   unitDef, buildDef, isUnitKey, isWonder, UNITS, BUILDINGS, CIVS, growthCost, UPGRADES, domainOf,
   type UnitKey, type BuildingKey, type BuildKey, type MapSizeKey, type MapScriptKey,
@@ -361,7 +361,9 @@ export class Game {
   readonly map: MapData;
   readonly flora: Flora; // which variant of its biome each tile shows (visual only)
   readonly world: World;
-  readonly rng: Rng;
+  readonly rng: SeededRng;
+  // What it was made with (a saved game is made again with the same, then given its state: save.ts).
+  readonly options: GameOptions;
 
   turn = 1;
   private nextId = 1;
@@ -419,6 +421,7 @@ export class Game {
   readonly events: GameEvent[] = [];            // everything every player did (gameLog.ts)
 
   constructor({ size, seed, script = 'continents', everyCiv = false, autoRoads = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs }: GameOptions) {
+    this.options = { size, seed, script, everyCiv, autoRoads, level, speed, ...(policies ? { policies } : {}), ...(turnLimit !== undefined ? { turnLimit } : {}), ...(playAs ? { civ: playAs } : {}) };
     this.seed = seed;
     this.speed = speed;
     this.pace = GAME_SPEEDS[speed].pace;
