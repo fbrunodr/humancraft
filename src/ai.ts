@@ -1,8 +1,8 @@
 import { unitDef, buildDef, domainOf, UNITS, type BuildKey, type UnitKey, type UnitDef } from './rules.ts';
 import { BUILDING_KEYS, BUILDINGS, WONDER_KEYS, USE, CITY_REACH, weigh, addOut, OUTPUT_KEYS, ERAS, type BuildingKey } from './cities.ts';
 import { resourceDef, empireBonus, type ResourceKey } from './resources.ts';
-import { flat } from './effects.ts';
-import { buildingUpkeep } from './economy.ts';
+import { flat, total } from './effects.ts';
+import { buildingUpkeep, cityUpkeep, UPKEEP_PER_CITY } from './economy.ts';
 import { TECH_KEYS, techDef, type TechKey } from './techs.ts';
 import { POLITICS_KEYS, politicsDef, policyDef, SLOT_KINDS, fits, type PoliticsKey, type GovernmentKey, type PolicyKey } from './politics.ts';
 import { TRAIT_KEYS, traitDef, PATH_KEYS, PATHS, type PathKey, type TraitKey } from './identity.ts';
@@ -87,6 +87,14 @@ export function aiTurn(g: Game, p: Player): void {
     const spare = units.filter((u) => isMilitary(u) && !g.cityByTile.has(u.tile)).sort((a, b) => unitDef(a.type).cost - unitDef(b.type).cost);
     for (const u of spare.slice(0, 2)) g.removeUnit(u);
   }
+  // It pays its way: no new city while what one more would cost a turn
+  // (its own upkeep, some six tiles out, and what it adds to every other
+  // city's) is more than its income has to spare, unless its treasury
+  // would carry it a good while. (A civ that settles past what it can pay
+  // loses most of its science to arrears: the cities come later, not never.)
+  const oneMore = (cityUpkeep(6, cities.length, false, total(g.effectsOf(p), 'upkeep')) + UPKEEP_PER_CITY * cities.length) * g.inflation;
+  const pending = settlers + cities.filter((c) => c.building === 'settler').length;
+  const canSettle = cities.length < 2 || net - oneMore * (1 + pending) >= 0 || p.gold >= 40 * oneMore * (1 + pending);
   // (A civ hostile toward it, as it reads them: it arms.)
   const menaced = !atWar && g.players.some((o) => o.alive && o.id !== p.id && g.met[p.id]![o.id] && attitude(g, o, p.id) === 'hostile');
   const armyTarget = broke ? 0 : (P.armyBase + P.armyPerCity * cities.length) * (atWar || planning(g, p) ? P.armyWar : menaced ? P.armyThreat : 1);
@@ -101,7 +109,7 @@ export function aiTurn(g: Game, p: Player): void {
   for (const c of cities) {
     g.rework(c);
     if (!c.building) {
-      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort });
+      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort, canSettle });
       if (c.building === 'worker') workers++;
       else if (c.building === 'settler') expansion++;
       else if (c.building && c.building in UNITS) coming++;
@@ -236,7 +244,7 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
 // What a city builds next: each kind of thing pulls by how much it is
 // needed now and by its civ's policy; the strongest pull that can be
 // answered wins (with a little chance, so cities differ).
-interface BuildNeeds { expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
+interface BuildNeeds { canSettle: boolean; expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
 function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey | null {
   // (A garrison first: a city with none is anyone's who walks in; the unit that holds best at close quarters.)
   if (!n.garrisoned) return bestUnit(g, city, 'front') ?? bestUnit(g, city, 'ranged') ?? 'warrior';
@@ -252,7 +260,7 @@ function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey 
   const plane = n.airShort > 0 ? bestUnit(g, city, 'air') : null;
   const short = (n.armyTarget - n.military) / Math.max(1, n.armyTarget);
   const pulls: [number, () => BuildKey | null][] = [
-    [n.expansion < P.cityTarget && city.pop >= 2 && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
+    [n.canSettle && n.expansion < P.cityTarget && city.pop >= 2 && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
     [n.workersShort > 0 && city.pop >= 2 ? P.wWorker * Math.min(1, n.workersShort / 2) : 0, () => 'worker'],
     [short > 0 ? P.wArmy * (0.25 + short) * (n.threatened ? 2.5 : 1) : n.threatened && short > -0.5 ? P.wArmy * 0.5 : 0, unit],
     [ship && !n.threatened ? P.wArmy * (0.3 + Math.min(1, n.navyShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => ship],
