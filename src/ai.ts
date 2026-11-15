@@ -226,11 +226,11 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
     have[d.siege ? 'siege' : d.mounted ? 'mounted' : isShooter(u.type) ? 'ranged' : 'front']++;
     n++;
   }
-  // (Aircraft seen among those it faces: guns against them, one for every two, four at most.)
+  // (Aircraft seen among those it faces: guns against them, one for each, eight at most.)
   const foe = facing(g, p.id);
   if (foe.air > 0) {
     const guns = g.units.filter((u) => u.owner === p.id && unitDef(u.type).aaRange).length + g.cities.filter((c) => c.owner === p.id && c.building && c.building in UNITS && unitDef(c.building as UnitKey).aaRange).length;
-    if (guns < Math.min(4, Math.ceil(foe.air / 2))) {
+    if (guns < Math.min(8, foe.air)) {
       const gun = (Object.keys(UNITS) as UnitKey[]).filter((k) => unitDef(k).aaRange && g.canBuild(city, k)).sort((a, b) => unitDef(b).aaRange! - unitDef(a).aaRange! || unitDef(b).cost - unitDef(a).cost)[0];
       if (gun) return gun;
     }
@@ -483,10 +483,12 @@ function airTurn(g: Game, u: Unit): void {
   for (const t of g.tilesWithin(u.tile, unitDef(u.type).range ?? 1)) {
     if (!g.isEnemyOccupied(t, u.owner) || g.attackBlockAt(u, t) !== null) continue;
     const pv = g.combatPreview(u, t), odds = pv ? pv.atk / (pv.atk + pv.def) : 0.6;
+    // (What it strikes fires back: not at troops that would hurt it more than it hurts them, unless they are nearly done.)
+    if (pv && odds < 0.45 && pv.defender.hp > 35) continue;
     const s = odds + (pv && pv.defender.hp < 50 ? 0.15 : 0) + (g.cityByTile.has(t) ? 0.1 : 0);
     if (s > bestS) { best = t; bestS = s; }
   }
-  if (best !== null) { g.goTo(u, best); return; }
+  if (best !== null && u.hp >= 40) { g.goTo(u, best); return; }
   // Nothing in reach: it moves to the base of its civ's nearest the fighting (an enemy unit, else an enemy city), a hop at a time.
   if (u.hp < 50) return;
   const foe = (t: number) => g.isEnemyOccupied(t, u.owner);

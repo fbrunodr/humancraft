@@ -12,7 +12,8 @@ import { unitModel, unitVariants, fullCount } from '../src/unitModels.ts';
 // how they play (unitClasses.ts).
 
 const KEYS = Object.keys(UNITS) as UnitKey[];
-const STARTING: readonly UnitKey[] = ['warrior', 'slinger', 'scout', 'settler', 'worker'];
+// (A missionary is never built: the founder of a religion raises it with faith.)
+const STARTING: readonly UnitKey[] = ['warrior', 'slinger', 'scout', 'settler', 'worker', 'missionary'];
 // The era a unit comes in (the tech or civic unlocking it; 0 at the start).
 const unlockers = (k: UnitKey) => [
   ...TECH_KEYS.filter((t) => TECHS[t].units?.includes(k)).map((t) => TECHS[t].era as number),
@@ -183,6 +184,21 @@ describe('R4: at sea and in the air', () => {
       expect(f.hp < 100 || bomber.hp < 100 || bomber.dead).toBe(true);
     }
     expect(foe.dead || foe.hp <= 100).toBe(true);
+  });
+  it('troops fire back at an aircraft that strikes them (at half effect): an airship over riflemen comes home hurt, sooner or later', () => {
+    const { g, coast, inland } = waterWorld();
+    const city = g.foundCity(g.createUnit('settler', 0, coast))!;
+    g.declareWar(0, 1);
+    const foe = g.createUnit('infantry', 1, inland);
+    let hurt = false;
+    for (let i = 0; i < 12 && !hurt; i++) {
+      const ship = g.createUnit('airship', 0, city.tile);
+      foe.hp = 100;
+      g.goTo(ship, inland);
+      hurt = ship.dead || ship.hp < 100;
+      if (!ship.dead) g.removeUnit(ship);
+    }
+    expect(hurt).toBe(true);
   });
   it('horse units show six figures at most', () => {
     for (const k of ['horseman', 'knight', 'lancer', 'cavalry', 'chariotArcher'] as const) expect(fullCount(k), k).toBeLessThanOrEqual(6);

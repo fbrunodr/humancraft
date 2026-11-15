@@ -192,7 +192,7 @@ export function matchup(self: UnitKey, other: UnitKey, role: 'atk' | 'def'): num
 // back (an exchange it wins is a miss); a dogfight (fighters intercepting)
 // is three exchanges, each side hurting the other.
 // The HP each side is left with (at or below 0: destroyed).
-export type Fight = 'melee' | 'ranged' | 'dogfight';
+export type Fight = 'melee' | 'ranged' | 'dogfight' | 'strike';
 // A clash at close quarters is this many exchanges, not a fight to the
 // death: a battle between equals takes a few attacks, over a turn or
 // three, and either side may break off, be relieved or be reinforced.
@@ -205,8 +205,9 @@ export const MELEE_ROUNDS = 4;
 // A volley of fire is this many (the target never answering): lighter than a clash, as it costs the shooter nothing.
 export const VOLLEY_ROUNDS = 2;
 export function fightRounds(hpA: number, hpD: number, A: number, D: number, kind: Fight, rng: () => number): { attacker: number; defender: number } {
-  const back = kind === 'melee' ? 1 : kind === 'dogfight' ? 0.5 : 0;
-  for (let round = 0; hpA > 0 && hpD > 0 && round < (kind === 'melee' ? MELEE_ROUNDS : kind === 'ranged' ? VOLLEY_ROUNDS : 3); round++) {
+  // (An air strike: a volley's exchanges, and what it strikes fires back at half effect: an aircraft comes home hurt from troops that can shoot.)
+  const back = kind === 'melee' ? 1 : kind === 'dogfight' || kind === 'strike' ? 0.5 : 0;
+  for (let round = 0; hpA > 0 && hpD > 0 && round < (kind === 'melee' ? MELEE_ROUNDS : kind === 'ranged' || kind === 'strike' ? VOLLEY_ROUNDS : 3); round++) {
     const dmg = HIT_MIN + Math.floor(rng() * (HIT_MAX - HIT_MIN + 1));
     if (rng() < A / (A + D)) hpD -= dmg; else hpA -= Math.round(dmg * back);
   }
@@ -1032,7 +1033,9 @@ export class Game {
       const A = this.unitStrength(u, mode, 'atk', tile) * matchup(u.type, d.type, 'atk') * this.siegeEdge(u, tile) * this.faithEdge(u.owner, d.owner);
       const D = this.unitStrength(d, mode, 'def', tile) * matchup(d.type, u.type, 'def');
       const before = { a: u.hp, d: d.hp };
-      const after = fightRounds(u.hp, d.hp, A, D, mode, this.rng);
+      // (An aircraft striking troops is fired back on; a missile or a bomb is not: it is spent.)
+      const air = domainOf(unitDef(u.type)) === 'air' && !unitDef(u.type).missile && !unitDef(u.type).nuke;
+      const after = fightRounds(u.hp, d.hp, A, D, air && mode === 'ranged' ? 'strike' : mode, this.rng);
       this.onBattle?.(u, tile, style, { defender: d.id, attackerHp: after.attacker, defenderHp: after.defender });
       u.hp = after.attacker;
       d.hp = after.defender;
