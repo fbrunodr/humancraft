@@ -640,7 +640,13 @@ export class UnitView {
   fight(attacker: number, tile: number, style: AttackStyle, now: number, result?: FightResult): void {
     const a = this.shown.get(attacker), play = PLAYS[style];
     const defenders = [...this.shown.values()].filter((s) => s.unit.tile === tile && s !== a && !s.gone); // (not one already gone, shown till its fight is over)
-    const main = (result && this.shown.get(result.defender)) || defenders[0];
+    // (The unit the rules say defended, if it is shown and not already gone;
+    // it fights with the rest even when it is not found on the tile by its
+    // own, as a ship struck in port is not: without a fight of its own the
+    // lines below had nothing to write to, and the turn stopped there.)
+    const named = result ? this.shown.get(result.defender) : undefined;
+    if (named && !named.gone && named !== a && !defenders.includes(named)) defenders.push(named);
+    const main = (named && !named.gone && named !== a ? named : undefined) ?? defenders[0];
     const at = main?.dir.clone() ?? this.env.center(tile).clone();
     // (The defenders turned to the attacker first: the attackers' figures go where theirs then stand.)
     // (Who wins: the attacker if the defender is destroyed and it is not; the defenders if it is.)

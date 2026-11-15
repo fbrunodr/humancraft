@@ -77,6 +77,7 @@ const PROP_CHUNKS = 48;
 const FAR_PX = 16;
 // A town's buildings go far this much farther off than the trees (they stand taller).
 const HOUSE_FAR = 1.6;
+const SETTLE_EVERY = 600, SETTLE_IDLE = 1200; // ms between the towns out of sight laid out again, and of stillness before any is
 // The countryside's small models (haystacks, herds, heaps, fences) go when
 // a tree would be this many times smaller than FAR_PX: a pixel or two.
 const RURAL_GONE = 2.5;
@@ -122,6 +123,7 @@ interface PropChunk {
   meshes: Map<PropKind, THREE.InstancedMesh>;
   surface: THREE.Mesh[]; // its ground and water
   farHouses: THREE.Mesh | null; // its houses' far models, all in one (mergeFarHouses)
+  near: boolean;       // in sight and near enough for its towns to show as built (cullChunks): those are laid out at once when they change
 }
 
 interface PlacedProp {
@@ -274,6 +276,10 @@ export class GlobeRenderer {
   private readonly sunDir = new THREE.Vector3();
   private walkHint: HTMLElement | null = null;
   private lastFrame = performance.now();
+  private lastSettle = 0;
+  private lastInput = 0;
+  private readonly prevCam = new THREE.Vector3();
+  private lastSel: Selection = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly scale: number; // world size of one tile relative to REF_EDGE
   private readonly maxLift: number; // highest ground above radius 1
@@ -591,7 +597,7 @@ export class GlobeRenderer {
     const golden = Math.PI * (3 - Math.sqrt(5));
     for (let k = 0; k < PROP_CHUNKS; k++) {
       const y = 1 - (2 * (k + 0.5)) / PROP_CHUNKS, rr = Math.sqrt(1 - y * y);
-      this.chunks.push({ dir: new THREE.Vector3(Math.cos(golden * k) * rr, y, Math.sin(golden * k) * rr), radius: 0, tiles: [], meshes: new Map(), surface: [], farHouses: null });
+      this.chunks.push({ dir: new THREE.Vector3(Math.cos(golden * k) * rr, y, Math.sin(golden * k) * rr), radius: 0, tiles: [], meshes: new Map(), surface: [], farHouses: null, near: false });
     }
     for (const tile of g.tiles) {
       let best = 0;
@@ -665,6 +671,8 @@ export class GlobeRenderer {
       hint = l.t;
       return { ...this.citySpot(l.t, l.i, l.wa, l.wb), t: l.t };
     }, s);
+    // (A town is laid out again at once only where the player is looking: cullChunks says where that is.)
+    this.cityProps.defer((c) => this.tileChunk[c.tile]?.near === true);
     this.unitsGroup.userData['stat'] = 'units';
     // The units, as figurines on the ground (unitView.ts), each under its flag.
     let unitHint = 0;
@@ -750,6 +758,11 @@ export class GlobeRenderer {
 
   // Redraw everything that depends on game state.
   syncWorld(sel: Selection): void {
+    this.lastSel = sel;
+    this.cityProps.beginPass();
+    try { this.syncWorldPass(sel); } finally { this.cityProps.endPass(); }
+  }
+  private syncWorldPass(sel: Selection): void {
     const changed = [...new Set([...this.changedTiles(), ...this.drainedTiles()])];
     if (changed.length) {
       this.updateColors(changed);
@@ -778,10 +791,14 @@ export class GlobeRenderer {
     const townChanged = this.cityProps.changed();
     // (The flora on a town's tiles stays clear of what the town builds.)
     for (const t of townChanged) for (const x of [t, ...g.tiles[t].neighbors]) { this.propCache.delete(x); dirty.add(this.tileChunk[x]!); }
-    if (changed.length) this.updateProps(); else if (dirty.size) this.updateProps(dirty);
+    // (Tiles come into sight or gone out of it: their chunks' props are shaded anew, not the whole world's.)
+    for (const t of changed) dirty.add(this.tileChunk[t]!);
+    if (dirty.size) this.updateProps(dirty);
     // (What casts real shadows changed: they re-render.)
     if (changed.length || dirty.size || useChanged || townChanged.length) this.shadowsDirty = true;
-    this.updateRoads(changed.length > 0 || townChanged.length > 0);
+    // (Roads are drawn on found land, whether in sight or not: again when land was found or a town changed, not at every unit's step.)
+    this.updateRoads(this.newlyExplored || townChanged.length > 0);
+    this.newlyExplored = false;
     this.updateSmoke();
     this.updateForts();
     this.updateCities();
@@ -1032,6 +1049,8 @@ export class GlobeRenderer {
     return out;
   }
 
+  // (Set when land was found since the last pass: what is drawn only on found land, the roads, is then drawn again.)
+  private newlyExplored = false;
   private changedTiles(): number[] {
     const g = this.game;
     const out: number[] = [];
@@ -1039,6 +1058,7 @@ export class GlobeRenderer {
       const o = g.ownerOf(t);
       if (g.explored[t] !== this.prevExplored[t] || g.visible[t] !== this.prevVisible[t] || o !== this.prevOwner[t]) {
         out.push(t);
+        if (g.explored[t] !== this.prevExplored[t]) this.newlyExplored = true;
         this.prevExplored[t] = g.explored[t];
         this.prevVisible[t] = g.visible[t];
         this.prevOwner[t] = o;
@@ -1591,6 +1611,7 @@ export class GlobeRenderer {
         if (twin) twin.visible = show && far && !(chunk.farHouses && mesh.userData['farAt'] === HOUSE_FAR);
       }
       if (chunk.farHouses) chunk.farHouses.visible = this.view === 'normal' && seen && away > farDist * HOUSE_FAR;
+      chunk.near = seen && away <= farDist * HOUSE_FAR;
     }
   }
 
@@ -2589,7 +2610,7 @@ export class GlobeRenderer {
       const t = this.pick(e.clientX, e.clientY);
       if (t >= 0) this.onTileClick(t, e.button);
     });
-    canvas.addEventListener('pointermove', (e) => { this.pointer = { x: e.clientX, y: e.clientY, dirty: true }; });
+    canvas.addEventListener('pointermove', (e) => { this.pointer = { x: e.clientX, y: e.clientY, dirty: true }; this.lastInput = performance.now(); });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
@@ -2723,6 +2744,17 @@ export class GlobeRenderer {
     this.updateSun();
     this.updateAir();
     this.cullChunks();
+    // Towns out of sight that changed wait to be laid out again
+    // (cityProps.ts settle). One that has come into sight is done at once,
+    // and drawn. The others one at a time while nothing moves (no pointer,
+    // a still camera, for SETTLE_IDLE ms), SETTLE_EVERY ms apart: each is a
+    // tenth of a second's work, not to be felt while panning; what it
+    // changed is drawn with the next pass over the world.
+    if (!this.camera.position.equals(this.prevCam)) { this.prevCam.copy(this.camera.position); this.lastInput = now; }
+    if (this.cityProps.hasPending()) {
+      if (this.cityProps.urgentPending()) { if (this.cityProps.settle()) this.syncWorld(this.lastSel); }
+      else if (now - this.lastInput > SETTLE_IDLE && now - this.lastSettle > SETTLE_EVERY) { this.lastSettle = now; this.cityProps.settle(); }
+    }
     // (The water's depth twin: only while the view can tilt toward a horizon, water.ts.)
     this.waterOccluder.visible = this.walk.active || this.cam.distance < WATER_OCCLUDER_WITHIN;
     this.unitView.update(now / 1000, this.camera, this.renderer.domElement.height / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));

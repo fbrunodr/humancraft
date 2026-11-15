@@ -358,16 +358,66 @@ export class CityProps {
     return g.tilesWithin(city.tile, Math.max(city.ring, BORDER_MAX)).filter((t) => g.tileCity[t] === city.id && isFarmland(g, t));
   }
 
-  // Everything the town's layout depends on.
-  private citySig(city: City, memo?: Map<number, string>): string {
+  // While the renderer goes over the world once (render.ts syncWorld) the
+  // game does not change, so each town's signature is worked out once for
+  // the whole pass, not at every one of the thousands of asks for it (its
+  // farmland and its roads are a walk over its tiles each time: that was
+  // most of what an end of turn cost late in a game).
+  private pass: Map<number, string> | null = null;
+  beginPass(): void { this.pass = new Map(); }
+  endPass(): void { this.pass = null; }
+
+  // Everything the town's layout depends on. (Of what it is building, only a
+  // wonder: its scaffolding stands. A town is not laid out again each time
+  // it turns from a granary to a spearman.)
+  private citySig(city: City, memo: Map<number, string> | undefined = this.pass ?? undefined): string {
     const m = memo?.get(city.id);
     if (m !== undefined) return m;
     const g = this.game;
     const wonders = g.cityWonders(city).map((w) => `${w}@${g.wondersBuilt.get(w)}`).join(',');
     const farms = this.farmland(city).map((t) => `${t}:${g.builtAt(t)}:${g.stageAt(t, city.owner)}:${g.pillaged[t]}`).join(';');
-    const sig = `${city.id}|${city.pop}|${g.players[city.owner]!.era}|${city.buildings.has('walls') && !g.wallsObsolete(city.owner) ? 'w' : ''}|${city.wonderTile ?? ''}|${city.building ?? ''}|${this.version}|${wonders}|${farms}|${this.roadsInto(city.tile).map((p) => p.x.toFixed(5)).join(',')}`;
+    const sig = `${city.id}|${city.pop}|${g.players[city.owner]!.era}|${city.buildings.has('walls') && !g.wallsObsolete(city.owner) ? 'w' : ''}|${city.wonderTile ?? ''}|${city.building && isWonderKey(city.building) ? city.building : ''}|${this.version}|${wonders}|${farms}|${this.roadsInto(city.tile).map((p) => p.x.toFixed(5)).join(',')}`;
     memo?.set(city.id, sig);
     return sig;
+  }
+
+  // The town whose layout draws this tile (its center, its farmland, a wonder beside it on flat land), if any.
+  private townOf(t: number): City | null {
+    const g = this.game, city = g.cityById.get(g.tileCity[t]);
+    if (!city) return null;
+    if (g.use[t] === USE.wild && !g.builtAt(t)) return this.landWonderOf(t) ? city : null;
+    return g.use[t] === USE.center || isFarmland(g, t) ? city : null;
+  }
+
+  // Towns out of the player's sight are not laid out again the moment they
+  // change: they keep the layout they had (the renderer says which are in
+  // sight: defer), wait their turn (pending), and are laid out one at a
+  // time when there is a moment for it (settle), or at once when they come
+  // into sight. A town in sight, or one never laid out, is done at once.
+  // So the end of a turn costs the towns one is looking at, not every town
+  // that grew anywhere in the world.
+  private urgent: ((city: City) => boolean) | null = null;
+  private readonly pending = new Set<number>();
+  defer(urgent: ((city: City) => boolean) | null): void { this.urgent = urgent; }
+  private waits(city: City, sig: string): boolean {
+    const had = this.layouts.get(city.id);
+    return had !== undefined && had.sig !== sig && this.urgent !== null && !this.urgent(city);
+  }
+  hasPending(): boolean { return this.pending.size > 0; }
+  // (One of them has come into sight: it is not kept waiting.)
+  urgentPending(): boolean { for (const id of this.pending) { const c = this.game.cityById.get(id); if (c && this.urgent?.(c)) return true; } return false; }
+  // Lays out one town that waits (one in sight first); false if none did.
+  settle(): boolean {
+    let pick: City | null = null;
+    for (const id of this.pending) {
+      const c = this.game.cityById.get(id);
+      if (!c) { this.pending.delete(id); continue; }
+      if (!pick || (this.urgent?.(c) && !this.urgent(pick))) pick = c;
+    }
+    if (!pick) return false;
+    this.pending.delete(pick.id);
+    this.layouts.set(pick.id, this.buildLayout(pick, this.citySig(pick)));
+    return true;
   }
 
   // What this tile shows now, and a signature that changes when it must be rebuilt.
@@ -391,22 +441,30 @@ export class CityProps {
     const out: number[] = [];
     const memo = new Map<number, string>();
     for (let t = 0; t < this.game.N; t++) {
+      // (What the player has not found is not drawn, nor laid out: it will be when it is found.)
+      if (!this.game.explored[t]) continue;
       const sig = this.signature(t, memo);
       const c = this.cache.get(t);
-      if ((c?.sig ?? '') !== sig) out.push(t);
+      if ((c?.sig ?? '') === sig) continue;
+      // (A town that waits to be laid out again: its tiles stay as they are until it is.)
+      const town = this.townOf(t);
+      if (town && c && this.waits(town, this.citySig(town, memo))) { this.pending.add(town.id); continue; }
+      out.push(t);
     }
     return out;
   }
 
-  // Every city's streets (for the ground ribbons) and squares.
+  // The cities the player has found: only those are laid out and drawn.
+  private seen(): City[] { return this.game.cities.filter((c) => this.game.explored[c.tile]); }
+  // Every such city's streets (for the ground ribbons) and squares.
   streets(): Street[] {
-    return this.game.cities.flatMap((c) => this.layout(c).streets);
+    return this.seen().flatMap((c) => this.layout(c).streets);
   }
   pavings(): Paving[] {
-    return this.game.cities.flatMap((c) => this.layout(c).pavings);
+    return this.seen().flatMap((c) => this.layout(c).pavings);
   }
   sinks(): SinkSheet[] {
-    return this.game.cities.flatMap((c) => this.layout(c).sinks);
+    return this.seen().flatMap((c) => this.layout(c).sinks);
   }
 
   place(t: number): PlacedBuilding[] {
@@ -414,7 +472,9 @@ export class CityProps {
     const c = this.cache.get(t);
     if (c && c.sig === sig) return c.items;
     const items = sig === '' ? [] : this.build(t);
-    this.cache.set(t, { sig, items });
+    // (Drawn from a layout that waits to be made again: remembered as that one's, so it is drawn anew when the town is laid out.)
+    const town = sig.startsWith('town|') ? this.townOf(t) : null, used = town ? this.layouts.get(town.id)?.sig : undefined;
+    this.cache.set(t, { sig: used !== undefined ? `town|${used}` : sig, items });
     return items;
   }
 
@@ -445,7 +505,9 @@ export class CityProps {
   private layout(city: City): CityLayout {
     const sig = this.citySig(city);
     const c = this.layouts.get(city.id);
-    if (c && c.sig === sig) return c;
+    if (c && c.sig === sig) { this.pending.delete(city.id); return c; }
+    if (c && this.waits(city, sig)) { this.pending.add(city.id); return c; }
+    this.pending.delete(city.id);
     const l = this.buildLayout(city, sig);
     this.layouts.set(city.id, l);
     return l;
