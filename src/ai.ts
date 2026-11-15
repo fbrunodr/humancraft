@@ -84,7 +84,8 @@ export function aiTurn(g: Game, p: Player): void {
   const l = p.ledger, net = l.income.gold + l.tithes + l.trade - l.cityUpkeep - l.unitUpkeep;
   const broke = net < 0 && p.gold < 40;
   if (net < 0 && p.gold <= 0) {
-    const spare = units.filter((u) => isMilitary(u) && !g.cityByTile.has(u.tile)).sort((a, b) => unitDef(a.type).cost - unitDef(b.type).cost);
+    // (Not its commanders: cheap to keep, and an army is the worse without one.)
+    const spare = units.filter((u) => isMilitary(u) && u.type !== 'commander' && !g.cityByTile.has(u.tile)).sort((a, b) => unitDef(a.type).cost - unitDef(b.type).cost);
     for (const u of spare.slice(0, 2)) g.removeUnit(u);
   }
   // It pays its way: no new city while what one more would cost a turn

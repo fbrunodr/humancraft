@@ -335,7 +335,8 @@ export function militaryPhase(g: Game, p: Player, P: AiPolicy, cities: readonly 
     for (const [t, d] of g.tilesWithinMap(city.tile, 3)) {
       if (d < 2 || g.isWater(t) || (t !== c.tile && !g.canStand(c, t)) || g.isForeignBlocked(t, p.id) || g.isEnemyOccupied(t, p.id)) continue;
       if (foeUnits.some((e) => !e.dead && dist(e.tile, t) <= 1.5)) continue;
-      const s = 2 * mine.filter((u) => !u.dead && dist(u.tile, t) <= 1.5).length - 0.5 * dist(t, c.tile) - 0.05 * (danger.get(t) ?? 0);
+      // (On a tile one of its own units holds, best: that unit defends it. A commander alone falls to the first blow.)
+      const s = 2 * mine.filter((u) => !u.dead && dist(u.tile, t) <= 1.5).length + (mine.some((u) => !u.dead && u.tile === t) ? 4 : 0) - 0.5 * dist(t, c.tile) - 0.05 * (danger.get(t) ?? 0);
       if (s > spotS) { spot = t; spotS = s; }
     }
     go(c, spot);
