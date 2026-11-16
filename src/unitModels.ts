@@ -134,6 +134,13 @@ const blade = (a: THREE.Vector3, b: THREE.Vector3, w: number, color: number, t?:
   const k = WK, rings = leaf ? [R(at(0), 0.006 * k, w * 0.45 * k), R(at(0.35), 0.005 * k, w * k), R(at(1), 0, 0)] : [R(at(0), 0.0045 * k, w * k), R(at(0.82), 0.004 * k, w * 0.8 * k), R(at(1), 0, 0)];
   return lp(hull(rings, 4, color, { side: [0, 0, 1], turn: 0, caps: [true, false] }), {}, t);
 };
+// A sabre's blade from the grip `g`: one piece, leaning forward and curving back to its point, its cutting edge the
+// outside of the curve, to the front (flat as a blade is: its faces to the sides).
+const sabre = (g: THREE.Vector3, t?: Tag) => {
+  const at = (y: number, z: number): V3 => [g.x, g.y + y, g.z + z], k = WK;
+  return lp(hull([R(at(0.045, 0.02), 0.0045 * k, 0.019 * k), R(at(0.19, 0.105), 0.0045 * k, 0.021 * k), R(at(0.33, 0.16), 0.004 * k, 0.018 * k), R(at(0.45, 0.18), 0, 0)],
+    4, METAL, { side: [0, 0, 1], turn: 0, caps: [true, false] }), {}, t);
+};
 // A sword's hilt at the grip `g`, the blade pointing along `dir`: the
 // crossguard (across the edges, as the blade is flat: blade), the grip, the pommel.
 const hilt = (g: THREE.Vector3, dir: THREE.Vector3, len: number, color: number, t?: Tag) => {
@@ -594,8 +601,8 @@ function rider(gear: Gear, coat: number, female: boolean, style: RiderStyle): TH
   arming(true);
   switch (style) {
     case 'officer': out.push(lp(plate([[-0.12, 0.2], [0.12, 0.2], [0.14, -0.2], [-0.14, -0.2]], CLOTH), { y: SEAT + 0.12, z: -0.11, rx: 0.12 }, { team: true }), plume(gear.helmet === 'none' ? -0.03 : 0.04)); break;
-    // (A sabre: a curved blade (two pieces), a knuckle-guarded hilt.)
-    case 'cavalry': out.push(...hilt(hR.clone(), V(0, 0.42, 0.18), 0.035, METAL, w), blade(hR.clone().add(V(0, 0.04, 0.02)), hR.clone().add(V(0, 0.3, 0.1)), 0.02, METAL, w), blade(hR.clone().add(V(0, 0.29, 0.1)), hR.clone().add(V(0, 0.45, 0.22)), 0.016, METAL, w)); break;
+    // (A sabre: one curved blade, a knuckle-guarded hilt.)
+    case 'cavalry': out.push(...hilt(hR.clone(), V(0, 0.42, 0.18), 0.035, METAL, w), sabre(hR, w)); break;
     case 'knight': out.push(...lance(1), tag(caparison(), { team: true })); break;
     case 'lancer': {
       // (The pennant just below the lance's head.)
