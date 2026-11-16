@@ -21,7 +21,7 @@ import { CATALOG, type CatalogKind } from './propCatalog.ts';
 import { WORKS_VARIANT, houseKind } from './houses.ts';
 import { styleOf } from './architecture.ts';
 import { LOT_SIZE, rhoOf, type Floors, type Footprint } from './town/geometry.ts';
-import { planRoads, roadLines, ROAD_HALF_WIDTH } from './roads.ts';
+import { roadLines, ROAD_HALF_WIDTH } from './roads.ts';
 import { farmAxis, WORK_OF, type RuralDensity } from './farmPainter.ts';
 import { SCATTER_GAP, areaLook, cropRegion, scatterIn, type RGB } from './rural/look.ts';
 import { ruralModelKind, footingOf, isFloraRural, type RuralModel } from './rural/models.ts';
@@ -1299,7 +1299,7 @@ export class CityProps {
     const g = this.game, key = `${g.useVersion}|${g.cities.length}|${g.roadVersion}`;
     if (this.roadsKey !== key) {
       this.roadsKey = key;
-      const lines = roadLines(g, planRoads(g));
+      const lines = roadLines(g);
       this.roads = lines.map((r) => r.points);
       this.roadEnds = new Map();
       const end = (t: number | null, p: THREE.Vector3) => { if (t === null) return; const l = this.roadEnds.get(t); if (l) l.push(p); else this.roadEnds.set(t, [p]); };

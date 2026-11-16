@@ -4,6 +4,7 @@
 // and focus, place its citizens by hand or by its governor, give it
 // buildings and wonders, raise walls, damage it, burn its fields, raze it.
 
+import { linkCities } from './roads.ts';
 import './style.css';
 import './topbar.ts';
 import { Game, type City } from './game.ts';
@@ -50,7 +51,7 @@ seedEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') rebuild(); })
 // (?stress: the worst case to measure, sandbox.ts stressWorld: the large map
 // with the most land, packed with cities and units, unless a size or seed is given.)
 const stress = params.has('stress');
-const game = new Game({ size: stress && !params.get('size') ? 'large' : size, seed: stress && !params.get('seed') ? STRESS_SEED : seed, script, everyCiv: true, autoRoads: true });
+const game = new Game({ size: stress && !params.get('size') ? 'large' : size, seed: stress && !params.get('seed') ? STRESS_SEED : seed, script, everyCiv: true });
 game.units.length = 0;
 game.explored.fill(1);
 game.visible.fill(1);
@@ -95,7 +96,18 @@ function marks(): TileMark[] {
   return out;
 }
 
+// The lab's roads: no worker works here, so its cities are joined as soon as there are any, and again
+// whenever one is founded: the nearest first, until every city that can be reached by land is (roads.ts
+// linkCities). Laid on the tiles as a worker's are, so they are drawn and joined as the game's.
+let linkedCities = '';
+function linkRoads(): void {
+  const key = game.cities.map((c) => c.tile).join(',');
+  if (key === linkedCities) return;
+  linkedCities = key;
+  linkCities(game);
+}
 function refresh(): void {
+  linkRoads();
   // Founding a city recomputes what is in sight; the lab sees everything.
   game.explored.fill(1);
   game.visible.fill(1);

@@ -165,6 +165,9 @@ const ROAD_TOL = 0.000025, ROAD_RUN = 16, ROAD_BEND = 0.08;
 const WONDER_WATER_DEPTH = 0.0009;
 const ROAD_SURFACE = 0.84;  // the surface layer's share of the street's width (the rest shows the edges)
 const ROAD_LAYER = 0.00002; // how far the surface sits above the edges
+// How far apart the levels of a junction's roads lie (roads.ts RoadLine level): half a layer, so a road's surface
+// always covers the edges of the one under it and lies under the surface of the one over it.
+const JUNCTION_STEP = 0.00001;
 const PAINT_LAYER = 0.00001; // how far each layer of what a wonder lays on the ground sits over the one under it
 const ROAD_KERB = [0.62, 0.59, 0.54] as const;
 // What the road material draws (roadUv.z): a track's packed earth, paved
@@ -1911,8 +1914,10 @@ export class GlobeRenderer {
         while (e + 1 < pts.length && middle(e + 1) === middle(k)) e++;
         const kind = middle(k), run = pts.slice(k, Math.min(pts.length, e + 2));
         if (run.length > 1) {
-          if (kind === ROAD_KIND.dirt) this.drape(run, halfW, ROAD_RGB, batches, at, lift, bridges, stone, kind, dirt);
-          else this.drape(run, kind === ROAD_KIND.rail ? halfW * RAIL_WIDTH : halfW, kind === ROAD_KIND.rail ? BALLAST_RGB : ASPHALT_RGB, batches, at, lift, bridges, stone, kind);
+          // (A junction's branches a hair under its main line, a line crossing it a hair over: roads.ts level.)
+          const up = lift + road.level * JUNCTION_STEP * this.scale;
+          if (kind === ROAD_KIND.dirt) this.drape(run, halfW, ROAD_RGB, batches, at, up, bridges, stone, kind, dirt);
+          else this.drape(run, kind === ROAD_KIND.rail ? halfW * RAIL_WIDTH : halfW, kind === ROAD_KIND.rail ? BALLAST_RGB : ASPHALT_RGB, batches, at, up, bridges, stone, kind);
         }
         k = e + 1;
       }

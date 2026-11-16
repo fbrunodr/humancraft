@@ -356,9 +356,6 @@ export interface GameOptions {
   turnLimit?: number;
   // The game's speed (rules.ts GAME_SPEEDS): Quick unless given.
   speed?: GameSpeedKey;
-  // Roads laid by themselves between cities (roads.ts routeRoads), as the
-  // dev pages show them; in the game workers lay them (the default).
-  autoRoads?: boolean;
 }
 
 // Pure game state + rules. Knows nothing about rendering or the DOM.
@@ -405,7 +402,6 @@ export class Game {
   readonly roadLeft: Uint8Array;    // turns left of road work begun on a tile
   roadVersion = 0;                  // bumped whenever a road is laid
   diploVersion = 0;                 // bumped whenever a war begins or ends
-  readonly autoRoads: boolean;
   aiPolicies: AiPolicy[];           // how each computer civ decides (aiPolicy.ts), by player id
   policyVersion = 0;                // bumped when they are changed mid-game
   readonly explored: Uint8Array;
@@ -432,13 +428,12 @@ export class Game {
   readonly dealOffers: Deal[] = [];             // trades the computer offered the human, for this turn (sides[0]: the offerer)
   readonly events: GameEvent[] = [];            // everything every player did (gameLog.ts)
 
-  constructor({ size, seed, script = 'continents', everyCiv = false, autoRoads = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs }: GameOptions) {
-    this.options = { size, seed, script, everyCiv, autoRoads, level, speed, ...(policies ? { policies } : {}), ...(turnLimit !== undefined ? { turnLimit } : {}), ...(playAs ? { civ: playAs } : {}) };
+  constructor({ size, seed, script = 'continents', everyCiv = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs }: GameOptions) {
+    this.options = { size, seed, script, everyCiv, level, speed, ...(policies ? { policies } : {}), ...(turnLimit !== undefined ? { turnLimit } : {}), ...(playAs ? { civ: playAs } : {}) };
     this.seed = seed;
     this.speed = speed;
     this.pace = GAME_SPEEDS[speed].pace;
     this.turnLimit = turnLimit ?? Math.round(TURN_LIMIT * this.pace);
-    this.autoRoads = autoRoads;
     this.world = generateWorld(size, seed, script);
     this.globe = this.world.globe;
     this.tiles = this.globe.tiles;
