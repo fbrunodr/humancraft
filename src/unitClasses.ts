@@ -61,7 +61,7 @@ export const UNIT_CLASS: Record<UnitKey, UnitClass> = {
 //   sortie      aircraft flying out to strike and back
 export type AttackStyle = 'melee' | 'charge' | 'advance' | 'volley' | 'lob' | 'shell' | 'fire' | 'roll' | 'sortie';
 // What flies (Volleys, unitView.ts).
-export type Projectile = 'arrow' | 'stone' | 'shell' | 'bullet';
+export type Projectile = 'arrow' | 'stone' | 'shell' | 'bullet' | 'bomb';
 // An attack is made at close quarters (an assault: the attacker closes in,
 // both sides fight, and if the defender falls it moves in), or by fire
 // (from the next tile: the target doesn't fire back).

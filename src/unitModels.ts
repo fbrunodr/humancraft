@@ -872,6 +872,22 @@ export function transportModel(): THREE.BufferGeometry {
 // nose to +z: a fuselage, wings (the upper one in the owner's colour), the
 // tail, a propeller's disc.
 const AIR_Y = 0.3;
+// A missile or a bomb once it is on its way (variant IN_FLIGHT): the weapon
+// alone, its launcher, cradle or pad left behind, lying along +z, its nose
+// first, so it can be turned to the way it flies (unitView.ts).
+export const IN_FLIGHT = 100;
+function munition(type: UnitKey): THREE.BufferGeometry[] {
+  const Y = 0.14;
+  if (type === 'guidedMissile') return [lp(hull([R([0, Y, -0.5], 0.05), R([0, Y, 0.35], 0.05), R([0, Y, 0.55], 0, 0)], 4, 0xe8e6e0, { side: [1, 0, 0] })),
+    box(0.105, 0.105, 0.1, PAINT, { y: Y, z: 0.1 }, { team: true }),
+    ...[0, Math.PI / 2].map((r) => box(0.26, 0.012, 0.14, 0xc04030, { y: Y, z: -0.43, rz: r }))];
+  if (type === 'atomicBomb') return [lp(hull([R([0, 0.24, -0.55], 0.06), R([0, 0.24, -0.3], 0.2), R([0, 0.24, 0.25], 0.22), R([0, 0.24, 0.45], 0, 0)], 6, 0x6a7066, { side: [1, 0, 0] })),
+    box(0.46, 0.46, 0.06, PAINT, { y: 0.24, z: 0.05 }, { team: true }), ...[0, Math.PI / 2].map((r) => box(0.36, 0.02, 0.14, 0x4a4e48, { y: 0.24, z: -0.55, rz: r }))];
+  // (The nuclear missile: the tall white rocket laid along its flight, its band, its fins at the tail.)
+  return [lp(hull([R([0, Y, -0.85], 0.11), R([0, Y, 0.53], 0.11), R([0, Y, 0.88], 0, 0)], 6, 0xecebe6, { side: [1, 0, 0] })),
+    box(0.235, 0.235, 0.14, PAINT, { y: Y, z: 0.1 }, { team: true }),
+    ...[0, Math.PI / 2].map((r) => box(0.36, 0.02, 0.2, 0xc04030, { y: Y, z: -0.73, rz: r }))];
+}
 function aircraft(type: UnitKey): THREE.BufferGeometry[] {
   const body = (len: number, r: number, color: number) => lp(hull([R([0, AIR_Y, -len / 2], 0.02, 0.02), R([0, AIR_Y, -len * 0.1], r, r), R([0, AIR_Y, len * 0.35], r, r), R([0, AIR_Y, len / 2], r * 0.7, r * 0.7)], 4, color, { side: [1, 0, 0] }));
   const wing = (span: number, chord: number, y: number, z: number, color: number, team: boolean) => lp(plate([[-span / 2, -chord / 2], [span / 2, -chord / 2], [span / 2 * 0.95, chord / 2], [-span / 2 * 0.95, chord / 2]], color), { y, z, rx: -Math.PI / 2 }, team ? { team: true } : undefined);
@@ -1122,7 +1138,8 @@ export function unitModel(type: UnitKey, civ: ArchCiv, variant = 0, female = fal
       case 'rocketArtillery': return rocketArtillery();
       case 'mobileSAM': return mobileSAM();
       case 'privateer': case 'shipOfTheLine': case 'missileCruiser': case 'nuclearSubmarine': return ship(type);
-      case 'stealthFighter': case 'stealthBomber': case 'attackHelicopter': case 'drone': case 'guidedMissile': case 'atomicBomb': case 'nuclearMissile': return aircraft(type);
+      case 'stealthFighter': case 'stealthBomber': case 'attackHelicopter': case 'drone': return aircraft(type);
+      case 'guidedMissile': case 'atomicBomb': case 'nuclearMissile': return variant >= IN_FLIGHT ? munition(type) : aircraft(type);
       case 'scout': return figure(gear, 'staff', false, { helmet: false, pack: true, female, civilian: true });
       case 'settler': return figure(gear, variant % 2 ? 'staff' : 'none', false, { pack: variant % 2 === 0, female, civilian: true });
       case 'worker': return figure(gear, 'hoe', false, { female, civilian: true });

@@ -4,8 +4,8 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Billboard } from './billboards.ts';
 import type { ArchCiv } from './architecture.ts';
 import { unitDef, domainOf, type UnitKey } from './rules.ts';
-import { firesAtClose, returnFire, type AttackStyle, type Projectile } from './unitClasses.ts';
-import { UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
+import { UNIT_CLASS, firesAtClose, returnFire, type AttackStyle, type Projectile } from './unitClasses.ts';
+import { IN_FLIGHT, UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
 import { mulberry32 } from './rng.ts';
 import { HIP, GUN_L, GUN_R, elbowAt, handAt } from './people.ts';
 import { pairUp, type P2 } from './duel.ts';
@@ -93,7 +93,7 @@ const CARRIER_DECK = 0.48;
 // each at one of the enemy's, all the way (duel.ts); `dur`: how long the
 // fight lasts (seconds; FIGHT if not given); `answered`: an assault made
 // by fire (the defender fights back, by fire if it can).
-export interface Play { readonly answered?: boolean; readonly dur?: number; readonly fly?: number; readonly close?: boolean; readonly charge: number; readonly go: readonly [number, number]; readonly back: number; readonly strike: readonly [number, number]; readonly aim: boolean; readonly shots: readonly { readonly t: number; readonly kind: Projectile }[] }
+export interface Play { readonly arc?: boolean; readonly answered?: boolean; readonly dur?: number; readonly fly?: number; readonly close?: boolean; readonly charge: number; readonly go: readonly [number, number]; readonly back: number; readonly strike: readonly [number, number]; readonly aim: boolean; readonly shots: readonly { readonly t: number; readonly kind: Projectile }[] }
 const still = (shots: Play['shots']): Play => ({ charge: 0, go: [0, 0], back: 1, strike: [0, 0], aim: true, shots });
 export const PLAYS: Record<AttackStyle, Play> = {
   // (A melee: a short run in, then a long while at it, as Civ V plays it, before falling back.)
@@ -106,9 +106,25 @@ export const PLAYS: Record<AttackStyle, Play> = {
   // (Gunmen closing in: walking forward in their line, firing as they come, to short range; still firing there.)
   advance: { dur: 7, answered: true, charge: 0.75, go: [0.06, 0.5], back: 0.86, strike: [0, 0], aim: false, shots: [0.1, 0.24, 0.38, 0.52, 0.64, 0.76].map((t) => ({ t, kind: 'bullet' as const })) },
   roll: { charge: 0.6, go: [0, 0.55], back: 0.8, strike: [0, 0], aim: false, shots: [{ t: 0.25, kind: 'shell' }, { t: 0.6, kind: 'bullet' }] },
-  // (Out all the way to the target, high, and back: the shots fall from there.)
-  sortie: { fly: 3, charge: 1 / CHARGE, go: [0, 0.4], back: 0.6, strike: [0, 0], aim: false, shots: [{ t: 0.42, kind: 'shell' }, { t: 0.5, kind: 'bullet' }] },
+  // (Out all the way to the target, high, and back. A fighter or a helicopter: strafing as it comes in, its guns' bursts.)
+  sortie: { fly: 3, charge: 1 / CHARGE, go: [0, 0.4], back: 0.6, strike: [0, 0], aim: false, shots: [{ t: 0.26, kind: 'bullet' }, { t: 0.32, kind: 'bullet' }, { t: 0.38, kind: 'bullet' }] },
 };
+// A bomber's sortie (an airship's, a drone's): over the target it lets its
+// bombs go, a stick of three, which fall straight down from under it and
+// burst on the ground; then it turns for home. (It fired a shell and a
+// bullet from the air at its target, as a gun on the ground would.)
+const BOMB_RUN: Play = { fly: 3, charge: 1 / CHARGE, go: [0, 0.42], back: 0.66, strike: [0, 0], aim: false, shots: [{ t: 0.43, kind: 'bomb' }, { t: 0.49, kind: 'bomb' }, { t: 0.55, kind: 'bomb' }] };
+// A missile or a bomb is not an aircraft that goes out and comes back: it
+// is the thing that strikes. It leaves its launcher and flies its own
+// path to the target tile, up and over and down (`arc`: its height rises
+// and falls back to the ground there), nose first all the way, and bursts
+// where it comes down; nothing comes home. (`fly`: how high its path
+// goes, figure heights: a guided missile flat and fast, a bomb lobbed, a
+// nuclear missile far up.)
+const munitionRun = (fly: number, dur: number): Play => ({ arc: true, dur, fly, charge: 1 / CHARGE, go: [0.04, 0.8], back: 9, strike: [0, 0], aim: false, shots: [] });
+const MUNITION_RUNS: Partial<Record<UnitKey, Play>> = { guidedMissile: munitionRun(2.2, 3.2), atomicBomb: munitionRun(4.5, 4.2), nuclearMissile: munitionRun(8, 5) };
+export const munitionOf = (type: UnitKey | undefined): Play | null => (type ? MUNITION_RUNS[type] ?? null : null);
+export const sortieOf = (type: UnitKey | undefined): Play => (type && UNIT_CLASS[type] === 'bomber' ? BOMB_RUN : PLAYS.sortie);
 // A defender charging an advancing gun line, once it has halted at short
 // range (as long a fight as the advance's: its figures come on as an
 // attacker's do, duel.ts).
@@ -253,6 +269,8 @@ interface Shown {
   order: Order;                // how its figures stand (formation.ts)
   laid: { fwd: THREE.Vector3; spread: number; n: number; order: Order } | null; // the formation as last laid out
   alt: number;                 // how high it flies now (figure heights: aircraft on a sortie)
+  pitch?: number;              // a missile or a bomb in flight: its nose up from level (radians), the way it flies
+  spent?: boolean;             // it has struck: drawn no more
   march: { from: THREE.Vector3; to: THREE.Vector3; t0: number; dur: number } | null;
   route: number[];             // tiles it steps through on its way, still to march (game.ts onStep), the last its new tile
   // A fight: the enemy's spot, how it plays (PLAYS), the shots fired so
@@ -638,7 +656,7 @@ export class UnitView {
   // it); every unit shown there strikes back where it stands. (Call before
   // the sync that follows it: the fallen are still shown.)
   fight(attacker: number, tile: number, style: AttackStyle, now: number, result?: FightResult): void {
-    const a = this.shown.get(attacker), play = PLAYS[style];
+    const a = this.shown.get(attacker), play = munitionOf(a?.unit.type) ?? (style === 'sortie' ? sortieOf(a?.unit.type) : PLAYS[style]);
     const defenders = [...this.shown.values()].filter((s) => s.unit.tile === tile && s !== a && !s.gone); // (not one already gone, shown till its fight is over)
     // (The unit the rules say defended, if it is shown and not already gone;
     // it fights with the rest even when it is not found on the tile by its
@@ -656,6 +674,8 @@ export class UnitView {
       if (a) { this.faceFoe(d, a.dir.clone().sub(d.dir)); this.layout(d); }
     }
     if (a) this.startFight(a, at, play, now, play, 'attacker', aWins);
+    // (A missile or a bomb: off its launcher, the weapon alone from here on.)
+    if (a && play.arc) for (const g of a.figures) { g.variant = IN_FLIGHT; delete (g as { keys?: unknown }).keys; }
     if (a && !main) a.fight!.reach = UNDEFENDED_CHARGE;
     if (a && main) { a.fight!.enemy = main.figures; main.fight!.enemy = a.figures; }
     // (An assault by fire answered by a defender that can't fire back: it charges the gun line once that has halted.)
@@ -721,7 +741,8 @@ export class UnitView {
     const keep = hp <= 0 ? 0 : look.party === 'formation' && !s.unit.embarked ? figuresFor(hp, look.count) : s.figures.length;
     // (Shot at, a figure falls as the shot aimed at it lands (fighting());
     // failing that, as the fight ends.)
-    s.figures.forEach((f, i) => { if (i >= keep) f.fall = now + (attack.close ? fallShare(attack, side, rand()) : 0.97) * durOf(attack); });
+    // (Struck by a missile or a bomb: they fall as it bursts.)
+    s.figures.forEach((f, i) => { if (i >= keep) f.fall = now + (attack.close ? fallShare(attack, side, rand()) : attack.arc && side === 'defender' ? attack.go[1] + 0.02 : 0.97) * durOf(attack); });
   }
 
   // Every frame: marching and fighting units move on, and every figure is
@@ -790,6 +811,7 @@ export class UnitView {
     const keep = s.clean && ((still && s.posedFar) || (!still && !s.near && now - s.posed < POSE_EVERY && this.atRest(s)));
     let strike = 0, colored = false;
     for (const f of s.figures) {
+      if (s.spent) continue; // (a missile that has struck: gone)
       const key = this.key(s, f), hairKey = f.hair >= 0 ? (f.hairKey ??= `hair|${f.hair}`) : null;
       let fresh = this.hold(f.slots.body, key, stamp);
       if (hairKey) fresh = this.hold(f.slots.hair, hairKey, stamp) || fresh;
@@ -831,6 +853,9 @@ export class UnitView {
         char = mp.char;
         arm = flingOf(now - f.shot); // (an engine's throwing arm, if it has one)
         if (now > f.fall) f.smoke = this.volleys.burn(at, now, f.smoke, wreck === 'sea', f.phase);
+      } else if (s.pitch) {
+        // (A missile or a bomb in flight: its nose the way it goes, up as it climbs, down as it falls.)
+        turned.multiply(tip.setFromEuler(w.euler.set(-s.pitch, 0, 0, 'YXZ')));
       }
       // (A woman on foot a little smaller, her hair with her.)
       const tall = f.female && !horse && lift === 0 && back === 0 ? WOMAN_SCALE : 1;
@@ -901,6 +926,9 @@ export class UnitView {
       s.fight = null;
       s.after = f;
       s.alt = 0;
+      s.pitch = 0;
+      // (Struck and still here, as on the Units page, where nothing is spent: back on its launcher.)
+      if (s.spent && !s.gone) { s.spent = false; for (const g of s.figures) { g.variant = 0; delete (g as { keys?: unknown }).keys; } }
       // (The fallen stay where they lie.)
       const wreck = wreckOf(s.unit);
       if ((falls(s.unit.type) && !s.unit.embarked) || wreck) {
@@ -919,7 +947,18 @@ export class UnitView {
       return;
     }
     const p = f.play, { out, back } = playAt(p, t);
-    s.alt = (p.fly ?? 0) * out;
+    if (p.arc) {
+      // Up, over and down to the ground at the target; its nose along its path; a trail behind it; and where it lands, the burst.
+      const fly = p.fly ?? 0, across = Math.max(1e-9, f.home.angleTo(f.at));
+      s.alt = fly * 4 * out * (1 - out);
+      s.pitch = Math.atan2(fly * this.size * 4 * (1 - 2 * out), across);
+      if (!s.spent && out > 0.02 && out < 1) for (const g of s.figures) g.smoke = this.volleys.trail(g.pos, now, g.smoke);
+      if (!s.spent && t >= p.go[1]) {
+        s.spent = true;
+        const h = this.env.ground(f.at);
+        this.volleys.burst(f.at.clone().normalize().multiplyScalar(1 + Math.max(h.ground, h.water)), now, unitDef(s.unit.type).nuke ? 3 : 1);
+      }
+    } else s.alt = (p.fly ?? 0) * out;
     // (Its counter-charge: from here it fights as an attacker closing in, each figure at one of the gun line's.)
     const foe = f.counter;
     if (foe && t >= COUNTER.go[0] && foe.fight) {
@@ -952,7 +991,10 @@ export class UnitView {
       // (At close quarters (gunmen firing at whoever has come at them): each at its own foe, point-blank.)
       // (Or a foe that has come close: a charge against a gun line.)
       s.figures.forEach((g, i) => { const e = g.foeFig; if (!aims[i] && e && e.fall > now && (f.attack.close || e.up.distanceTo(g.up) < 2.5 * this.size)) aims[i] = e.pos.clone().addScaledVector(e.up, 0.45 * this.size); });
-      const { fire, land } = this.volleys.loose(s.figures.map((g) => g.pos.clone().addScaledVector(g.up, 0.75 * this.size)), f.at, this.env.step * 0.12, now, f.fired * 7 + s.unit.id, shot.kind, aims);
+      // (From the air: at the ground under it, and from under the aircraft, not over it.)
+      const aloft = s.alt > 0, h = aloft ? this.env.ground(f.at) : null;
+      const { fire, land } = this.volleys.loose(s.figures.map((g) => g.pos.clone().addScaledVector(g.up, (aloft ? 0.15 : 0.75) * this.size)), f.at, this.env.step * 0.12, now, f.fired * 7 + s.unit.id, shot.kind, aims,
+        h ? f.at.length() * (1 + Math.max(h.ground, h.water)) : undefined);
       s.figures.forEach((g, i) => { if (g.fall > now) g.shot = fire[i] ?? now; });
       mine.forEach((g, k) => { const i = shooters[k % Math.max(1, shooters.length)]; const t = i === undefined ? undefined : land[i]; if (t !== undefined) g.fall = t; });
     }
@@ -1507,11 +1549,15 @@ export function figureLooks(type: UnitKey, civ: ArchCiv, women: number, rand: ()
 // What flies, by kind: how high it arcs (a share of the distance), how
 // long it takes (seconds, and up to so much longer), how long a streak it
 // draws (figure heights), its colour.
+const ONE_STROKE: readonly (readonly [number, number])[] = [[0, 0]];
+const BOMB_STROKES: readonly (readonly [number, number])[] = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
 const FLIGHT: Record<Projectile, { arc: number; dur: number; jitter: number; len: number; color: number }> = {
   arrow: { arc: 0.3, dur: 0.55, jitter: 0.15, len: 0.35, color: 0x2a2018 },
   stone: { arc: 0.6, dur: 1.0, jitter: 0.2, len: 0.14, color: 0x5a554c },
   shell: { arc: 0.1, dur: 0.35, jitter: 0.1, len: 0.2, color: 0x16161a },
   bullet: { arc: 0.01, dur: 0.14, jitter: 0.06, len: 0.55, color: 0xf2d27a },
+  // (A bomb: let go, not fired: straight down from under the aircraft, slower than a shell, short and dark.)
+  bomb: { arc: 0, dur: 0.62, jitter: 0.08, len: 0.3, color: 0x1a1a1c },
 };
 // Smoke and fire (Volleys): soft round puffs, each growing, rising and
 // fading over its life. A gun fired: a flash at the muzzle and a puff of
@@ -1579,14 +1625,17 @@ export class Volleys {
   // A volley from each of `from` at the spot `at` (scattered `spread` round it).
   // (Some may be aimed, each at its own mark: `aims`, by shooter. Returns
   // when each shot goes off, and when it lands.)
-  loose(from: readonly THREE.Vector3[], at: THREE.Vector3, spread: number, now: number, seed: number, kind: Projectile = 'arrow', aims: readonly (THREE.Vector3 | null)[] = []): { fire: number[]; land: number[] } {
+  // (`level`: how far from the globe's middle the mark lies, when it is not
+  // at the shooters' own height: what an aircraft lets fall lands on the
+  // ground under it, not in the air beside it.)
+  loose(from: readonly THREE.Vector3[], at: THREE.Vector3, spread: number, now: number, seed: number, kind: Projectile = 'arrow', aims: readonly (THREE.Vector3 | null)[] = [], level?: number): { fire: number[]; land: number[] } {
     const rand = mulberry32(seed * 9973 + 5), k = FLIGHT[kind];
     const up = this.flatUp ?? at.clone().normalize();
     const e = new THREE.Vector3(1, 0, 0).cross(up);
     if (e.lengthSq() < 1e-8) e.set(0, 0, 1);
     e.normalize();
     const n = up.clone().cross(e);
-    const ground = this.flatUp ? at : at.clone().multiplyScalar(from[0] ? from[0].length() / at.length() : 1);
+    const ground = this.flatUp ? at : at.clone().multiplyScalar(level !== undefined ? level / at.length() : from[0] ? from[0].length() / at.length() : 1);
     const fire: number[] = [], land: number[] = [];
     for (const [i, f] of from.entries()) {
       if (this.arrows.length >= Volleys.CAP) break;
@@ -1610,8 +1659,33 @@ export class Volleys {
         this.puff(lifted(0.7), t0 + dur, 0.3, 0.8, 1.6, 1, 0xff9a30, 0.4);
         this.puff(lifted(1.0), t0 + dur + 0.05, 2.8, 0.6, 2.4, 0.65, 0x3a3632, 0.5);
       } else if (kind === 'stone') this.puff(lifted(0.6), t0 + dur, 1.6, 0.4, 1.5, 0.55, 0xb09a78, 0.3);
+      // (A bomb bursting: a flash, a ball of fire, a tall column of black smoke, earth thrown up round it.)
+      else if (kind === 'bomb') {
+        this.puff(lifted(0.5), t0 + dur, 0.14, 1.2, 2.0, 1, 0xfff0b0, 0);
+        this.puff(lifted(0.8), t0 + dur + 0.03, 0.45, 1.0, 2.4, 1, 0xff8a28, 0.6);
+        this.puff(lifted(1.2), t0 + dur + 0.1, 3.4, 0.9, 3.2, 0.7, 0x2e2a28, 0.7);
+        this.puff(lifted(0.4), t0 + dur + 0.05, 1.4, 0.6, 2.2, 0.5, 0xa89878, 0.25);
+      }
     }
     return { fire, land };
+  }
+
+  // A missile's trail: a puff of white smoke left behind it every so often (returns when the next is due).
+  trail(at: THREE.Vector3, now: number, next: number): number {
+    if (now < next) return next;
+    this.puff(at, now, 1.1, 0.25, 0.9, 0.5, 0xeeece6, 0.1);
+    return now + 0.045;
+  }
+  // A missile or a bomb bursting on the ground at `at`, `big` times a
+  // bomb's: a flash, a ball of fire, earth thrown up, and smoke climbing
+  // over it (a nuclear one's in a tall column with its cap).
+  burst(at: THREE.Vector3, now: number, big: number): void {
+    const up = (this.flatUp ?? at).clone().normalize(), lifted = (h: number) => at.clone().addScaledVector(up, h * this.size);
+    this.puff(lifted(0.6 * big), now, 0.16, 1.6 * big, 3.2 * big, 1, 0xfff4c0, 0);
+    this.puff(lifted(0.9 * big), now + 0.04, 0.6, 1.4 * big, 3.4 * big, 1, 0xff8a28, 0.7);
+    this.puff(lifted(0.5 * big), now + 0.06, 1.8, 0.9 * big, 3.0 * big, 0.55, 0xa89878, 0.3);
+    this.puff(lifted(1.4 * big), now + 0.12, 4.0, 1.2 * big, 4.2 * big, 0.75, 0x2e2a28, 0.8);
+    if (big > 1) for (let k = 0; k < 7; k++) this.puff(lifted(1.5 * big + k * 0.9 * big), now + 0.2 + 0.12 * k, 5.5, (k === 6 ? 2.6 : 1.1) * big, (k === 6 ? 5.5 : 2.2) * big, 0.8, k === 6 ? 0x4a4440 : 0x3a3430, 0.9);
   }
 
   // Dust kicked up at `at` (a runner's feet), `big` times a man's.
@@ -1636,7 +1710,7 @@ export class Volleys {
   update(now: number): void {
     let n = 0;
     for (let i = this.arrows.length - 1; i >= 0; i--) if (now > this.arrows[i]!.t0 + this.arrows[i]!.dur) this.arrows.splice(i, 1);
-    const p = new THREE.Vector3(), q = new THREE.Vector3(), up = new THREE.Vector3(), c = new THREE.Color();
+    const p = new THREE.Vector3(), q = new THREE.Vector3(), up = new THREE.Vector3(), c = new THREE.Color(), side = new THREE.Vector3(), over = new THREE.Vector3();
     for (const a of this.arrows) {
       const t = (now - a.t0) / a.dur;
       if (t < 0) continue;
@@ -1649,10 +1723,17 @@ export class Volleys {
       at(t, p);
       at(Math.min(1, t + 0.06), q);
       const d = q.sub(p).normalize().multiplyScalar(k.len * this.size);
-      this.pos.set([p.x, p.y, p.z, p.x + d.x, p.y + d.y, p.z + d.z], n * 6);
       c.setHex(k.color);
-      this.col.set([c.r, c.g, c.b, c.r, c.g, c.b], n * 6);
-      n++;
+      // (A bomb is a body, not a streak: a bundle of strokes side by side, so it shows as it falls.)
+      const strokes = a.kind === 'bomb' ? BOMB_STROKES : ONE_STROKE;
+      if (a.kind === 'bomb') { side.crossVectors(d, up).normalize().multiplyScalar(0.035 * this.size); over.crossVectors(d, side).normalize().multiplyScalar(0.035 * this.size); }
+      for (const [sx, sy] of strokes) {
+        if (n >= Volleys.CAP) break;
+        const x = p.x + sx * side.x + sy * over.x, y = p.y + sx * side.y + sy * over.y, z = p.z + sx * side.z + sy * over.z;
+        this.pos.set([x, y, z, x + d.x, y + d.y, z + d.z], n * 6);
+        this.col.set([c.r, c.g, c.b, c.r, c.g, c.b], n * 6);
+        n++;
+      }
     }
     this.lines.geometry.setDrawRange(0, n * 2);
     (this.lines.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
