@@ -13,7 +13,8 @@ import { buildSurface, meshLevels, type SurfaceLayers } from './surface.ts';
 import { cityGround } from './terraform.ts';
 import { makeWaterMaterial, makeWaterOccluder, WATER_OCCLUDER_SUNK, SKY_COLOR, type WaterMaterial } from './water.ts';
 import { WalkCamera } from './walk.ts';
-import { makeSky, makeHalo, installHaze, HAZE, HAZE_DENSITY, HAZE_GOLDEN, DISTANCE_HAZE, AIR } from './sky.ts';
+import { makeSky, makeHalo, installHaze, HAZE, HAZE_DENSITY, DISTANCE_HAZE, AIR } from './sky.ts';
+import { YEAR, yearTurn, landPhase, sunDistance, sunHeight, skyAt, newSky, groundSeason, plantSeason } from './seasons.ts';
 import { makeWeather, type Weather } from './weather.ts';
 import { buildPropGeometry, catalogEntry, CATALOG, CATALOG_KINDS, type CatalogKind, type Layer } from './propCatalog.ts';
 import { FLORA_KEEP } from './floraData.ts';
@@ -212,7 +213,11 @@ const LIGHT = { sunColor: 0xffe9cc, sun: 1.85, sunHeight: 30, sunHigh: 40, sunLo
 // (from orbit the planet's rim, its haze and its seas' reflections stay
 // blue). With it the water reflects EVENING_WATER. A player may have the
 // blue sky everywhere instead (setBlueSky; remembered in this browser).
-const SKY_NEAR = 0.5, SKY_FAR = 1.5, EVENING_WATER = new THREE.Color(0.95, 0.72, 0.6);
+const SKY_NEAR = 0.5, SKY_FAR = 1.5;
+// The seasons (seasons.ts): the year's turn eases to a new one over YEAR_EASE seconds; the lower the sun
+// stands (toward the twilight), the more of the sky's fill there is, up to FILL_LOW times it, and the fill
+// takes this share of the sky's own colour: the land keeps one soft light, whatever the sky.
+const YEAR_EASE = 1.5, FILL_LOW = 1.45, FILL_TINT = 0.1;
 const BLUE_SKY_KEY = 'civ.blueSky';
 // Bridges (heights × the world scale; spans in tile steps): the deck stands
 // at least BRIDGE_CLEAR over the water and arches up to BRIDGE_ARCH more on
@@ -317,11 +322,20 @@ export class GlobeRenderer {
   private readonly cropFar = { value: 1 };
   // (`barkScale`: what the flora's models are drawn at, against their catalog's size: the bark keeps its grain.)
   private readonly barkScale = { value: 1 };
-  private readonly floraUniforms = { time: this.floraTime, cropFar: this.cropFar, eye: { value: new THREE.Vector3() }, barkScale: this.barkScale };
+  private readonly yearPhase = { value: 0 }; // (the land's year, for the shaders: seasons.ts landPhase)
+  private readonly floraUniforms = { time: this.floraTime, year: this.yearPhase, cropFar: this.cropFar, eye: { value: new THREE.Vector3() }, barkScale: this.barkScale };
   private readonly propMat = makePropMaterial(0, 0.85, this.sunDir, this.floraUniforms);
   private readonly floraDepth = makeFloraDepthMaterial(this.floraUniforms);
   private shadowsDirty = true;
   private skyNear = 0;
+  // The turn of the year shown (seasons.ts): the game's own, or one set by hand (setYear); eased to (yearNow).
+  private yearSet: number | null = null;
+  private yearNow = 0;
+  private yearFrom = 0;
+  private yearTo = 0;
+  private yearAt = -Infinity;
+  private sunAway = 45;
+  private readonly skyNow = newSky();
   private blueSkyOn = false;
   private readonly waterSky = SKY_COLOR.clone();
   // Where the shadow map was last drawn: round what, for which sun, how far (setShadows, updateSun).
@@ -583,7 +597,7 @@ export class GlobeRenderer {
     geo.setAttribute('dim', new THREE.BufferAttribute(new Float32Array(V), 1));
 
     this.terrainMat = makeTerrainMaterial({
-      tileTex: this.tileTex, fanTex,
+      year: this.yearPhase, tileTex: this.tileTex, fanTex,
       r0: params.r0, fine: FINE_MAX * params.r0, fineFreq: 1 / (FINE_WAVELENGTH * params.r0),
     });
     // The globe in chunks (props, ground and water alike), spread evenly
@@ -1022,6 +1036,9 @@ export class GlobeRenderer {
     td.set([soil.r, soil.g, soil.b, share('grass'), share('dry'), share('soil'), share('sand'), share('litter'), share('moss'), share('snow'), paintViewColor(g.biome[t]!, g.feature[t] ?? null, g.map.relief[t]!), g.feature[t] === 'floodplain' ? 1 : 0], o + 40);
     // (No straight sides until it is farmed: updateTiles.)
     for (let r = 13; r < 19; r++) td.set([0, 0, -1, 0], o + r * 4);
+    // (How its ground answers the seasons: seasons.ts.)
+    const season = groundSeason(g.biome[t]!, g.feature[t] ?? null, g.relief[t] === 'mountains');
+    td.set([season.cold, season.rain, season.russet, season.snow], o + 19 * 4);
     this.tileTex.needsUpdate = true;
   }
 
@@ -1389,18 +1406,19 @@ export class GlobeRenderer {
     const color = new THREE.Color();
     for (const chunk of this.chunks) {
       if (only && !only.has(chunk)) continue;
-      const lists = new Map<PropKind, { p: PlacedProp; dim: number }[]>();
-      const add = (p: PlacedProp, dim: number) => {
+      const lists = new Map<PropKind, { p: PlacedProp; dim: number; season: number }[]>();
+      // (`t`: the tile it stands on: how it answers the seasons there, seasons.ts.)
+      const add = (p: PlacedProp, dim: number, t: number) => {
         let l = lists.get(p.kind);
         if (!l) { l = []; lists.set(p.kind, l); }
-        l.push({ p, dim });
+        l.push({ p, dim, season: plantSeason(p.kind, g.biome[t]!) });
       };
       for (const t of chunk.tiles) {
         if (!g.explored[t]) continue;
         const dim = g.visible[t] ? 1 : 0.38;
-        for (const p of this.placeProps(t)) add(p, dim);
-        for (const p of this.cityProps.place(t)) add(p, dim);
-        for (const p of this.resourceProps(t)) add(p, dim);
+        for (const p of this.placeProps(t)) add(p, dim, t);
+        for (const p of this.cityProps.place(t)) add(p, dim, t);
+        for (const p of this.resourceProps(t)) add(p, dim, t);
       }
       // (Every kind this chunk shows now, or showed before: those get emptied.)
       for (const kind of new Set<PropKind>([...PROP_KINDS, ...lists.keys(), ...chunk.meshes.keys()])) {
@@ -1435,13 +1453,13 @@ export class GlobeRenderer {
           this.scene.add(mesh);
         }
         const leaf = mesh.geometry.getAttribute('leafTint') as THREE.InstancedBufferAttribute, wander = mesh.geometry.getAttribute('wander') as THREE.InstancedBufferAttribute;
-        items.forEach(({ p, dim }, i) => {
+        items.forEach(({ p, dim, season }, i) => {
           mesh.setMatrixAt(i, p.matrix);
           wander.setX(i, p.wander ?? 0);
           mesh.setColorAt(i, color.copy(p.color).multiplyScalar(dim));
           // Out of sight, leaves lose their color like the ground does.
           const k = dim < 1 ? 0.6 : 0, gray = (p.leaf.r + p.leaf.g + p.leaf.b) / 3;
-          leaf.setXYZ(i, p.leaf.r + (gray - p.leaf.r) * k, p.leaf.g + (gray - p.leaf.g) * k, p.leaf.b + (gray - p.leaf.b) * k);
+          leaf.setXYZW(i, p.leaf.r + (gray - p.leaf.r) * k, p.leaf.g + (gray - p.leaf.g) * k, p.leaf.b + (gray - p.leaf.b) * k, season);
         });
         mesh.count = items.length;
         mesh.instanceMatrix.needsUpdate = true;
@@ -2556,7 +2574,15 @@ export class GlobeRenderer {
     const cam = this.camera;
     this.floraUniforms.eye.value.copy(cam.position);
     const focus = (this.walk.active ? this.walk.position : this.cam.target).clone().normalize();
-    const dir = sunAt(focus, LIGHT.sunHeight + (LIGHT.sunHigh - LIGHT.sunHeight) * (this.walk.active ? 0 : smoothstep(LIGHT.sunLow, LIGHT.sunFar, this.cam.distance)));
+    // (Near the ground the sun stands as the season has it where the camera looks: seasons.ts.)
+    const away = sunDistance(THREE.MathUtils.radToDeg(Math.asin(Math.min(1, Math.max(-1, focus.y)))), this.yearNow), low = this.blueSkyOn ? LIGHT.sunHeight : sunHeight(away);
+    const far = this.walk.active ? 0 : smoothstep(LIGHT.sunLow, LIGHT.sunFar, this.cam.distance);
+    const dir = sunAt(focus, low + (LIGHT.sunHigh - low) * far);
+    this.sunAway = away;
+    // (The sky's fill: more of it under a low sun, a touch of the sky's colour in it.)
+    const dusk = (1 - far) * smoothstep(27, 15, low);
+    this.fill.intensity = LIGHT.fill * (1 + (FILL_LOW - 1) * dusk);
+    this.fill.color.set(LIGHT.fillSky).lerp(this.skyNow.zenith, FILL_TINT * this.skyNear);
     this.sunDir.copy(dir);
     // The sky fill's up is the ground's up where we look (a hemisphere light
     // has one up: left at the world's +y it lit the far side of the globe
@@ -2595,6 +2621,25 @@ export class GlobeRenderer {
     this.renderer.shadowMap.needsUpdate = true;
   }
 
+  // The turn of the year shown: the game's (by its seed and its turn), or the one set by hand; a new one
+  // eased to, the shorter way round the year.
+  get year(): number { return this.yearSet ?? yearTurn(this.game.seed, this.game.turn); }
+  // (By hand, for looking the year over: the dev pages. null: the game's own again.)
+  setYear(x: number | null): void { this.yearSet = x === null ? null : ((Math.round(x) % YEAR) + YEAR) % YEAR; }
+  private updateYear(now: number): void {
+    const want = this.year;
+    if (want !== this.yearTo || this.yearAt === -Infinity) {
+      // (The first: as it is, at once.)
+      const first = this.yearAt === -Infinity;
+      this.yearFrom = first ? want : this.yearNow;
+      this.yearTo = want;
+      this.yearAt = first ? now - YEAR_EASE : now;
+    }
+    const t = smoothstep(0, 1, (now - this.yearAt) / YEAR_EASE), round = ((this.yearTo - this.yearFrom + YEAR * 1.5) % YEAR) - YEAR / 2;
+    this.yearNow = this.yearFrom + round * t;
+    this.yearPhase.value = landPhase(this.yearNow);
+  }
+
   // The camera's height above sea level as the reference lens would have
   // it (a narrower lens stands further back for the same view).
   private viewAltitude(): number {
@@ -2609,8 +2654,12 @@ export class GlobeRenderer {
     // (The haze's colour: the board's distance haze low down, the look's own; the planet's air from high up.)
 // (The evening sky by how near the ground the view is: its colours, the water's reflection of it, the board's haze.)
     const near = !this.blueSkyOn ? (this.walk.active ? 1 : 1 - smoothstep(SKY_NEAR, SKY_FAR, this.cam.distance)) : 0;
-    if (near !== this.skyNear) { this.skyNear = near; this.sky.setGolden(near); SKY_COLOR.copy(this.waterSky).lerp(EVENING_WATER, near); }
-    (this.scene.fog as THREE.FogExp2).color.copy(DISTANCE_HAZE.color).lerp(HAZE_GOLDEN, near).lerp(HAZE, this.walk.active ? 0 : smoothstep(0.2, 0.4, this.camera.position.length() - 1));
+    // (The season's sky where the camera looks.)
+    skyAt(this.sunAway, this.skyNow);
+    this.sky.setSky(this.skyNow);
+    if (near !== this.skyNear) { this.skyNear = near; this.sky.setGolden(near); }
+    SKY_COLOR.copy(this.waterSky).lerp(this.skyNow.water, near);
+    (this.scene.fog as THREE.FogExp2).color.copy(DISTANCE_HAZE.color).lerp(this.skyNow.haze, near).lerp(HAZE, this.walk.active ? 0 : smoothstep(0.2, 0.4, this.camera.position.length() - 1));
     this.halo.update(this.sunDir, smoothstep(0.1, 0.6, alt / AIR.height));
     this.stars.opacity = smoothstep(0.02, 0.3, alt / AIR.height);
     // The haze only from high up (the planet's atmosphere seen from orbit):
@@ -2671,6 +2720,7 @@ export class GlobeRenderer {
 
     // Every display frame: water, clouds and rain keep moving smoothly.
     const now = performance.now();
+    this.updateYear(now / 1000);
     this.updateSun();
     this.updateAir();
     this.cullChunks();

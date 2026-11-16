@@ -1,6 +1,7 @@
 // The material and instanced geometry shared by every prop (flora and
 // buildings): render.ts and the design sheet.
 
+import { SEASON_GLSL, SEASON_COLORS } from './seasons.ts';
 import * as THREE from 'three';
 import { GRADE_GLSL } from './terrainMaterial.ts';
 
@@ -176,6 +177,7 @@ const sprayTexture = (): THREE.DataTexture => (sprayTex ??= drawnTexture(LEAF_TE
 // crops (cardUv z 2) shrink away with distance from the eye (the camera, uEye).
 export interface FloraUniforms {
   time: { value: number };
+  year?: { value: number }; // the land's year (seasons.ts landPhase): none, a plant keeps its summer's look
   cropFar?: { value: number };
   eye?: { value: THREE.Vector3 };
   barkScale?: { value: number }; // the models' scale against their catalog's size (the bark's grain is in the catalog's)
@@ -184,7 +186,48 @@ const FLORA_VERTEX_DECL = `
   attribute float leafMask;
   attribute vec3 cardUv;
   varying vec4 vBark;
-  uniform float uTime; uniform float uCropFar; uniform vec3 uEye;`;
+  varying float vBare;
+  uniform float uTime; uniform float uCropFar; uniform vec3 uEye;
+  ${SEASON_GLSL}`;
+// A plant through the year (seasons.ts), by where it stands and what it is
+// (leafTint.a: PLANT): its leaves' colour now (leafNow), and how much of
+// its crown is bare (vBare: that share of its leaves cut away, in clumps).
+// Each plant a little ahead of or behind its neighbours, and its autumn's
+// own colour between gold and red.
+const FLORA_SEASON = `
+  vec3 leafNow = leafTint.rgb;
+  vBare = 0.0;
+  #ifdef USE_INSTANCING
+    if (leafTint.a > 0.5) {
+      vec3 so = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
+      Season sn = seasonAt(so);
+      float sh = fract(dot(so, vec3(4100.0, 3700.0, 2900.0)));
+      float yh = seasonGrowing(sn, 0.2) + (sh - 0.5) * 0.05, yl = seasonGrowing(sn, 0.0) + (sh - 0.5) * 0.05;
+      float snow = smoothstep(0.12, -0.08, sn.warmth);
+      if (leafTint.a < 1.5) {
+        float bare = max(smoothstep(0.6, 0.68, yh), 1.0 - smoothstep(-0.06, 0.0, yh)) * sn.cold;
+        leafNow = mix(leafNow, leafNow * vec3(1.3, 1.25, 0.8) + vec3(0.015, 0.03, 0.0), seasonFlush(yh) * sn.cold);
+        leafNow = mix(leafNow, mix(${SEASON_COLORS.gold}, ${SEASON_COLORS.red}, fract(sh * 7.31)), smoothstep(0.42, 0.5, yh) * sn.cold);
+        leafNow = mix(leafNow, ${SEASON_COLORS.twig}, bare);
+        leafNow = mix(leafNow, ${SEASON_COLORS.snow}, 0.4 * snow * bare);
+        vBare = 0.9 * bare;
+      } else if (leafTint.a < 2.5) {
+        float dry = seasonDormant(yl) * sn.rain;
+        leafNow = mix(leafNow, ${SEASON_COLORS.yellowed}, 0.7 * dry);
+        vBare = 0.55 * dry;
+      } else if (leafTint.a < 3.5) {
+        leafNow = mix(leafNow, leafNow * vec3(1.1, 1.2, 0.8), seasonFlush(yh) * sn.cold);
+        leafNow = mix(leafNow, ${SEASON_COLORS.straw}, 0.8 * seasonDormant(yh) * sn.cold);
+        leafNow = mix(leafNow, ${SEASON_COLORS.snow}, 0.75 * snow);
+      } else if (leafTint.a < 4.5) {
+        leafNow = mix(leafNow, ${SEASON_COLORS.straw}, 0.8 * seasonDormant(yl) * sn.rain);
+      } else {
+        leafNow = mix(leafNow, ${SEASON_COLORS.snow}, 0.5 * snow);
+      }
+    }
+  #endif`;
+// (A leaf card's clump gone, where the crown is bare: `bare` of them.)
+const BARE_CUT = (bare: string) => `(${bare} > 0.01 && vCard.z < 1.5 && fract(sin(dot(floor(vCard.xy * 9.0), vec2(12.9898, 78.233))) * 43758.5453) < ${bare})`;
 const FLORA_VERTEX = `
   vBark = vec4(position, leafMask);
   #ifdef USE_INSTANCING
@@ -195,6 +238,8 @@ const FLORA_VERTEX = `
       float gust = sin(uTime * 1.7 + ph) + 0.5 * sin(uTime * 2.9 + ph * 1.3);
       // (Every leaf card sways, a bush's bursts of berries too, whatever their colour.)
       float sway = max(leafMask, step(0.5, cardUv.z) * step(cardUv.z, 1.5));
+      // (Seen from far, a crown is one solid: a bare one a good deal smaller.)
+      if (leafMask > 0.5 && cardUv.z < 0.5) transformed.xz *= 1.0 - 0.45 * vBare;
       transformed.xz += sway * transformed.y * ${WIND.toFixed(3)} * gust * vec2(1.0, 0.6);
       if (cardUv.z > 1.5) {
         float far = distance((modelMatrix * vec4(o, 1.0)).xyz, uEye) / uCropFar;
@@ -227,7 +272,7 @@ export const cardTextures = (): Record<string, THREE.IUniform> => ({
   uLeaves: { value: sprayTexture() }, uBlades: { value: bladeTexture() }, uFronds: { value: frondTexture() }, uNeedles: { value: needleTexture() }, uFences: { value: fenceTexture() },
 });
 const floraUniforms = (f: FloraUniforms): Record<string, THREE.IUniform> => ({
-  uTime: f.time, uCropFar: f.cropFar ?? { value: 1e9 }, uEye: f.eye ?? { value: new THREE.Vector3() }, uBarkScale: f.barkScale ?? { value: 1 }, ...cardTextures(),
+  uTime: f.time, uYear: f.year ?? { value: Math.PI / 2 }, uCropFar: f.cropFar ?? { value: 1e9 }, uEye: f.eye ?? { value: new THREE.Vector3() }, uBarkScale: f.barkScale ?? { value: 1 }, ...cardTextures(),
 });
 // A card's texel: a fence (z 5, rural/models.ts), a conifer's needles (z
 // 4), a palm's frond (z 3), a crop's stalks (z 2, rural/models.ts) or a
@@ -349,16 +394,19 @@ export function makeFloraDepthMaterial(flora: FloraUniforms): THREE.MeshDepthMat
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         ${FLORA_VERTEX_DECL}
+        attribute vec4 leafTint;
         varying vec3 vCard;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vCard = cardUv;
+        ${FLORA_SEASON}
         ${FLORA_VERTEX}`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vCard;
+        varying float vBare;
         ${CARD_TEXEL}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        if (vCard.z > 0.5 && cardTexel(vCard).a < 0.5) discard;`);
+        if (vCard.z > 0.5 && (cardTexel(vCard).a < 0.5 || ${BARE_CUT('vBare')})) discard;`);
   };
   mat.customProgramCacheKey = () => 'flora-depth';
   return mat;
@@ -498,7 +546,7 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
         ${roam ? ROAM_DECL : ''}
         ${flora ? FLORA_VERTEX_DECL : 'attribute float leafMask; attribute vec3 cardUv;'}
         attribute float leafShade;
-        attribute vec3 leafTint;
+        attribute vec4 leafTint;
         varying vec3 vCard;
         varying float vDay;
         ${day ? 'uniform vec3 uSunDir;' : ''}`)
@@ -508,8 +556,9 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
         ${flora ? FLORA_VERTEX : ''}
         ${roam ? ROAM_VERTEX : ''}`)
       .replace('#include <color_vertex>', `#include <color_vertex>
+        ${flora ? FLORA_SEASON : 'vec3 leafNow = leafTint.rgb;'}
         #ifdef USE_INSTANCING_COLOR
-          vColor.xyz = mix(color.xyz, leafTint, leafMask) * instanceColor.xyz * (1.0 - leafShade);
+          vColor.xyz = mix(color.xyz, leafNow, leafMask) * instanceColor.xyz * (1.0 - leafShade);
         #endif
         vDay = 1.0;
         ${day ? `#ifdef USE_INSTANCING
@@ -523,6 +572,7 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
       .replace('#include <common>', `#include <common>
         varying float vDay;
         varying vec3 vCard;
+        ${flora ? 'varying float vBare;' : ''}
         ${surfaces ? `varying vec3 vSurfP; varying vec3 vSurfN; uniform float uStorey; ${SURFACE_FRAGMENT}` : ''}
         ${flora ? `${CARD_TEXEL} ${BARK_GLSL}` : ''}
         ${GRADE_GLSL}`)
@@ -555,7 +605,7 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
           vec3 fn = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
           float facing = abs(dot(fn, normalize(vViewPosition)));
           // (Nearly edge-on, a crown's card is a sliver: gone.)
-          if ((vCard.z < 1.5 && facing < 0.16) || lt.a < mix(0.97, 0.5, smoothstep(0.12, 0.4, facing))) discard;
+          if ((vCard.z < 1.5 && facing < 0.16) || lt.a < mix(0.97, 0.5, smoothstep(0.12, 0.4, facing)) || ${BARE_CUT('vBare')}) discard;
           diffuseColor.rgb *= lt.r;
           // (A spray's heart lies inside the crown, in its shade; its tips in the light.)
           if (vCard.z < 1.5) diffuseColor.rgb *= mix(0.62, 1.14, smoothstep(0.1, 0.95, length(vCard.xy - 0.5) * 2.0));
@@ -572,7 +622,8 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
 export function instanceGeometry(model: THREE.BufferGeometry, capacity: number): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const [name, attr] of Object.entries(model.attributes)) g.setAttribute(name, attr);
-  g.setAttribute('leafTint', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3));
+  // (rgb, and how the plant answers the seasons: seasons.ts PLANT; none, not at all.)
+  g.setAttribute('leafTint', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4));
   g.setAttribute('wander', new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1));
   return g;
 }

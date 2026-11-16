@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SKIES, type Sky } from './seasons.ts';
 
 // The air around the planet.
 //   - Haze (aerial perspective): the air thins out with height (scale height
@@ -22,7 +23,7 @@ import * as THREE from 'three';
 // the sky by its angle to the sun, gold and peach low toward it, a softer
 // peach away from it (the evening's glow there), a dusty blue overhead; and
 // a wide soft glow round a larger sun. No clouds: the colour alone.
-export function makeSky(): { mesh: THREE.Mesh; update(camera: THREE.Camera, sunDir: THREE.Vector3, alt: number): void; setGolden(amount: number): void } {
+export function makeSky(): { mesh: THREE.Mesh; update(camera: THREE.Camera, sunDir: THREE.Vector3, alt: number): void; setGolden(amount: number): void; setSky(sky: Sky): void } {
   const uniforms = {
     uUp: { value: new THREE.Vector3(0, 1, 0) },
     uSun: { value: new THREE.Vector3(0, 1, 0) },
@@ -31,6 +32,8 @@ export function makeSky(): { mesh: THREE.Mesh; update(camera: THREE.Camera, sunD
     uAmount: { value: 0 },
     uSpace: { value: new THREE.Color(0x04050a) },
     uGolden: { value: 0 },
+    uZenith: { value: SKIES[1].zenith.clone() }, uMidAway: { value: SKIES[1].midAway.clone() }, uMidSun: { value: SKIES[1].midSun.clone() },
+    uLowAway: { value: SKIES[1].lowAway.clone() }, uLowSun: { value: SKIES[1].lowSun.clone() }, uGlow: { value: SKIES[1].glow.clone() },
   };
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(40, 32, 16),
@@ -50,6 +53,7 @@ export function makeSky(): { mesh: THREE.Mesh; update(camera: THREE.Camera, sunD
         uniform float uAmount;
         uniform vec3 uSpace;
         uniform float uGolden;
+        uniform vec3 uZenith; uniform vec3 uMidAway; uniform vec3 uMidSun; uniform vec3 uLowAway; uniform vec3 uLowSun; uniform vec3 uGlow;
         varying vec3 vDir;
         void main() {
           vec3 d = normalize(vDir);
@@ -66,10 +70,11 @@ export function makeSky(): { mesh: THREE.Mesh; update(camera: THREE.Camera, sunD
             // (How far round toward the sun this way lies: 1 toward it, 0 away.)
             vec3 level = d - uUp * dot(d, uUp), sunFlat = uSun - uUp * dot(uSun, uUp);
             float toSun = smoothstep(-0.35, 1.0, dot(normalize(level + 1e-5), normalize(sunFlat + 1e-5)));
-            vec3 low = mix(vec3(0.96, 0.79, 0.66), vec3(1.0, 0.77, 0.47), toSun);
-            vec3 mid = mix(vec3(0.78, 0.67, 0.72), vec3(0.96, 0.63, 0.52), toSun * 0.8);
-            vec3 g = mix(mix(low, mid, smoothstep(0.0, 0.24, t)), vec3(0.42, 0.52, 0.74), smoothstep(0.2, 0.8, t));
-            vec3 glow = vec3(1.0, 0.8, 0.52) * (pow(s, 350.0) * 2.2 + pow(s, 24.0) * 0.5 + pow(s, 4.0) * 0.22);
+            // (The season's sky where the camera looks: seasons.ts.)
+            vec3 low = mix(uLowAway, uLowSun, toSun);
+            vec3 mid = mix(uMidAway, uMidSun, toSun * 0.8);
+            vec3 g = mix(mix(low, mid, smoothstep(0.0, 0.24, t)), uZenith, smoothstep(0.2, 0.8, t));
+            vec3 glow = uGlow * (pow(s, 350.0) * 2.2 + pow(s, 24.0) * 0.5 + pow(s, 4.0) * 0.22);
             g += glow;
             col = mix(col + sunGlow, g, uGolden);
           } else col += sunGlow;
@@ -85,6 +90,7 @@ export function makeSky(): { mesh: THREE.Mesh; update(camera: THREE.Camera, sunD
     // alt: the camera's height above sea level. On the ground the whole sky is
     // blue; higher up, a band over the horizon that thins out into space.
     setGolden(amount) { uniforms.uGolden.value = amount; },
+    setSky(sky) { uniforms.uZenith.value.copy(sky.zenith); uniforms.uMidAway.value.copy(sky.midAway); uniforms.uMidSun.value.copy(sky.midSun); uniforms.uLowAway.value.copy(sky.lowAway); uniforms.uLowSun.value.copy(sky.lowSun); uniforms.uGlow.value.copy(sky.glow); },
     update(camera, sunDir, alt) {
       const r = camera.position.length();
       mesh.position.copy(camera.position);

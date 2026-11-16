@@ -4,6 +4,7 @@
 // are remembered in this browser (and only there: a convenience, the game
 // works the same without them).
 
+import { YEAR, LAG } from './seasons.ts';
 import { RESOLUTIONS, type GlobeRenderer, type Resolution } from './render.ts';
 
 export interface Settings { shadows: boolean; toneMapping: boolean; resolution: Resolution }
@@ -48,6 +49,24 @@ export function mountSettings(view: GlobeRenderer): void {
   dock.id = 'dock';
   const views = document.getElementById('views');
   if (views) dock.append(views);
+  // The turn of the year (seasons.ts), set by hand: to look the seasons over. [ and ] step it.
+  const season = document.createElement('label');
+  season.id = 'seasonBar';
+  season.className = 'panel';
+  season.title = 'The turn of the year, of 32: the sun, the sky and the land by season ([ and ] step it)';
+  season.innerHTML = `Season <input type="range" id="setYear" min="0" max="${YEAR - 1}" step="1"><output id="setYearOut"></output>`;
+  dock.append(season);
+  const yearIn = season.querySelector<HTMLInputElement>('#setYear')!, yearOut = season.querySelector<HTMLOutputElement>('#setYearOut')!;
+  const NAMES = ['spring', 'summer', 'autumn', 'winter'] as const;
+  const showYear = (x: number) => { yearIn.value = String(x); yearOut.textContent = `${x} · north's ${NAMES[Math.floor((((x - LAG + YEAR / 8) % YEAR) + YEAR) % YEAR / (YEAR / 4))]}`; };
+  const setYear = (x: number) => { const k = ((x % YEAR) + YEAR) % YEAR; view.setYear(k); showYear(k); };
+  showYear(view.year);
+  yearIn.addEventListener('input', () => setYear(Number(yearIn.value)));
+  yearIn.addEventListener('change', () => yearIn.blur());
+  document.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement && e.target.type !== 'range' || e.target instanceof HTMLSelectElement) return;
+    if (e.key === '[') setYear(view.year - 1); else if (e.key === ']') setYear(view.year + 1);
+  });
   dock.append(wrap);
   document.body.append(dock);
   const btn = wrap.querySelector<HTMLButtonElement>('#settingsBtn')!, menu = wrap.querySelector<HTMLDivElement>('#settingsMenu')!;

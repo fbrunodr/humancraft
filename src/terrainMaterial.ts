@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SEASON_GLSL, SEASON_COLORS } from './seasons.ts';
 import { NOISE_SIZE, noiseData } from './fineNoise.ts';
 import type { ImprovementKey } from './cities.ts';
 import type { CropRegion } from './rural/look.ts';
@@ -37,6 +38,7 @@ const FURROW_REPEAT = 0.045;
 //                           inside where n · p ≥ c, p in its frame; water: 1
 //                           along water, the painting deciding there; none:
 //                           0, 0, -1, 0)
+//  19 cold, rain, russet, snow   how its ground answers the seasons (seasons.ts GroundSeason)
 // Fan table rows (FAN_ROWS texels):
 //   0 ids (t, A, B, C)
 //   1 rounding of edges i-1, i, i+1 and A|B
@@ -81,7 +83,9 @@ export function paintViewColor(biome: BiomeKey, feature: FeatureKey | null, reli
 }
 
 export const TEX_W = 2048;
-export const TILE_ROWS = 19;
+export const TILE_ROWS = 20;
+// How far a peak's snowline comes down in midwinter and climbs in midsummer (world units: a peak stands some 0.013 over its foot).
+const SNOWLINE_SWING = '0.0030';
 // A dirt road's colour (render.ts).
 export const ROAD_DIRT = [0.66, 0.54, 0.34] as const;
 // (Its grain: the sand scan, fine and stoneless, not the soil's pebbles.)
@@ -322,6 +326,7 @@ export interface TerrainMaterial {
 }
 
 export interface PaintUniforms {
+  year: { value: number }; // the land's year (seasons.ts landPhase)
   tileTex: THREE.DataTexture;
   fanTex: THREE.DataTexture;
   r0: number;       // tile inner radius (radians)
@@ -444,6 +449,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
   const noise = noiseTexture();
   const compile = (shader: THREE.WebGLProgramParametersWithUniforms, holed: boolean) => {
     shader.uniforms['uTime'] = uTime;
+    shader.uniforms['uYear'] = paint.year;
     shader.uniforms['uTileTex'] = { value: paint.tileTex };
     shader.uniforms['uFanTex'] = { value: paint.fanTex };
     shader.uniforms['uNoise'] = { value: noise };
@@ -488,6 +494,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uTime;
+        ${SEASON_GLSL}
         uniform highp sampler2D uTileTex;
         uniform highp sampler2D uFanTex;
         uniform highp sampler3D uNoise;
@@ -534,7 +541,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           vec3 sEdge;
           vec4 soft;
           vec4 w = paintWeights(fan, P, ids, sEdge, soft);
-          vec4 m0 = vec4(0.0), m1 = vec4(0.0), m2 = vec4(0.0), m3 = vec4(0.0), m4 = vec4(0.0);
+          vec4 m0 = vec4(0.0), m1 = vec4(0.0), m2 = vec4(0.0), m3 = vec4(0.0), m4 = vec4(0.0), m19 = vec4(0.0);
           vec4 g0 = vec4(0.0), g1 = vec4(0.0), g2 = vec4(0.0);
           // Land blends softly into land: its color and ground material take
           // the unsharpened weights, so biomes fade into each other over
@@ -552,7 +559,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               vec4 r0 = tileRow(tt, 0), r4 = tileRow(tt, 4), r10 = tileRow(tt, 10), r11 = tileRow(tt, 11), r12 = tileRow(tt, 12);
               if (w[k] > 0.001) {
                 m0 += w[k] * r0; m1 += w[k] * tileRow(tt, 1); m2 += w[k] * tileRow(tt, 2);
-                m3 += w[k] * tileRow(tt, 3); m4 += w[k] * r4;
+                m3 += w[k] * tileRow(tt, 3); m4 += w[k] * r4; m19 += w[k] * tileRow(tt, 19);
                 g0 += w[k] * r10; g1 += w[k] * r11; g2 += w[k] * r12;
               }
               float land = 1.0 - step(0.9, r0.a);
@@ -563,7 +570,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
             }
           }
           float wsum = w.x * step(0.001, w.x) + w.y * step(0.001, w.y) + w.z * step(0.001, w.z) + w.w * step(0.001, w.w);
-          m0 /= wsum; m1 /= wsum; m2 /= wsum; m3 /= wsum; m4 /= wsum;
+          m0 /= wsum; m1 /= wsum; m2 /= wsum; m3 /= wsum; m4 /= wsum; m19 /= wsum;
           g0 /= wsum; g1 /= wsum; g2 /= wsum;
           if (ls > 0.001) {
             float k = landShare / wsum;
@@ -577,12 +584,30 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           // half; it slides off steep faces (bare rock shows there).
           float steepness = 1.0 - dot(normalize(vObjNormal), normalize(P));
           float snowCover = 0.0, snowEdge = -1.0;
+          // The season here (seasons.ts): a peak's snowline comes down in its winter and climbs in its
+          // summer; where the winter is cold enough snow lies on the land itself, from the heights down.
+          Season season = seasonAt(P);
+          bool snowy = m19.w > 0.01 && season.warmth < 0.3;
+          float snowNoise = vSnow < 0.5 || snowy ? tFbm(P * 260.0 + 5.3, 3) : 0.5;
           if (vSnow < 0.5) {
-            float edge = length(P) - 1.0 - vSnow + 0.0016 * (tFbm(P * 260.0 + 5.3, 3) - 0.5);
+            float edge = length(P) - 1.0 - vSnow - ${SNOWLINE_SWING} * season.cold * season.summer + 0.0016 * (snowNoise - 0.5);
             snowEdge = edge;
             snowCover = smoothstep(-0.00015, 0.00015, edge) * (1.0 - smoothstep(0.16, 0.3, steepness));
           }
+          if (snowy) snowCover = max(snowCover, seasonSnow(season, snowNoise, m19.w) * (1.0 - smoothstep(0.16, 0.3, steepness)));
           vec3 ground = groundColor(m0.rgb, g0.rgb, g0, g1, g2, P);
+          // Its ground through the year: a flush of fresh green in spring, straw while it lies dormant
+          // (the cold's winter, the tropics' dry season; Mediterranean scrub the other way round: parched
+          // in summer), russet in autumn where leaves fall.
+          if (abs(m19.x) + m19.y + m19.z > 0.01) {
+            float yh = seasonGrowing(season, 0.2), yl = seasonGrowing(season, 0.0), lum = dot(ground, vec3(0.3, 0.55, 0.15));
+            float coldA = abs(m19.x) * season.cold, rainA = m19.y * season.rain, med = step(m19.x, -0.001);
+            float dormant = mix(seasonDormant(yh), smoothstep(0.1, 0.24, season.yr) * (1.0 - smoothstep(0.5, 0.64, season.yr)), med);
+            float flush = mix(seasonFlush(yh), min(1.0, smoothstep(0.66, 0.8, season.yr) + 1.0 - smoothstep(0.02, 0.14, season.yr)) * 0.6, med);
+            ground = mix(ground, ${SEASON_COLORS.straw} * (0.5 + 1.2 * lum), 0.78 * min(1.0, dormant * coldA + seasonDormant(yl) * rainA));
+            ground = mix(ground, ${SEASON_COLORS.fresh} * (0.35 + 1.5 * lum), 0.3 * min(1.0, flush * coldA + seasonFlush(yl) * rainA));
+            ground = mix(ground, ${SEASON_COLORS.russet} * (0.55 + 1.1 * lum), 0.55 * seasonAutumn(yh) * m19.z * season.cold);
+          }
           vec3 snowN = vec3(0.0);
           vec4 snowT = vec4(0.5);
           if (snowCover > 0.001) snowT = gSample(${GROUND_LAYER.snow}.0, snowN, 0.5);
