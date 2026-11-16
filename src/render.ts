@@ -645,7 +645,7 @@ export class GlobeRenderer {
     });
     this.waterMesh.userData['stat'] = 'water';
     this.scene.add(this.waterMesh);
-    this.weather = makeWeather(g.globe, g.map.rainfall, g.map.temperature, params.r0, g.seed);
+    this.weather = makeWeather(g.globe, g.map.rainfall, g.map.temperature, params.r0, g.seed, this.yearPhase);
     this.weather.group.userData['stat'] = 'clouds & rain';
     this.scene.add(this.weather.group);
     this.prevExplored = new Uint8Array(N).fill(255);

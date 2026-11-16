@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SEASON_GLSL, SEASON_COLORS } from './seasons.ts';
+import { SEASON_GLSL } from './seasons.ts';
 import { NOISE_SIZE, noiseData } from './fineNoise.ts';
 import type { ImprovementKey } from './cities.ts';
 import type { CropRegion } from './rural/look.ts';
@@ -596,18 +596,8 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           }
           if (snowy) snowCover = max(snowCover, seasonSnow(season, snowNoise, m19.w) * (1.0 - smoothstep(0.16, 0.3, steepness)));
           vec3 ground = groundColor(m0.rgb, g0.rgb, g0, g1, g2, P);
-          // Its ground through the year: a flush of fresh green in spring, straw while it lies dormant
-          // (the cold's winter, the tropics' dry season; Mediterranean scrub the other way round: parched
-          // in summer), russet in autumn where leaves fall.
-          if (abs(m19.x) + m19.y + m19.z > 0.01) {
-            float yh = seasonGrowing(season, 0.2), yl = seasonGrowing(season, 0.0), lum = dot(ground, vec3(0.3, 0.55, 0.15));
-            float coldA = abs(m19.x) * season.cold, rainA = m19.y * season.rain, med = step(m19.x, -0.001);
-            float dormant = mix(seasonDormant(yh), smoothstep(0.1, 0.24, season.yr) * (1.0 - smoothstep(0.5, 0.64, season.yr)), med);
-            float flush = mix(seasonFlush(yh), min(1.0, smoothstep(0.66, 0.8, season.yr) + 1.0 - smoothstep(0.02, 0.14, season.yr)) * 0.6, med);
-            ground = mix(ground, ${SEASON_COLORS.straw} * (0.5 + 1.2 * lum), 0.78 * min(1.0, dormant * coldA + seasonDormant(yl) * rainA));
-            ground = mix(ground, ${SEASON_COLORS.fresh} * (0.35 + 1.5 * lum), 0.3 * min(1.0, flush * coldA + seasonFlush(yl) * rainA));
-            ground = mix(ground, ${SEASON_COLORS.russet} * (0.55 + 1.1 * lum), 0.55 * seasonAutumn(yh) * m19.z * season.cold);
-          }
+          // (Its ground through the year: seasons.ts.)
+          ground = seasonGround(ground, m19, season);
           vec3 snowN = vec3(0.0);
           vec4 snowT = vec4(0.5);
           if (snowCover > 0.001) snowT = gSample(${GROUND_LAYER.snow}.0, snowN, 0.5);

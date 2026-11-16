@@ -47,6 +47,9 @@
       <label><input type="checkbox" id="groves" checked /> groves</label>
       <button id="reroll" title="New random placement">Reroll</button>
       <span class="sep"></span>
+      <label title="The turn of the year, of 32 ([ and ] step it): how each terrain looks through its seasons">Season <input type="range" id="season" min="0" max="31" step="1" value="11" /> <output id="seasonOut"></output></label>
+      <label title="The latitude the terrains are shown at: the seasons are stronger away from the equator">Latitude <select id="latitude"></select></label>
+      <span class="sep"></span>
       <button data-cam="map">Map view</button>
       <button data-cam="close">Close</button>
       <button data-cam="ground">Ground (walk eye)</button>

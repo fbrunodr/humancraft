@@ -139,17 +139,20 @@ struct Season {
   float alt;    // height: 0 flat land, 1 hills, 2 mountains
   float warmth; // below about 0.1, snow lies
 };
-Season seasonAt(vec3 P) {
-  vec3 up = normalize(P);
-  float a = abs(degrees(asin(clamp(up.y, -1.0, 1.0)))), hemi = up.y < 0.0 ? -1.0 : 1.0;
+// (At a latitude, degrees north, and a height, as Season.alt: where there is no globe, the Gallery's patches.)
+Season seasonOf(float lat, float alt) {
+  float a = abs(lat), hemi = lat < 0.0 ? -1.0 : 1.0;
   Season s;
   s.summer = hemi * sin(uYear);
   s.yr = fract(uYear / 6.2831853 + (hemi < 0.0 ? 0.5 : 0.0));
   s.cold = smoothstep(8.0, 35.0, a);
   s.rain = smoothstep(2.0, 12.0, a);
-  s.alt = clamp((length(P) - 1.0 - ${LOW.toFixed(4)}) / ${STEP.toFixed(4)}, 0.0, 2.0);
+  s.alt = alt;
   s.warmth = 1.0 - 1.05 * smoothstep(30.0, 65.0, a) + 0.55 * s.cold * s.summer - 0.3 * s.alt;
   return s;
+}
+Season seasonAt(vec3 P) {
+  return seasonOf(degrees(asin(clamp(normalize(P).y, -1.0, 1.0))), clamp((length(P) - 1.0 - ${LOW.toFixed(4)}) / ${STEP.toFixed(4)}, 0.0, 2.0));
 }
 // Where in the growing year (as Season.yr, but running on below 0 and past 0.75 into the winter), the
 // season squeezed about midsummer by height: spring later up there, autumn sooner.
@@ -159,4 +162,17 @@ float seasonFlush(float y) { return smoothstep(-0.08, 0.03, y) * (1.0 - smoothst
 float seasonAutumn(float y) { return smoothstep(0.4, 0.5, y) * (1.0 - smoothstep(0.58, 0.7, y)); }
 // How much snow lies (n: noise, 0..1, to rag its edge; share: how much of it this ground takes).
 float seasonSnow(Season s, float n, float share) { return smoothstep(0.12, -0.08, s.warmth + (n - 0.5) * 0.14 + (1.0 - share) * 0.12) * smoothstep(0.0, 0.3, share); }
+// A ground's colour through the year (row: its GroundSeason, as the tile table has it: cold, rain, russet,
+// snow): a flush of fresh green in spring, straw while it lies dormant (the cold's winter, the tropics'
+// dry season; Mediterranean scrub the other way round: parched in summer), russet in autumn where leaves fall.
+vec3 seasonGround(vec3 ground, vec4 row, Season s) {
+  if (abs(row.x) + row.y + row.z < 0.01) return ground;
+  float yh = seasonGrowing(s, 0.2), yl = seasonGrowing(s, 0.0), lum = dot(ground, vec3(0.3, 0.55, 0.15));
+  float coldA = abs(row.x) * s.cold, rainA = row.y * s.rain, med = step(row.x, -0.001);
+  float dormant = mix(seasonDormant(yh), smoothstep(0.1, 0.24, s.yr) * (1.0 - smoothstep(0.5, 0.64, s.yr)), med);
+  float flush = mix(seasonFlush(yh), min(1.0, smoothstep(0.66, 0.8, s.yr) + 1.0 - smoothstep(0.02, 0.14, s.yr)) * 0.6, med);
+  ground = mix(ground, ${SEASON_COLORS.straw} * (0.5 + 1.2 * lum), 0.78 * min(1.0, dormant * coldA + seasonDormant(yl) * rainA));
+  ground = mix(ground, ${SEASON_COLORS.fresh} * (0.35 + 1.5 * lum), 0.3 * min(1.0, flush * coldA + seasonFlush(yl) * rainA));
+  return mix(ground, ${SEASON_COLORS.russet} * (0.55 + 1.1 * lum), 0.55 * seasonAutumn(yh) * row.z * s.cold);
+}
 `;

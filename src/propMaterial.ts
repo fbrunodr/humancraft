@@ -178,6 +178,7 @@ const sprayTexture = (): THREE.DataTexture => (sprayTex ??= drawnTexture(LEAF_TE
 export interface FloraUniforms {
   time: { value: number };
   year?: { value: number }; // the land's year (seasons.ts landPhase): none, a plant keeps its summer's look
+  flat?: { value: number };  // 1 where there is no globe (the Gallery): each plant's latitude then rides with its kind (leafTint.a: kind + degrees north / 100)
   cropFar?: { value: number };
   eye?: { value: THREE.Vector3 };
   barkScale?: { value: number }; // the models' scale against their catalog's size (the bark's grain is in the catalog's)
@@ -187,7 +188,7 @@ const FLORA_VERTEX_DECL = `
   attribute vec3 cardUv;
   varying vec4 vBark;
   varying float vBare;
-  uniform float uTime; uniform float uCropFar; uniform vec3 uEye;
+  uniform float uTime; uniform float uCropFar; uniform vec3 uEye; uniform float uSeasonFlat;
   ${SEASON_GLSL}`;
 // A plant through the year (seasons.ts), by where it stands and what it is
 // (leafTint.a: PLANT): its leaves' colour now (leafNow), and how much of
@@ -200,26 +201,28 @@ const FLORA_SEASON = `
   #ifdef USE_INSTANCING
     if (leafTint.a > 0.5) {
       vec3 so = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
-      Season sn = seasonAt(so);
+      float kind = floor(leafTint.a + 0.0005);
+      Season sn;
+      if (uSeasonFlat > 0.5) sn = seasonOf(fract(leafTint.a) * 100.0, 0.0); else sn = seasonAt(so);
       float sh = fract(dot(so, vec3(4100.0, 3700.0, 2900.0)));
       float yh = seasonGrowing(sn, 0.2) + (sh - 0.5) * 0.05, yl = seasonGrowing(sn, 0.0) + (sh - 0.5) * 0.05;
       float snow = smoothstep(0.12, -0.08, sn.warmth);
-      if (leafTint.a < 1.5) {
+      if (kind < 1.5) {
         float bare = max(smoothstep(0.6, 0.68, yh), 1.0 - smoothstep(-0.06, 0.0, yh)) * sn.cold;
         leafNow = mix(leafNow, leafNow * vec3(1.3, 1.25, 0.8) + vec3(0.015, 0.03, 0.0), seasonFlush(yh) * sn.cold);
         leafNow = mix(leafNow, mix(${SEASON_COLORS.gold}, ${SEASON_COLORS.red}, fract(sh * 7.31)), smoothstep(0.42, 0.5, yh) * sn.cold);
         leafNow = mix(leafNow, ${SEASON_COLORS.twig}, bare);
         leafNow = mix(leafNow, ${SEASON_COLORS.snow}, 0.4 * snow * bare);
         vBare = 0.9 * bare;
-      } else if (leafTint.a < 2.5) {
+      } else if (kind < 2.5) {
         float dry = seasonDormant(yl) * sn.rain;
         leafNow = mix(leafNow, ${SEASON_COLORS.yellowed}, 0.7 * dry);
         vBare = 0.55 * dry;
-      } else if (leafTint.a < 3.5) {
+      } else if (kind < 3.5) {
         leafNow = mix(leafNow, leafNow * vec3(1.1, 1.2, 0.8), seasonFlush(yh) * sn.cold);
         leafNow = mix(leafNow, ${SEASON_COLORS.straw}, 0.8 * seasonDormant(yh) * sn.cold);
         leafNow = mix(leafNow, ${SEASON_COLORS.snow}, 0.75 * snow);
-      } else if (leafTint.a < 4.5) {
+      } else if (kind < 4.5) {
         leafNow = mix(leafNow, ${SEASON_COLORS.straw}, 0.8 * seasonDormant(yl) * sn.rain);
       } else {
         leafNow = mix(leafNow, ${SEASON_COLORS.snow}, 0.5 * snow);
@@ -272,7 +275,7 @@ export const cardTextures = (): Record<string, THREE.IUniform> => ({
   uLeaves: { value: sprayTexture() }, uBlades: { value: bladeTexture() }, uFronds: { value: frondTexture() }, uNeedles: { value: needleTexture() }, uFences: { value: fenceTexture() },
 });
 const floraUniforms = (f: FloraUniforms): Record<string, THREE.IUniform> => ({
-  uTime: f.time, uYear: f.year ?? { value: Math.PI / 2 }, uCropFar: f.cropFar ?? { value: 1e9 }, uEye: f.eye ?? { value: new THREE.Vector3() }, uBarkScale: f.barkScale ?? { value: 1 }, ...cardTextures(),
+  uTime: f.time, uYear: f.year ?? { value: Math.PI / 2 }, uSeasonFlat: f.flat ?? { value: 0 }, uCropFar: f.cropFar ?? { value: 1e9 }, uEye: f.eye ?? { value: new THREE.Vector3() }, uBarkScale: f.barkScale ?? { value: 1 }, ...cardTextures(),
 });
 // A card's texel: a fence (z 5, rural/models.ts), a conifer's needles (z
 // 4), a palm's frond (z 3), a crop's stalks (z 2, rural/models.ts) or a

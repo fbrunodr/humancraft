@@ -3,6 +3,7 @@ import type { Globe } from './goldberg.ts';
 import { noiseTexture } from './terrainMaterial.ts';
 import { mulberry32 } from './rng.ts';
 import { AIR, airGLSL } from './sky.ts';
+import { SEASON_GLSL } from './seasons.ts';
 
 // Weather: a cloud layer painted over the globe, and rain under its thickest
 // parts. All of it is computed on the GPU, per pixel, from two fields:
@@ -35,6 +36,8 @@ const RAIN_SCALE = 2400;   // yearly rain (mm) that counts as fully wet
 // Mean annual temperature (°C) where rain starts turning to snow / is all snow.
 const SNOW_TEMP = [1, -4] as const;
 
+// (The level of flat land, as the seasons measure height from: a place's weather is its lowland's.)
+const SEASON_GROUND = '1.008';
 // Shared by the cloud layer and the rain.
 const WEATHER_GLSL = /* glsl */ `
 uniform float uTime;
@@ -42,6 +45,7 @@ uniform float uR0;
 uniform sampler2D uRain;
 uniform highp sampler3D uNoise;
 uniform sampler2D uSeen;
+${SEASON_GLSL}
 // 1 over explored land, 0 over the unknown (soft at the edge).
 float wSeen(vec3 p) {
   vec2 uv = vec2(atan(p.z, p.x) / 6.2831853 + 0.5, asin(clamp(p.y, -1.0, 1.0)) / 3.1415927 + 0.5);
@@ -51,10 +55,21 @@ float wWet(vec3 p) {
   vec2 uv = vec2(atan(p.z, p.x) / 6.2831853 + 0.5, asin(clamp(p.y, -1.0, 1.0)) / 3.1415927 + 0.5);
   return texture(uRain, uv).r;
 }
-// 1 where it is cold enough to snow instead of rain.
-float wCold(vec3 p) {
+// 1 where it is cold enough to snow instead of rain, now: where the season has snow lying on the land, or
+// about to (seasons.ts: the same warmth the ground and the plants go by); a land cold the year round
+// (uRain.g) sees rain only in a real summer.
+float wColdIn(vec3 p, Season s) {
   vec2 uv = vec2(atan(p.z, p.x) / 6.2831853 + 0.5, asin(clamp(p.y, -1.0, 1.0)) / 3.1415927 + 0.5);
-  return texture(uRain, uv).g;
+  return 1.0 - smoothstep(0.14, 0.26, s.warmth - 0.35 * texture(uRain, uv).g);
+}
+float wCold(vec3 p) { return wColdIn(p, seasonAt(p * ${SEASON_GROUND})); }
+// How much of its yearly rain a place gets now (1: its share): the tropics' rains come with their summer
+// and leave them a dry season; the lands of dry summers, just poleward (about 28 to 46 degrees), get
+// theirs in winter.
+float wSeason(vec3 p, Season s) {
+  float a = abs(degrees(asin(clamp(p.y, -1.0, 1.0))));
+  float tropic = s.rain * (1.0 - smoothstep(24.0, 34.0, a)), dry = smoothstep(28.0, 34.0, a) * (1.0 - smoothstep(40.0, 46.0, a));
+  return clamp(1.0 + 0.55 * s.summer * tropic - 0.35 * s.summer * dry, 0.3, 1.6);
 }
 float wFbm(vec3 q) {
   float s = 0.0, a = 0.5;
@@ -64,7 +79,8 @@ float wFbm(vec3 q) {
 vec3 wTurn(vec3 p, float ang) { float c = cos(ang), s = sin(ang); return vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z); }
 // Cloud cover (0..1) at unit direction p; rain (0..1) out.
 float wCover(vec3 p, out float rain) {
-  float wet = wWet(p);
+  Season season = seasonAt(p * ${SEASON_GROUND});
+  float wet = min(1.0, wWet(p) * wSeason(p, season));
   float P = clamp(0.06 + 0.62 * wet, 0.0, 0.75);
   float wind = -${WIND.toFixed(5)} * cos(3.0 * asin(clamp(p.y, -1.0, 1.0))) * ${CYCLE.toFixed(1)};
   float ph = uTime / ${CYCLE.toFixed(1)};
@@ -85,7 +101,7 @@ float wCover(vec3 p, out float rain) {
   float g1 = wFbm(wTurn(p, wind * f1) * k * 0.7 + drift + floor(ph + 0.5) * 37.1 + 71.0);
   float rainy = smoothstep(0.48, 0.52, mix(g0, g1, blend));
   // Cold climates are dry, yet still snow: there less moisture is enough.
-  float cold = wCold(p);
+  float cold = wColdIn(p, season);
   float moist = mix(smoothstep(0.35, 0.7, wet), smoothstep(0.08, 0.3, wet), cold);
   float seen = wSeen(p);
   cover *= seen;
@@ -104,11 +120,13 @@ export interface Weather {
   setSeen(explored: Uint8Array): void;
 }
 
-export function makeWeather(globe: Globe, rainfall: Float32Array, temperature: Float32Array, r0: number, seed: number): Weather {
+// (`year`: the land's year, kept up by the caller: seasons.ts landPhase.)
+export function makeWeather(globe: Globe, rainfall: Float32Array, temperature: Float32Array, r0: number, seed: number, year: { value: number }): Weather {
   const ALT = 0.05 * AIR.height; // cloud height above sea level (globe radii), above most peaks
   const rand = mulberry32(seed ^ 0x77ea7e);
   const uniforms = {
     uTime: { value: 0 },
+    uYear: year,
     uR0: { value: r0 },
     uRain: { value: rainTexture(globe, rainfall, temperature) },
     uNoise: { value: noiseTexture() },

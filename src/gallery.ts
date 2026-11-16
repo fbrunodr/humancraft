@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { YEAR, LAG, landPhase, groundSeason, plantSeason, BIOME_SEASON, SEASON_GLSL, SEASON_COLORS } from './seasons.ts';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WorldLabel, clickableLabels, disposeLabels, type LabelLine } from './worldLabel.ts';
@@ -79,7 +80,22 @@ scene.add(sun, sun.target);
 // The game's flora material (clump normals, leaf cards), at full saturation.
 // (Its clock: the leaves' sway, the beasts' walk.)
 const clock = { value: 0 };
-const propMat = makePropMaterial(0, 1, undefined, { time: clock });
+// The seasons (seasons.ts), on patches that lie on no globe: the turn of the year is set by hand, and each
+// terrain is shown at a latitude (its own, where it mostly grows, or one chosen for all), in the north.
+const yearPhase = { value: landPhase(11) };
+const OWN_LATITUDE: Record<string, number> = {
+  iceSheet: 80, tundra: 68, taiga: 58, coldDesert: 42, steppe: 46, prairie: 42, temperateForest: 48, temperateRainforest: 50, mediterranean: 36,
+  hotDesert: 25, savanna: 14, monsoonForest: 16, jungle: 3, marsh: 45, swamp: 32, mangrove: 8, bog: 60, floodplain: 30, oasis: 25,
+};
+// (A feature's seasons: those of a land it lies on.)
+const FEATURE_LAND: Record<string, BiomeKey> = { marsh: 'prairie', swamp: 'temperateForest', mangrove: 'jungle', bog: 'taiga', floodplain: 'prairie', oasis: 'hotDesert', reef: 'ocean', kelp: 'ocean' };
+let latitudeSet: number | null = null;
+// (The land whose patch is being built: its plants and ground take its seasons; none, they keep their summer.)
+let landNow: string | null = null;
+const landBiome = (land: string): BiomeKey => (land in BIOME_SEASON ? (land as BiomeKey) : FEATURE_LAND[land] ?? 'hotDesert');
+const landLatitude = (land: string): number => latitudeSet ?? OWN_LATITUDE[land] ?? 40;
+const landGround = (land: string) => groundSeason(landBiome(land), land in BIOME_SEASON ? null : (land as FeatureKey), false);
+const propMat = makePropMaterial(0, 1, undefined, { time: clock, year: yearPhase, flat: { value: 1 } });
 // The game's material for the countryside's models (and the resources');
 // the smooth one for the kit's people, animals and plants.
 const ruralMat = makePropMaterial(0.32, 0.8);
@@ -186,7 +202,9 @@ function addInstances(items: Placed[], at: THREE.Vector3, parent: THREE.Object3D
     const mesh = new THREE.InstancedMesh(instanceGeometry(list[0].geo, list.length), list[0].mat ?? propMat, list.length);
     if (list[0].mat === smoothMat) mesh.customDepthMaterial = roamDepth;
     const leaf = mesh.geometry.getAttribute('leafTint') as THREE.InstancedBufferAttribute, wander = mesh.geometry.getAttribute('wander') as THREE.InstancedBufferAttribute;
-    list.forEach((p, i) => { mesh.setMatrixAt(i, off.clone().multiply(p.m)); mesh.setColorAt(i, p.c); leaf.setXYZ(i, p.leaf.r, p.leaf.g, p.leaf.b); wander.setX(i, p.wander ?? 0); });
+    // (How it answers the seasons, and at what latitude: its kind + degrees / 100, propMaterial.ts.)
+    const kind = landNow ? plantSeason(list[0].key, landBiome(landNow)) : 0, season = kind ? kind + landLatitude(landNow!) / 100 : 0;
+    list.forEach((p, i) => { mesh.setMatrixAt(i, off.clone().multiply(p.m)); mesh.setColorAt(i, p.c); leaf.setXYZW(i, p.leaf.r, p.leaf.g, p.leaf.b, season); wander.setX(i, p.wander ?? 0); });
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     parent.add(mesh);
@@ -208,9 +226,25 @@ function rim(at: THREE.Vector3, r = R): THREE.Mesh {
   m.receiveShadow = true;
   return m;
 }
+// A patch's ground: its land's colour, through the seasons as the game's terrain has it (seasons.ts:
+// the same ground and the same snow, at the land's latitude).
+function groundMaterial(color: number): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 1 });
+  if (!landNow) return mat;
+  const g = landGround(landNow), row = { value: new THREE.Vector4(g.cold, g.rain, g.russet, g.snow) }, lat = { value: landLatitude(landNow) };
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, { uYear: yearPhase, uRow: row, uLat: lat });
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${SEASON_GLSL}\nuniform vec4 uRow; uniform float uLat;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        Season season = seasonOf(uLat, 0.0);
+        diffuseColor.rgb = mix(seasonGround(diffuseColor.rgb, uRow, season), ${SEASON_COLORS.snow}, seasonSnow(season, 0.5, uRow.w));`);
+  };
+  mat.customProgramCacheKey = () => 'gallery-ground';
+  return mat;
+}
 function hex(color: number, at: THREE.Vector3, r = R): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 6, HEX_TURN).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color, roughness: 1 }));
+  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 6, HEX_TURN).rotateX(-Math.PI / 2), groundMaterial(color));
   m.position.copy(at);
   m.receiveShadow = true;
   return m;
@@ -453,6 +487,7 @@ function buildTerrains(): void {
   };
   let row = 0;
   for (const [key, set] of TERRAINS) {
+    landNow = key;
     rowStart.set(key, patches.length);
     const z = row * ROW;
     const title = new WorldLabel([{ text: set.name, bold: true }], LABEL * 1.6);
@@ -493,6 +528,7 @@ function buildTerrains(): void {
   ];
   rowsOf.forEach(({ r, imp, land, name }, ri) => {
     const set = land ? TERRAINS.get(land) ?? null : null, z = row * ROW;
+    landNow = land;
     const title = new WorldLabel([{ text: name, bold: true }], LABEL * 1.3);
     title.position.set(-SPACING * 0.9, title.scale.y / 2 + 0.1, z);
     world.add(title);
@@ -634,9 +670,33 @@ function refreshFocus(): void {
   mixPanel.innerHTML = patches[state.focus]?.mix ?? '';
 }
 
+// The seasons' controls: the turn of the year (only a uniform: nothing is rebuilt), and the latitude the
+// terrains are shown at (each plant carries it: rebuilt).
+{
+  const seasonIn = document.getElementById('season') as HTMLInputElement, seasonOut = document.getElementById('seasonOut')!;
+  const latSel = document.getElementById('latitude') as HTMLSelectElement;
+  const NAMES = ['spring', 'summer', 'autumn', 'winter'] as const;
+  const show = () => {
+    const x = Number(seasonIn.value);
+    yearPhase.value = landPhase(x);
+    seasonOut.textContent = `${x} · ${NAMES[Math.floor(((((x - LAG + YEAR / 8) % YEAR) + YEAR) % YEAR) / (YEAR / 4))]}`;
+  };
+  seasonIn.addEventListener('input', show);
+  seasonIn.addEventListener('change', () => seasonIn.blur());
+  latSel.innerHTML = `<option value="own">each terrain's own</option>${[0, 15, 30, 45, 60, 75].map((l) => `<option value="${l}">${l}° north</option>`).join('')}`;
+  latSel.addEventListener('change', () => { latitudeSet = latSel.value === 'own' ? null : Number(latSel.value); rebuild(false); latSel.blur(); });
+  addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLSelectElement || (e.key !== '[' && e.key !== ']')) return;
+    seasonIn.value = String((Number(seasonIn.value) + (e.key === ']' ? 1 : YEAR - 1)) % YEAR);
+    show();
+  });
+  show();
+}
 function rebuild(resetCam: boolean): void {
   clearWorld();
+  landNow = null;
   if (state.view === 'terrains') buildTerrains(); else buildCatalog();
+  landNow = null;
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]')) b.classList.toggle('active', b.dataset['view'] === state.view);
   select.value = state.terrain;
   select.disabled = state.view !== 'terrains';
