@@ -32,6 +32,7 @@ export const TECH_KEYS = [
   'refrigeration', 'medicine', 'defenseInDepth', 'atomicTheory', 'telecommunications', 'flight', 'radar', 'jetPropulsion',
   // Information
   'computers', 'rocketry', 'composites', 'mobileTactics', 'nuclearFission', 'guidance', 'stealth', 'robotics', 'globalization', 'advancedBallistics',
+  'internet', 'satellites', 'microprocessors', 'machineLearning', 'fusionPower', 'autonomousSystems', 'generalIntelligence',
   'superintelligence',
 ] as const;
 export type TechKey = typeof TECH_KEYS[number];
@@ -51,7 +52,7 @@ export interface TechDef {
 export const TECH_COST_SCALE = 2.5;
 // And by era (a civ's science grows faster than the costs above: the first
 // techs come in a few turns, the last in many).
-const ERA_COST: Record<EraIndex, number> = { 0: 0.14, 1: 0.36, 2: 0.7, 3: 1.8, 4: 4.1, 5: 6.2, 6: 9.9 };
+const ERA_COST: Record<EraIndex, number> = { 0: 0.14, 1: 0.36, 2: 0.7, 3: 1.8, 4: 3.8, 5: 5.7, 6: 5.0 };
 const t = (name: string, era: EraIndex, cost: number, needs: readonly TechKey[], unlocks: Omit<TechDef, 'name' | 'era' | 'cost' | 'needs'> = {}): TechDef => ({ name, era, cost: Math.round(cost * TECH_COST_SCALE * ERA_COST[era]), needs, ...unlocks });
 
 // The last tech: it rests on every branch's end, and whoever discovers it first wins the game (game.ts checkVictory).
@@ -160,7 +161,16 @@ export const TECHS: Record<TechKey, TechDef> = {
   advancedBallistics: t('Advanced Ballistics', 6, 340, ['guidance', 'nuclearFission'], { units: ['nuclearMissile'] }),
   robotics:        t('Robotics', 6, 300, ['computers', 'massProduction'], { effects: [prodPct('all', 10)] }),
   globalization:   t('Globalization', 6, 300, ['telecommunications', 'computers'], { effects: [yieldPct('gold', 10), yieldPct('culture', 10), yieldPct('cohesion', 10)], wonders: ['cern'] }),
-  superintelligence: t('Artificial Superintelligence', 6, 600, ['robotics', 'globalization', 'advancedBallistics', 'stealth', 'composites', 'mobileTactics']),
+  // (The last stretch: from the machines that reckon to the one that thinks. Each a step, none a leap.)
+  internet:        t('The Internet', 6, 310, ['computers', 'telecommunications'], { effects: [yieldPct('science', 10), yieldPct('culture', 5)] }),
+  satellites:      t('Satellites', 6, 310, ['rocketry', 'computers'], { effects: [yieldPct('gold', 5), yieldPct('cohesion', 5)] }),
+  microprocessors: t('Microprocessors', 6, 320, ['computers', 'robotics'], { effects: [yieldPct('prod', 5)] }),
+  machineLearning: t('Machine Learning', 6, 340, ['internet', 'microprocessors'], { effects: [yieldPct('science', 10)] }),
+  fusionPower:     t('Fusion Power', 6, 340, ['nuclearFission', 'composites'], { effects: [yieldPct('prod', 10)] }),
+  autonomousSystems: t('Autonomous Systems', 6, 350, ['machineLearning', 'stealth', 'mobileTactics'], { effects: [prodPct('military', 10)] }),
+  generalIntelligence: t('Artificial General Intelligence', 6, 380, ['autonomousSystems', 'fusionPower', 'globalization'],
+    { effects: [yieldPct('food', 5), yieldPct('prod', 5), yieldPct('gold', 5), yieldPct('science', 5), yieldPct('culture', 5), yieldPct('faith', 5), yieldPct('cohesion', 5)] }),
+  superintelligence: t('Artificial Superintelligence', 6, 420, ['generalIntelligence', 'satellites', 'advancedBallistics']),
 };
 export const techDef = (k: TechKey): TechDef => TECHS[k];
 
