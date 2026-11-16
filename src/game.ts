@@ -573,8 +573,8 @@ export class Game {
 
   // The nearest tile to t (t itself first) where a new unit of its type can
   // stand, free of enemies; null if none within a few rings.
-  freeTileNear(type: UnitKey, owner: number, t: number): number | null {
-    const near = [...this.tilesWithinMap(t, 3)].sort((a, b) => a[1] - b[1]);
+  freeTileNear(type: UnitKey, owner: number, t: number, reach = 3): number | null {
+    const near = [...this.tilesWithinMap(t, reach)].sort((a, b) => a[1] - b[1]);
     // (A new land unit on land, never embarked.)
     const land = domainOf(unitDef(type)) === 'land';
     for (const [x] of near) if (this.canStand({ type, owner }, x) && !(land && this.isWater(x)) && !this.isEnemyOccupied(x, owner) && this.relief[x] !== 'mountains') return x;
@@ -742,6 +742,21 @@ export class Game {
   }
 
   // ---------- actions ----------
+
+  // Where a unit a city raises would stand: the city, or (another of its
+  // kind standing there already) a tile next to it; null: no room, the
+  // city and all around it taken. Nothing is raised without a place to
+  // stand.
+  static readonly MUSTER_REACH = 1;
+  musterTile(city: City, type: UnitKey): number | null { return this.freeTileNear(type, city.owner, city.tile, Game.MUSTER_REACH); }
+  // Why a city can't raise a unit it otherwise could (`offers` it, but
+  // canBuild says no; so the reason can be shown): settlers leave with one of its
+  // citizens, so a city of one has none to send; and a unit needs a place
+  // to stand (musterTile). null: it can.
+  unitBlock(city: City, type: UnitKey): string | null {
+    if (type === 'settler' && city.pop < 2) return 'Needs a city of size 2: settlers leave with one of its citizens.';
+    return this.musterTile(city, type) === null ? 'No room to stand: the city and every tile around it hold a unit of its kind.' : null;
+  }
 
   // A new unit on `tile`, or (one unit per tile) the nearest free tile.
   createUnit(type: UnitKey, owner: number, tile: number): Unit {
@@ -1896,6 +1911,10 @@ export class Game {
   // A building can be queued once per city, and only while it has a place to go.
   // (`anyResource`: as if the civ had every strategic resource; the City Lab.)
   canBuild(city: City, key: BuildKey, anyResource = false): boolean {
+    return this.offers(city, key, anyResource) && !(isUnitKey(key) && this.unitBlock(city, key) !== null);
+  }
+  // The same, but for a unit's need of a citizen to send and a place to stand (unitBlock).
+  offers(city: City, key: BuildKey, anyResource = false): boolean {
     const p = this.players[city.owner]!;
     if (!this.unlocked(p).has(key)) return false;
     if (isUnitKey(key)) {
@@ -1941,21 +1960,32 @@ export class Game {
       }
     }
 
+    // (A unit it can no longer raise, the city shrunk to one citizen with
+    // settlers under way, or no place left for the unit to stand: what was
+    // put into it is lost, and the city must turn to something else.)
+    if (city.building && isUnitKey(city.building)) {
+      const why = this.unitBlock(city, city.building);
+      if (why !== null) {
+        this.record('buildLost', city.owner, { city: city.name, item: city.building, prod: city.prod });
+        if (p.isHuman) this.log(`${city.name} gave up its ${buildDef(city.building).name}: ${why[0]!.toLowerCase()}${why.slice(1)}`);
+        city.prod = 0;
+        city.building = null;
+      }
+    }
     const key = city.building;
     if (key) {
       const item = { ...buildDef(key), cost: this.costOf(key) };
       city.prod += Math.round(y.prod * (1 + prodBonus(this.effectsOf(p), this.prodKinds(key)) / 100));
       if (city.prod >= item.cost) {
-        if (key === 'settler' && city.pop < 2) {
-          city.prod = item.cost; // wait until the city can spare a citizen
-        } else {
+        {
           city.prod -= item.cost;
           if (isUnitKey(key)) {
-            this.createUnit(key, city.owner, city.tile);
+            this.createUnit(key, city.owner, this.musterTile(city, key) ?? city.tile);
             city.blessed = false;
             this.record('built', city.owner, { city: city.name, item: key });
             if (key === 'settler') this.removeCitizen(city);
-            if (!p.isHuman) city.building = null;
+            // (Another of the same only if it still can: no second settlers from a city of one.)
+            if (!p.isHuman || this.unitBlock(city, key) !== null) city.building = null;
             if (p.isHuman) this.log(`${city.name} completed ${item.name}.`);
           } else if (isWonder(key)) {
             // On its tile, or another if that one was lost (a mountain top); else it waits.
@@ -2352,13 +2382,14 @@ export class Game {
     if (!mine) return 'Only the founder of a religion sends missionaries.';
     if (city.owner !== id) return 'Not your city.';
     if (city.religion !== mine.religion) return `${city.name} does not follow ${religionDef(mine.religion).name}.`;
+    if (this.musterTile(city, 'missionary') === null) return 'No room: the city and every tile around it hold a civilian.';
     return this.players[id]!.faith < this.missionaryCost ? `Needs ${this.missionaryCost} faith.` : null;
   }
   trainMissionary(id: number, city: City): Unit | null {
     if (this.missionaryBlock(id, city) !== null) return null;
     this.players[id]!.faith -= this.missionaryCost;
     this.record('bought', id, { city: city.name, item: 'missionary', currency: 'faith', cost: this.missionaryCost });
-    return this.createUnit('missionary', id, city.tile);
+    return this.createUnit('missionary', id, this.musterTile(city, 'missionary') ?? city.tile);
   }
   // It preaches in a city it stands in or beside, anyone's: the city
   // takes up its civ's religion for faith by its size, and keeps to it
@@ -2544,7 +2575,7 @@ export class Game {
   // Shrine or Temple only); null if it can't be bought (a wonder).
   buyCost(city: City, currency: 'gold' | 'faith'): number | null {
     const k = city.building;
-    if (!k || isWonder(k)) return null;
+    if (!k || isWonder(k) || (isUnitKey(k) && this.unitBlock(city, k) !== null)) return null;
     // (Faith buys shrines and temples; and, for a civ with a faith, fighting units, raised in that faith.)
     if (currency === 'faith' && !FAITH_BUYS.includes(k) && !(isUnitKey(k) && !unitDef(k).civilian && this.faithOf(city.owner) !== null)) return null;
     const left = Math.max(0, this.costOf(k) - city.prod);

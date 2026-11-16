@@ -440,15 +440,20 @@ export class UI {
       const cost = g.costOf(c.building);
       sub = `${plural(turnsFor(c.building), 'turn')} · ${Math.min(c.prod, cost)}/${cost}`;
       frac = c.prod / cost;
-      if (c.building === 'settler' && c.pop < 2) sub += ' · <span class="warn">needs size 2</span>';
       if (isWonder(c.building) && c.wonderTile !== c.tile) sub += ' · on the marked tile';
     }
-    const units = BUILDABLE.filter((k) => isUnitKey(k) && g.canBuild(c, k));
+    const units = BUILDABLE.filter((k) => isUnitKey(k) && g.offers(c, k));
     const blds = BUILDABLE.filter((k) => !isUnitKey(k) && !isWonder(k) && g.canBuild(c, k));
     const wonders = BUILDABLE.filter((k) => isWonder(k) && g.canBuild(c, k));
     const row = (k: BuildKey) => {
       const d = buildDef(k);
       let ic: IconKey = 'building', note: string, cls = '';
+      // (A unit the city can't raise now: shown, with why.)
+      const why = isUnitKey(k) ? g.unitBlock(c, k) : null;
+      if (isUnitKey(k) && why !== null) {
+        return `<button class="prow" disabled ${tip(esc(d.name), esc(why))}>
+        <span class="pic">${icon(unitIcon(k))}</span><span class="pn"><b>${esc(d.name)}</b><small class="warn">${esc(why.split(':')[0]!)}</small></span><span class="pt"></span></button>`;
+      }
       if (isUnitKey(k)) {
         const U = unitDef(k);
         ic = unitIcon(k);

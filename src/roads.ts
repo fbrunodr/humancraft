@@ -1,17 +1,17 @@
 // Roads between cities (design doc "Cities: Feel & Play", city look v1).
-// Each city is joined to its nearest neighbor of the same civ, and to any
-// city within NEAR tiles, by the cheapest land route: flat open ground is
-// cheap, forests and hills cost more, mountains and water are never
-// crossed except by a short bridge over a river (rivers run on tile edges, so
-// they never block a route). Pure: the same cities always give the same roads.
+// A road is where one was laid, tile by tile (game.ts road: by workers),
+// and on a city's own tile; road tiles next to each other join. Routes
+// (what the computer's workers plan, what the dev pages lay) take the
+// cheapest land way: flat open ground is cheap, forests and hills cost
+// more, mountains and water are never crossed (rivers run on tile edges,
+// so they never block a route). Pure: the same world gives the same roads.
 
 import * as THREE from 'three';
 import type { Game } from './game.ts';
 import { USE } from './cities.ts';
 
-export const NEAR = 5;        // tiles: cities this close are always joined
 export const ROAD_HALF_WIDTH = 0.03; // half width of a road between cities (tile steps)
-const MAX_ROUTE = 14;         // tiles: no road longer than this (as the crow flies)
+const MAX_ROUTE = 14;         // tiles: no planned link between two cities longer than this (as the crow flies)
 
 export interface Road {
   a: number;      // city ids (-1: a stretch the workers laid)
@@ -55,36 +55,48 @@ export function planRoads(g: Game): Road[] {
   return roads;
 }
 
-// Where roads would best run: the routes between cities (what the
-// computer's workers lay).
-export function routeRoads(g: Game): Road[] {
-  const cities = [...g.cities].sort((a, b) => a.id - b.id);
-  const pairs = new Set<string>();
-  const want: [number, number][] = [];
-  const addPair = (a: number, b: number) => {
-    const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-    if (pairs.has(key)) return;
-    pairs.add(key);
-    want.push(a < b ? [a, b] : [b, a]);
-  };
-  for (const c of cities) {
-    let best = -1, bestD = Infinity;
-    for (const o of cities) {
-      if (o === c) continue;
-      const d = g.approxDist(c.tile, o.tile);
-      if (d > MAX_ROUTE) continue;
-      if (d <= NEAR) addPair(c.id, o.id);
-      if (o.owner === c.owner && d < bestD) { bestD = d; best = o.id; }
+// Where a civ's roads would best run (what the computer's workers lay):
+// its own cities joined with the least road. The nearest two (by the
+// cheapest land route) first, then the next nearest not yet joined
+// through others, until none is left to join (Kruskal's way, as
+// linkCities below); each route following the roads there are and those
+// already planned, which cost next to nothing, so the network forks
+// rather than running two roads side by side. No second way between two
+// cities already joined: a worker's charges are few, and a road joins a
+// city to the rest whichever way it runs. Never over water, mountains or
+// another civ's land (unless a road runs there already); no single link
+// longer than MAX_ROUTE as the crow flies. The tiles, per civ.
+export function civRoads(g: Game): Map<number, Set<number>> {
+  const out = new Map<number, Set<number>>();
+  const owners = [...new Set(g.cities.map((c) => c.owner))].sort((a, b) => a - b);
+  for (const owner of owners) {
+    const cities = g.cities.filter((c) => c.owner === owner).sort((a, b) => a.id - b.id);
+    const plan = new Set<number>();
+    out.set(owner, plan);
+    if (cities.length < 2) continue;
+    // (Its workers lay road on its own land and no one's.)
+    const open = (t: number): number | undefined => {
+      const o = g.ownerOf(t);
+      return o >= 0 && o !== owner && !g.hasRoad(t) ? undefined : stepCost(g, t);
+    };
+    const links: { a: number; b: number; d: number }[] = [];
+    for (let i = 0; i < cities.length; i++) for (let j = i + 1; j < cities.length; j++) {
+      if (g.approxDist(cities[i]!.tile, cities[j]!.tile) > MAX_ROUTE) continue;
+      const r = route(g, cities[i]!.tile, cities[j]!.tile, open);
+      if (r) links.push({ a: i, b: j, d: r.cost });
     }
-    if (best >= 0) addPair(c.id, best);
+    links.sort((x, y) => x.d - y.d || x.a - y.a || x.b - y.b);
+    const group = cities.map((_, i) => i), find = (i: number): number => { while (group[i] !== i) i = group[i] = group[group[i]!]!; return i; };
+    for (const { a, b } of links) {
+      const ra = find(a), rb = find(b);
+      if (ra === rb) continue;
+      const r = route(g, cities[a]!.tile, cities[b]!.tile, (t) => { const c = open(t); return c === undefined ? undefined : g.hasRoad(t) || plan.has(t) ? 0.2 : c; });
+      if (!r) continue;
+      group[ra] = rb;
+      for (const t of r.tiles) if (g.use[t] !== USE.center) plan.add(t);
+    }
   }
-  const roads: Road[] = [];
-  for (const [a, b] of want) {
-    const ca = g.cityById.get(a)!, cb = g.cityById.get(b)!;
-    const tiles = route(g, ca.tile, cb.tile);
-    if (tiles) roads.push({ a, b, tiles });
-  }
-  return roads;
+  return out;
 }
 
 // Every city joined by road to every other it can reach by land, with the
@@ -147,8 +159,9 @@ export function linkCities(g: Game): number {
   return laid;
 }
 
-// Cheapest land route between two tiles (Dijkstra with a distance bound), or null.
-function route(g: Game, from: number, to: number): number[] | null {
+// Cheapest land route between two tiles (Dijkstra with a distance bound,
+// `cost` the price of stepping onto a tile, undefined: no way), or null.
+function route(g: Game, from: number, to: number, cost: (t: number) => number | undefined): { tiles: number[]; cost: number } | null {
   const limit = g.approxDist(from, to) * 2 + 4;
   const dist = new Map<number, number>([[from, 0]]);
   const came = new Map<number, number>();
@@ -161,16 +174,16 @@ function route(g: Game, from: number, to: number): number[] | null {
     if (d > (dist.get(t) ?? Infinity)) continue;
     for (const n of g.tiles[t].neighbors) {
       if (g.approxDist(n, from) > limit) continue;
-      const c = n === to ? 1 : stepCost(g, n);
+      const c = n === to ? 1 : cost(n);
       if (c === undefined) continue;
       const nd = d + c;
       if (nd < (dist.get(n) ?? Infinity)) { dist.set(n, nd); came.set(n, t); open.push([nd, n]); }
     }
   }
   if (!came.has(to)) return null;
-  const path = [to];
-  for (let t = to; t !== from; ) { t = came.get(t)!; path.push(t); }
-  return path.reverse();
+  const tiles = [to];
+  for (let t = to; t !== from; ) { t = came.get(t)!; tiles.push(t); }
+  return { tiles: tiles.reverse(), cost: dist.get(to)! };
 }
 
 // The roads as drawn: each road tile lays its own piece, by which of its

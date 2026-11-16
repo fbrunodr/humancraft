@@ -7,7 +7,7 @@ import { TECH_KEYS, techDef, type TechKey } from './techs.ts';
 import { POLITICS_KEYS, politicsDef, policyDef, SLOT_KINDS, fits, type PoliticsKey, type GovernmentKey, type PolicyKey } from './politics.ts';
 import { TRAIT_KEYS, traitDef, PATH_KEYS, PATHS, type PathKey, type TraitKey } from './identity.ts';
 import { mulberry32 } from './rng.ts';
-import { routeRoads } from './roads.ts';
+import { civRoads } from './roads.ts';
 import { RESOURCE_KEYS } from './resources.ts';
 import { BEST, type AiPolicy } from './aiPolicy.ts';
 import { militaryPhase, planWar, planning, onCampaign, operationOf } from './aiMilitary.ts';
@@ -252,7 +252,7 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
 interface BuildNeeds { commander: boolean; canSettle: boolean; expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
 function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey | null {
   // (A garrison first: a city with none is anyone's who walks in; the unit that holds best at close quarters.)
-  if (!n.garrisoned) return bestUnit(g, city, 'front') ?? bestUnit(g, city, 'ranged') ?? 'warrior';
+  if (!n.garrisoned) return bestUnit(g, city, 'front') ?? bestUnit(g, city, 'ranged') ?? (g.canBuild(city, 'warrior') ? 'warrior' : null);
   const wonder = (): BuildKey | null => {
     const options = WONDER_KEYS.filter((w) => g.canBuild(city, w) && !g.cities.some((c) => c.owner === city.owner && c.building === w));
     const w = options[Math.floor(g.rng() * options.length)];
@@ -265,8 +265,8 @@ function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey 
   const plane = n.airShort > 0 ? bestUnit(g, city, 'air') : null;
   const short = (n.armyTarget - n.military) / Math.max(1, n.armyTarget);
   const pulls: [number, () => BuildKey | null][] = [
-    [n.canSettle && n.expansion < P.cityTarget && city.pop >= 2 && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
-    [n.workersShort > 0 && city.pop >= 2 ? P.wWorker * Math.min(1, n.workersShort / 2) : 0, () => 'worker'],
+    [n.canSettle && n.expansion < P.cityTarget && g.canBuild(city, 'settler') && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
+    [n.workersShort > 0 && city.pop >= 2 && g.canBuild(city, 'worker') ? P.wWorker * Math.min(1, n.workersShort / 2) : 0, () => 'worker'],
     [short > 0 ? P.wArmy * (0.25 + short) * (n.threatened ? 2.5 : 1) : n.threatened && short > -0.5 ? P.wArmy * 0.5 : 0, unit],
     // (A commander for an army worth leading: its units fight the better beside it, and it carries the slow ones on the march.)
     [n.commander && g.canBuild(city, 'commander') ? P.wArmy * 0.9 : 0, () => 'commander'],
@@ -449,24 +449,14 @@ function missionaryTurn(g: Game, u: Unit): void {
   if (now) g.preach(u, now);
 }
 
-// The tiles each civ's roads should run on (roads.ts routeRoads between
-// its own cities), worked out once a turn.
+// The tiles each civ's roads should run on (roads.ts civRoads: its own
+// cities joined with the least road), worked out again when a city is
+// founded, lost or taken, and every ten turns (borders move).
 const roadPlans = new WeakMap<Game, { key: string; tiles: Map<number, Set<number>> }>();
 function roadPlan(g: Game, owner: number): Set<number> {
-  const key = `${g.turn}|${g.cities.length}`;
+  const key = `${Math.floor(g.turn / 10)}|${g.cities.map((c) => `${c.id}:${c.owner}`).join(',')}`;
   let plan = roadPlans.get(g);
-  if (!plan || plan.key !== key) {
-    const tiles = new Map<number, Set<number>>();
-    for (const r of routeRoads(g)) {
-      const o = g.cityById.get(r.a)!.owner;
-      if (g.cityById.get(r.b)!.owner !== o) continue;
-      let set = tiles.get(o);
-      if (!set) tiles.set(o, set = new Set());
-      for (const t of r.tiles) set.add(t);
-    }
-    plan = { key, tiles };
-    roadPlans.set(g, plan);
-  }
+  if (!plan || plan.key !== key) roadPlans.set(g, plan = { key, tiles: civRoads(g) });
   return plan.tiles.get(owner) ?? new Set();
 }
 // The nearest tile of its civ's road plan a worker could lay now (none other at it).
