@@ -120,3 +120,19 @@ roads join cities. City guarantees live in `test/cities.test.ts`,
 | `src/main.ts`            | Start screen, input, wiring                                         |
 
 Debug URL params: `?turns=N` lets the AI play your first N turns (to look at a grown empire); `?reveal` shows the whole map; `?look=jungle` (any biome, relief or feature key; combine with `+`, e.g. `?look=coldDesert+hills`) flies the camera to the first match.
+
+## Saves and versions
+
+A saved game carries the version of the rules it was made under
+(`SAVE_VERSION` in `src/save.ts`) and loads only under that version. The
+version must be raised whenever the map, the rules or the state's shape
+change. `test/golden.test.ts` holds this: a saved game kept in
+`test/saves/` must still play out to the same state. When it fails, raise
+`SAVE_VERSION` and run `npx tsx scripts/golden.ts`.
+
+## License
+
+Human craft is licensed under
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/): free
+to copy, share and adapt with credit, not for commercial use, and what is
+made from it is shared under the same license. See `LICENSE`.
