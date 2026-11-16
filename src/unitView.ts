@@ -626,6 +626,10 @@ export class UnitView {
     }
   }
 
+  // The tile a unit is shown on (undefined: not shown), and whether it is on the march or fighting (or cheering after).
+  tileOf(id: number): number | undefined { return this.shown.get(id)?.unit.tile; }
+  busy(id: number): boolean { const s = this.shown.get(id); return !!s && (s.march !== null || s.route.length > 0 || s.fight !== null || s.after !== null); }
+
   // A unit steps from one tile to the next (game.ts onStep): it will march
   // through it on its way (sync, as its new tile shows).
   step(id: number, from: number, to: number): void {

@@ -139,6 +139,7 @@ function showStartScreen(): void {
 function startGame(game: Game): void {
   const sizeKey = game.options.size, seed = game.seed;
   const view = new GlobeRenderer(document.getElementById('c') as HTMLCanvasElement, game);
+  view.allowWalk = false; // (the ground is walked on the dev pages only: V is a missionary's key here)
   const ui = new UI(game, act);
   // (Dev: the game to look at from the console: select a unit, redraw.)
   if (import.meta.env.DEV) Object.assign(window, { __game: { game, view, refresh: () => refresh(), select: (u: Unit) => { sel = { kind: 'unit', unit: u }; refresh(); }, selectCity: (c: City) => { selectCity(c); refresh(); } } });
@@ -223,7 +224,7 @@ function startGame(game: Game): void {
     ['<kbd>V</kbd>', 'a missionary: preach in the city it stands in or beside'],
     ['<kbd>F</kbd>', 'fortify'], ['<kbd>Space</kbd>', 'skip the unit\'s turn'],
     ['<kbd>P</kbd>', 'pillage'], ['<kbd>R</kbd> <kbd>U</kbd>', 'a commander: rally · deploy'],
-    ['<kbd>H</kbd> <kbd>Y</kbd> <kbd>M</kbd>', 'hex grid · yields · strategic view'], ['<kbd>V</kbd>', 'walk on the ground'],
+    ['<kbd>H</kbd> <kbd>Y</kbd> <kbd>M</kbd>', 'hex grid · yields · strategic view'],
     ['<kbd>Esc</kbd>', 'close, cancel, deselect; then this menu'], ['<kbd>J</kbd>', 'debug views of the land'],
   ];
   const openMenu = (on: boolean) => {

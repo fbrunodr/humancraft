@@ -288,6 +288,10 @@ export class GlobeRenderer {
   private lastInput = 0;
   private readonly prevCam = new THREE.Vector3();
   private lastSel: Selection = null;
+  // The units in cities shown all the same for now (updateUnits): marching in, or fighting.
+  private readonly revealed = new Set<number>();
+  // Whether the ground may be walked (V): the dev pages; not in the game.
+  allowWalk = true;
   private readonly raycaster = new THREE.Raycaster();
   private readonly scale: number; // world size of one tile relative to REF_EDGE
   private readonly maxLift: number; // highest ground above radius 1
@@ -506,7 +510,7 @@ export class GlobeRenderer {
     }, this.abort.signal);
     addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'v' || e.key === 'V') this.setWalking(!this.walk.active);
+      if ((e.key === 'v' || e.key === 'V') && (this.allowWalk || this.walk.active)) this.setWalking(!this.walk.active);
       else if (e.key === 'h' || e.key === 'H') this.setGrid(!this.grid);
       else if (e.key === 'Escape' && this.walk.active) this.setWalking(false);
     }, { signal: this.abort.signal });
@@ -703,10 +707,18 @@ export class GlobeRenderer {
     const tile = game.globe.avgEdgeAngle;
     this.yieldBadges.setWorldSize(1.5 * tile, 0.5 * tile);
     this.resourceBadges.setWorldSize(0.62 * tile, 0.62 * tile);
+    // (Units' flags and cities' banners likewise, from the same distance on.)
+    this.unitFlags.setWorldSize(0.6 * tile, 0.6 * tile);
+    this.cityLabels.setWorldSize(2.95 * tile, 0.645 * tile);
     this.yieldBadges.mesh.userData['stat'] = 'yield icons';
     this.scene.add(this.yieldBadges.mesh);
     void document.fonts?.load('600 38px Cinzel').then(() => { this.fontEpoch++; this.updateCities(); });
-    g.onBattle = (u, t, style, result) => this.unitView.fight(u.id, t, style, performance.now() / 1000, result);
+    g.onBattle = (u, t, style, result) => {
+      // (A city's units come out to fight: the attacker from its city, the defenders of the one attacked.)
+      const hidden = g.units.filter((x) => g.use[x.tile] === USE.center && (x.id === u.id || x.tile === t) && this.unitView.tileOf(x.id) === undefined);
+      if (hidden.length) { for (const x of hidden) this.revealed.add(x.id); this.updateUnits(this.lastSel); }
+      this.unitView.fight(u.id, t, style, performance.now() / 1000, result);
+    };
     g.onStep = (u, from, to) => this.unitView.step(u.id, from, to);
     this.citiesGroup.userData['stat'] = 'city markers';
     this.resourcesGroup.userData['stat'] = 'resource badges';
@@ -2450,8 +2462,16 @@ export class GlobeRenderer {
     const g = this.game;
     this.selUnit = sel?.kind === 'unit' ? sel.unit : null;
     // (Units packed in an army are carried by their commander, not shown.)
+    // (Nor are a city's: the city is what is seen there, its banner saying it is held (updateCities). One
+    // shows while it is selected, while it marches in, and while it fights: `revealed`, until it is done.)
+    const inCity = (u: Unit) => g.use[u.tile] === USE.center;
+    for (const u of g.units) {
+      if (!inCity(u) || u === this.selUnit) continue;
+      const was = this.unitView.tileOf(u.id);
+      if (was !== undefined && was !== u.tile) this.revealed.add(u.id);
+    }
     const shown: ShownUnit[] = g.units
-      .filter((u) => g.visible[u.tile] && u.packedIn === null)
+      .filter((u) => g.visible[u.tile] && u.packedIn === null && (!inCity(u) || u === this.selUnit || this.revealed.has(u.id)))
       .sort((a, b) => Number(unitDef(a.type).civilian ?? false) - Number(unitDef(b.type).civilian ?? false))
       .map((u) => ({ id: u.id, type: u.type, civ: g.players[u.owner].name, color: g.players[u.owner].color, tile: u.tile, hp: u.hp, suffrage: g.players[u.owner].politics.has('womensSuffrage'), embarked: g.isEmbarked(u), fortified: u.fortified }));
     this.unitView.sync(shown, performance.now() / 1000);
@@ -2544,8 +2564,10 @@ export class GlobeRenderer {
       const production = mine && item ? Math.round(12 * Math.min(1, city.prod / buildCost(item))) / 12 : null;
       const glyph = !mine || !item ? null : isUnitKey(item) ? unitIcon(item) : isWonder(item) ? 'star' as const : 'building' as const;
       const capital = g.players[city.owner]!.capital === city.id;
-      const key = `c|${this.fontEpoch}|${color}|${city.pop}|${city.name}|${hp}|${capital}|${growth}|${production}|${glyph}`;
-      const board = this.cityLabels.add(key, (ctx) => drawCityBanner(ctx, { name: city.name, pop: city.pop, color, capital, hp, growth, production, glyph }));
+      // (The units holding it, not shown themselves (updateUnits): while it is in sight.)
+      const garrison = g.visible[city.tile] ? g.units.filter((u) => u.tile === city.tile && u.packedIn === null && !unitDef(u.type).civilian).length : 0;
+      const key = `c|${this.fontEpoch}|${color}|${city.pop}|${city.name}|${hp}|${capital}|${growth}|${production}|${glyph}|${garrison}`;
+      const board = this.cityLabels.add(key, (ctx) => drawCityBanner(ctx, { name: city.name, pop: city.pop, color, capital, hp, growth, production, glyph, garrison }));
       board.position.copy(tile.center).multiplyScalar(this.terrain.centerRadius[city.tile] + 0.03 * s);
       this.cityBoards.push(board);
     }
@@ -2742,6 +2764,12 @@ export class GlobeRenderer {
     }
     // (The water's depth twin: only while the view can tilt toward a horizon, water.ts.)
     this.waterOccluder.visible = this.walk.active || this.cam.distance < WATER_OCCLUDER_WITHIN;
+    // (A city's units shown for a march or a fight: gone into it once that is over.)
+    if (this.revealed.size) {
+      let over = false;
+      for (const id of this.revealed) if (!this.unitView.busy(id)) { this.revealed.delete(id); over = true; }
+      if (over) this.updateUnits(this.lastSel);
+    }
     this.unitView.update(now / 1000, this.camera, this.renderer.domElement.height / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));
     this.terrainMat.setTime(now / 1000);
     this.floraTime.value = now / 1000;

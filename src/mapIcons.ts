@@ -101,6 +101,7 @@ export interface CityBanner {
   readonly growth: number | null;      // 0..1 toward its next citizen (null: not shown, another civ's)
   readonly production: number | null;  // 0..1 of what it builds (null: nothing, or another civ's)
   readonly glyph: IconKey | null;      // what it builds
+  readonly garrison?: number;          // the units holding it (they aren't shown on its tile): a shield, and their number past one
 }
 
 // A city's banner (a 512 × 112 cell): its size in a roundel, its name on its
@@ -110,9 +111,9 @@ export interface CityBanner {
 export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): void {
   ctx.font = '600 38px Cinzel, Georgia, serif';
   const label = b.name.toUpperCase();
-  const star = b.capital ? 34 : 0, glyph = b.glyph ? 54 : 0;
-  const textW = Math.min(330 - star, ctx.measureText(label).width);
-  const w = 74 + star + textW + 26 + glyph, h = 64;
+  const star = b.capital ? 34 : 0, glyph = b.glyph ? 54 : 0, held = b.garrison ? 50 : 0;
+  const textW = Math.min(330 - star - held, ctx.measureText(label).width);
+  const w = 74 + star + textW + 26 + held + glyph, h = 64;
   const x = (512 - w) / 2, y = 14;
   const ink = inkOn(b.color);
   // The plate.
@@ -168,6 +169,18 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   ctx.fillText(label, tx + 1.5, ty + 4.5, textW);
   ctx.fillStyle = ink;
   ctx.fillText(label, tx, ty + 2.5, textW);
+  // (Held: a shield in its civ's ink, the number of its units on it past one.)
+  if (b.garrison) {
+    const sx = x + w - glyph - 36;
+    drawIcon(ctx, 'shield', sx, ty, 34, ink);
+    if (b.garrison > 1) {
+      ctx.font = '700 19px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = b.color;
+      ctx.fillText(String(b.garrison), sx, ty - 1);
+      ctx.textAlign = 'left';
+    }
+  }
   if (b.glyph) {
     const gx = x + w - 34;
     ctx.beginPath();
