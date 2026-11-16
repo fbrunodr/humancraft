@@ -94,6 +94,8 @@ export const RESOURCES = {
   salt:    lux('Salt', 'Sa', { food: 1, gold: 1 }, { cohesion: 2 }, ['hotDesert', 'coldDesert', 'steppe'], ['flat']),
   cotton:  lux('Cotton', 'Ct', { gold: 2 }, { cohesion: 2 }, ['savanna', 'mediterranean', 'prairie'], ['flat'], ['floodplain']),
   tea:     lux('Tea', 'Te', { gold: 1, science: 1 }, { cohesion: 1, science: 1 }, ['monsoonForest', 'temperateRainforest'], ['hills', 'flat']),
+  // (The tropics' hills: a plantation's bush crop, as tea is the monsoon's.)
+  coffee:  lux('Coffee', 'Cf', { gold: 1, prod: 1 }, { cohesion: 1, prod: 1 }, ['jungle', 'monsoonForest', 'savanna'], ['hills', 'flat']),
   amber:   lux('Amber', 'Am', { gold: 1, culture: 1 }, { cohesion: 1, culture: 1 }, ['taiga', 'temperateForest'], ['flat']),
   // ---- strategic ----
   horses:  r('Horses', 'strategic', 'Ho', { food: 1, prod: 1 }, OPEN, ['flat'], undefined, 'animalHusbandry'),
@@ -116,7 +118,7 @@ export const RESOURCE_IMPROVEMENT: Record<ResourceKey, ImprovementKey> = {
   salmon: 'boats', tuna: 'boats', trout: 'boats', crabs: 'boats', whales: 'boats', coral: 'boats',
   stone: 'quarry', copper: 'mine',
   wine: 'plantation', incense: 'plantation', silk: 'plantation', spices: 'plantation', furs: 'camp', ivory: 'camp', dyes: 'plantation',
-  gold: 'mine', gems: 'mine', pearls: 'boats', salt: 'mine', cotton: 'plantation', tea: 'plantation', amber: 'camp',
+  gold: 'mine', gems: 'mine', pearls: 'boats', salt: 'mine', cotton: 'plantation', tea: 'plantation', coffee: 'plantation', amber: 'camp',
   horses: 'pasture', iron: 'mine', niter: 'mine', coal: 'mine', oil: 'well',
 };
 export const LUXURY_KEYS = RESOURCE_KEYS.filter((k) => RESOURCES[k].kind === 'luxury');

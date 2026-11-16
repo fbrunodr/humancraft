@@ -17,7 +17,7 @@ import { kitModel, KIT_MODELS, FIGURES, SPECIES_OF, CRAB, type KitModel } from '
 
 // (The flora-drawn ones first: cards, as the trees' crowns are.)
 // (The leaf-card plants: a resource's in the wild.)
-export const SHRUBS = ['teaShrub', 'spiceShrub', 'cottonBush', 'indigoBush', 'wildVine', 'mulberryBush', 'incenseTree'] as const;
+export const SHRUBS = ['teaShrub', 'coffeeShrub', 'spiceShrub', 'cottonBush', 'indigoBush', 'wildVine', 'mulberryBush', 'incenseTree'] as const;
 export type ShrubModel = (typeof SHRUBS)[number];
 export const FLORA_RURAL = ['crop', 'plant', 'grainPatch', 'tallPatch', 'ricePatch', ...SHRUBS, ...FENCE_BANDS] as const;
 export const RURAL_MODELS = [...FLORA_RURAL, 'heap', 'block', 'logs', 'stump', 'haystack', 'rack', 'incaHouse', 'incaHall', ...RESOURCE_MODEL_KEYS, ...KIT_MODELS] as const;
@@ -189,6 +189,9 @@ const BARK = 0x5a4632;
 const SHRUB_MODELS: Record<ShrubModel, () => THREE.BufferGeometry> = {
   teaShrub: () => shrub('teaShrub', (leaf) => [cyl(0.05, 0.04, 0.3, 4, BARK),
     oct(0.55, leaf, { y: 0.6, sy: 0.62 }), oct(0.4, leaf, { x: 0.42, y: 0.5, z: 0.15, sy: 0.6, ry: 0.5 }), oct(0.38, leaf, { x: -0.36, y: 0.48, z: -0.2, sy: 0.6, ry: 1.1 })]),
+  // (A coffee bush: taller and looser than tea's, its ripe cherries red along the branches.)
+  coffeeShrub: () => shrub('coffeeShrub', (leaf) => [cyl(0.04, 0.03, 0.4, 4, BARK),
+    oct(0.5, leaf, { y: 0.8, sy: 1.0 }), oct(0.36, leaf, { x: 0.34, y: 0.55, z: 0.14, sy: 0.75, ry: 0.5 }), oct(0.34, leaf, { x: -0.3, y: 0.56, z: -0.18, sy: 0.75, ry: 1.1 }), ...bursts(8, [0, 0.74, 0], [0.46, 0.5, 0.46], 0.07, 0xb02a24)]),
   spiceShrub: () => shrub('spiceShrub', (leaf) => [cyl(0.04, 0.03, 0.3, 4, BARK),
     oct(0.52, leaf, { y: 0.66, sy: 0.85 }), oct(0.38, leaf, { x: 0.32, y: 0.48, z: 0.2, sy: 0.8, ry: 0.4 }), ...bursts(6, [0, 0.66, 0], [0.44, 0.38, 0.44], 0.1, 0xb8402a)]),
   cottonBush: () => shrub('cottonBush', (leaf) => [cyl(0.03, 0.025, 0.45, 4, BARK),

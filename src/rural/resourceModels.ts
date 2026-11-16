@@ -105,6 +105,7 @@ export const RESOURCE_WILD: Record<ResourceKey, ResourceLook> = {
   salt: L({ model: 'crust', n: 4 }),
   cotton: L({ model: 'cottonBush', n: 9, colors: [0x5a7a3a, 0x52703a] }),
   tea: L({ model: 'teaShrub', n: 9, colors: [0x3f6a2a, 0x4a7a32, 0x456e2c] }),
+  coffee: L({ model: 'coffeeShrub', n: 9, colors: [0x2f5e2a, 0x386a2e, 0x34622a] }),
   amber: L({ model: 'resinPine', n: 2 }),
   horses: L({ model: 'horse', n: 4, colors: [0xb08a5a, 0x7a4a2a, 0xa08868, 0x5a3a24] }),
   iron: L({ model: 'oreRock', n: 2, colors: ORE.iron }),
@@ -128,6 +129,7 @@ export const RESOURCE_WORKED: Partial<Record<ResourceKey, ResourceLook>> = {
   ivory: LW({ model: 'tuskPile', n: 1 }),
   cotton: LW({ model: 'cottonBales', n: 1 }),
   tea: LW({ model: 'teaBaskets', n: 1 }),
+  coffee: LW({ model: 'coffeeSacks', n: 1 }),
   amber: LW({ model: 'amberStump', n: 2 }),
 };
 // Oil under the sea: a sheen on the water (worked, the platform: rural/stages.ts waterLook).
@@ -145,7 +147,7 @@ export const RESOURCE_LOOKS = RESOURCE_WILD;
 export const LAND_SPREAD = 0.4, RESOURCE_SCALE = 6.5, PATCH_SIZE = 0.075;
 export const spreadOf = (look: ResourceLook): number => look.spread ?? (look.water ? RESOURCE_PATCH : LAND_SPREAD);
 // (The leaf-card plants, true size in metres: drawn this much larger than life.)
-const SHRUB_BOOST: Partial<Record<ShrubModel, number>> = { teaShrub: 9, spiceShrub: 9, cottonBush: 7, indigoBush: 7, wildVine: 5, mulberryBush: 4.5, incenseTree: 4.5 };
+const SHRUB_BOOST: Partial<Record<ShrubModel, number>> = { teaShrub: 9, coffeeShrub: 8, spiceShrub: 9, cottonBush: 7, indigoBush: 7, wildVine: 5, mulberryBush: 4.5, incenseTree: 4.5 };
 export interface ResourceSpot { readonly model: Shown; readonly color: number | undefined; readonly x: number; readonly y: number; readonly yaw: number; readonly s: number }
 // `inside`: where in the patch a model may stand (resourcePlace.ts: the
 // tile's painted land); spots are only ever drawn there, and a model with

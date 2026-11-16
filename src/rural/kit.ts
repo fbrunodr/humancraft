@@ -600,6 +600,8 @@ function cocoonTrays(): G[] { return [...[0.5, 1.0, 1.5].map((y) => box(2.0, 0.0
 function tuskPile(): G[] { return Array.from({ length: 6 }, (_, i) => horn([[0, 0.12 + (i % 3) * 0.16, -0.6 + i * 0.24], [0.8, 0.2 + (i % 3) * 0.16, -0.6 + i * 0.24], [1.4, 0.45 + (i % 3) * 0.16, -0.5 + i * 0.24]], 0.1, 0xf0e8d4, 7)); }
 function cottonBales(): G[] { return [[0, 0], [1.3, 0.2], [0.6, 1.1], [0.6, 0.5]].map(([x, z], i) => box(1.1, 0.8, 0.8, 0xe8e2d4, { x: x!, y: i === 3 ? 0.8 : 0, z: z! })); }
 function teaBaskets(): G[] { return [[0, 0], [0.7, 0.3], [0.2, 0.8]].flatMap(([x, z]) => [cyl(0.25, 0.32, 0.45, 10, 0xb08a52, { x: x!, z: z! }), crown([x!, 0.48, z!], [0.27, 0.08, 0.27], 0x4a7a32, 0.2)]); }
+// (Coffee: sacks of beans stacked, and a tray of them drying.)
+function coffeeSacks(): G[] { return [...[[0, 0.22, 0], [0.75, 0.22, 0.1], [0.38, 0.6, 0.05]].map(([x, y, z]) => ellipsoid([x!, y!, z!], [0.42, 0.24, 0.3], 0xb89a6a)), box(1.5, 0.06, 1.0, 0x8a6a42, { x: -1.5, y: 0.3 }), box(1.4, 0.05, 0.9, 0x5a3a26, { x: -1.5, y: 0.35 }), ...[[-2.2, -0.45], [-0.8, -0.45], [-2.2, 0.45], [-0.8, 0.45]].map(([x, z]) => box(0.06, 0.3, 0.06, TIMBER, { x: x!, z: z! }))]; }
 function saltHeaps(): G[] { return [cone(1.0, 0.9, 12, 0xf2eee6), cone(0.8, 0.7, 12, 0xeae6de, { x: 1.6, z: 0.6 }), ...[0, 1].flatMap((i) => [box(2.4, 0.05, 1.6, 0xd8e0e0, { x: -2.2, z: (i - 0.5) * 1.8 }), box(2.6, 0.18, 0.12, 0x9a8a6a, { x: -2.2, z: (i - 0.5) * 1.8 + 0.85 })])]; }
 
 // ---- the registry ----
@@ -626,7 +628,7 @@ export const KIT = {
   // the sea
   salmonShoal, tunaShoal, troutShoal, whale, crabRock, coralBed, oilSlick, oilRig,
   // worked touches
-  winePress, cocoonTrays, tuskPile, cottonBales, teaBaskets, saltHeaps,
+  winePress, cocoonTrays, tuskPile, cottonBales, teaBaskets, coffeeSacks, saltHeaps,
 } satisfies Record<string, () => G[]>;
 export type KitModel = keyof typeof KIT;
 export const KIT_MODELS = Object.keys(KIT) as KitModel[];
@@ -641,7 +643,7 @@ export const SPECIES_OF: Partial<Record<KitModel, Species>> = { horse: 'horse', 
 // works (windpumps, silos, headframes, lodges) least.
 // (People less: at FIGURE_BOOST they stood as tall as the homestead's walls.)
 export const FIGURE_BOOST = 6.5, PERSON_BOOST = 3.2, SMALL_BOOST = 4, PLANT_BOOST = 3, KIT_BOOST = 3.2, WILD_BOOST = 5;
-const SMALL: ReadonlySet<KitModel> = new Set<KitModel>(['plough', 'tractor', 'combine', 'trough', 'brokenCart', 'stooks', 'rick', 'bales', 'hideRack', 'oreHeap', 'oreCart', 'winePress', 'cocoonTrays', 'tuskPile', 'cottonBales', 'teaBaskets', 'saltHeaps', 'canoe']);
+const SMALL: ReadonlySet<KitModel> = new Set<KitModel>(['plough', 'tractor', 'combine', 'trough', 'brokenCart', 'stooks', 'rick', 'bales', 'hideRack', 'oreHeap', 'oreCart', 'winePress', 'cocoonTrays', 'tuskPile', 'cottonBales', 'teaBaskets', 'coffeeSacks', 'saltHeaps', 'canoe']);
 const PLANTS: ReadonlySet<KitModel> = new Set<KitModel>(['resinPine']);
 // (The wild's rock, shells and fish: drawn as large as the resources' props were.)
 const WILD: ReadonlySet<KitModel> = new Set<KitModel>(['outcrop', 'oreRock', 'boulders', 'oysters', 'salmonShoal', 'tunaShoal', 'troutShoal', 'whale', 'crabRock', 'coralBed', 'oilSlick', 'resinPine', 'campfire']);

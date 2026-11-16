@@ -53,6 +53,7 @@ export interface PlantTufts { readonly colors: readonly number[]; readonly heigh
 const PLANTS: Partial<Record<ResourceKey, PlantTufts>> = {
   wine: { colors: [0x5a7a34, 0x4e6e2e, 0x5a6a3a], height: 0.017 },
   tea: { colors: [0x3f6a2a, 0x4a7a32], height: 0.012 },
+  coffee: { colors: [0x2f5e2a, 0x386a2e], height: 0.018 },
   cotton: { colors: [0xb4b89c, 0x9aa680, 0xc8c8b4], height: 0.015 },
   bananas: { colors: [0x6fa83a, 0x5e9a32, 0x78b040], height: 0.032 },
   silk: { colors: [0x557a3a, 0x4e7034], height: 0.026 },
