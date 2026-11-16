@@ -8,9 +8,9 @@ import * as THREE from 'three';
 import { generateWorld } from '../src/world.ts';
 import { buildPaintData, warpAt } from '../src/paint.ts';
 import { buildRelief } from '../src/relief.ts';
-import { tileLook } from '../src/look.ts';
+import { tileLook, SEA_LEVEL } from '../src/look.ts';
 import { buildTerrainMesh, locate } from '../src/terrainMesh.ts';
-import { buildSurface, meshLevels, waterLevels, LOWLAND, type Surface } from '../src/surface.ts';
+import { buildSurface, meshLevels, LOWLAND, type Surface } from '../src/surface.ts';
 import type { MapSizeKey } from '../src/rules.ts';
 
 // (Was also W7, W8: water kept out of land tiles' safe zones and inside
@@ -73,11 +73,13 @@ describe('surface', () => {
         }
       });
 
-      it(`W4 ${size} seed ${seed}: each lake is one level, under all the land around it`, () => {
-        const level = waterLevels(globe, map, looks, relief);
+      it(`W4 ${size} seed ${seed}: each lake is one level, over the sea and under all the land around it`, () => {
+        // (A pool on the land as it rises from the sea's coast: by the coast it lies low, never over the land about it.)
+        const level = surface.bodyLevel;
         for (const tile of globe.tiles) {
           if (map.biome[tile.id] !== 'lake') continue;
           for (const nb of tile.neighbors) {
+            expect(level[tile.id]).toBeGreaterThan(SEA_LEVEL);
             if (map.biome[nb] === 'lake') expect(level[nb]).toBe(level[tile.id]);
             else if (!looks[nb].water) expect(level[tile.id]).toBeLessThan(relief.base[nb]);
           }

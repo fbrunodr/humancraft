@@ -52,6 +52,9 @@ export interface CitySpot {
   bank?: number;  // how near a river (render.ts: its banks' greening, 0..1)
   coast?: number; // how far from the sea (tile inner radii)
 }
+// The steepest ground a farm uses (rise over run): past it the terrain shows its rock (terrainMaterial.ts: from
+// about 0.46, a slope of 25 degrees).
+const FARM_STEEP = 0.42;
 // A straight side of a farm's fields (farmShape): inside where nx·x + ny·y ≥ c.
 export interface FarmSide { readonly nx: number; readonly ny: number; readonly c: number; readonly water: boolean }
 // Its fields keep this far in from it (tile steps): the border band, 1.5 lanes.
@@ -799,6 +802,8 @@ export class CityProps {
           const s = spotAt(p);
           if (s.owner !== undefined && (s.owner !== t || (s.own ?? 1) < FIELD_PAD)) return false;
           if ((s.coast ?? 9) < BEACH) return false;
+          // (Nor on a slope so steep that its rock shows: nothing is sown, built or grazed on bare rock.)
+          if (s.slope > FARM_STEEP) return false;
           if ((s.bank ?? 0) > 0.02) for (let k = 1; k < 8; k++) { const q = spotAt({ x: (p.x * k) / 8, y: (p.y * k) / 8 }); if (q.water - q.ground > 0.0003) return false; }
           return true;
         },

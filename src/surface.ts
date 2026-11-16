@@ -75,6 +75,7 @@ export interface Surface {
   source: Uint8Array;  // whose water level each vertex has: 0 sea or lake (or none), 1 river, 2 pool
   fall: Float32Array;  // steepest a river may fall at each vertex (height per radian): steeper on mountains
   rivers: RiverCourse[];
+  bodyLevel: Float32Array; // the level of each open-water tile's water: the sea's, or its lake's (all of a lake one level)
 }
 
 // The river surface stays this far under the banks beside it.
@@ -92,6 +93,9 @@ const POOL_DEPTH = 0.0004;
 export const POOL_BANK = 0.0002; // pool water sits this far under the lowest ground around it
 const POOL_BAND = 0.0012; // height range of one pool body: pools on slopes step down in terraces
 const LAKE_BANK = 0.0006; // lakes sit this far under the lowest land around them
+// A lake's shore, to find that land: where its painting weighs at least this much (the water itself from 1/2). A lake
+// stands at least LAKE_OVER_SEA above the sea.
+const LAKE_SHORE = 0.25, LAKE_OVER_SEA = 0.0004;
 const COAST_CAP = 7;
 // Coastal lowland (tile radii; a tile is 2 across): near open water the
 // plain is pulled down to LOWLAND.floor of its height, easing back to full by
@@ -167,7 +171,10 @@ export function buildSurface(globe: Globe, map: MapData, looks: readonly TileLoo
   const co = new Float32Array(FAN_COORDS);
   // Tiles that make up mountain ranges (volcanoes are cones of their own).
   const inRange = (t: number) => map.relief[t] === 'mountains' && !looks[t].water && map.feature[t] !== 'volcano';
-  const bodyLevel = waterLevels(globe, map, looks, relief);
+  // (Each lake's level is found below, once the land is known as it would lie without the lakes: until
+  // then the sea's everywhere. What water paints each vertex is kept, to weigh the levels then.)
+  const bodyLevel = new Float32Array(tiles.length).fill(SEA_LEVEL);
+  const waterTile = new Int32Array(V * 4).fill(-1), waterShare = new Float32Array(V * 4);
   const tintRGB = (t: WaterTint) => new THREE.Color(t.deep);
   const poolColor = tiles.map((tile) => { const pl = looks[tile.id].pool; return pl ? tintRGB(pl.tint) : null; });
   for (let v = 0; v < V; v++) {
@@ -175,12 +182,12 @@ export function buildSurface(globe: Globe, map: MapData, looks: readonly TileLoo
     const fan = paint.fans[f];
     fanCoords(frames[f], fan, topo.warp.subarray(v * 3, v * 3 + 3), topo.dir[v * 3], topo.dir[v * 3 + 1], topo.dir[v * 3 + 2], co);
     const w = softAt(paint, f, co);
-    let m = 0, lk = 0, b = 0, q = 0, thr = 0, pond = 0, wl = 0;
+    let m = 0, lk = 0, b = 0, q = 0, thr = 0, pond = 0;
     const tint = [0, 0, 0, 0];
     for (let k = 0; k < 4; k++) {
       if (w[k] <= 0) continue;
       const u = fan.ids[k], l = looks[u];
-      if (l.water) { m += w[k]; wl += w[k] * bodyLevel[u]; if (map.biome[u] === 'lake') lk += w[k]; }
+      if (l.water) { m += w[k]; waterTile[v * 4 + k] = u; waterShare[v * 4 + k] = w[k]; if (map.biome[u] === 'lake') lk += w[k]; }
       if (inRange(u)) { rocky[v] += w[k]; rockH[v] += w[k] * relief.peak[u]; }
       b += w[k] * l.bed;
       frozen[v] += w[k] * smoothstep(FROZEN_TEMP[0], FROZEN_TEMP[1], map.temperature[u]);
@@ -191,11 +198,80 @@ export function buildSurface(globe: Globe, map: MapData, looks: readonly TileLoo
       }
     }
     wet[v] = m; lake[v] = m > 0 ? lk / m : 0; bed[v] = b; poolQ[v] = q;
-    level0[v] = m > 0 ? wl / m : SEA_LEVEL;
     if (q > 0) {
       poolThr[v] = thr / q; poolPond[v] = pond / q;
       for (let c = 0; c < 4; c++) poolTint[v * 4 + c] = tint[c] / q;
     }
+  }
+
+  // The land as it rises from a shore `D` away whose water stands at `wl` (D >= 0).
+  const d = new THREE.Vector3();
+  const landAt = (v: number, D: number, wl: number): { land: number; ramp: number } => {
+    dirOf(v, d);
+    // Near the shore the land stays above the water (no spills); further
+    // inland it keeps its own relief, even where that is lower (a
+    // floodplain beside a lake).
+    let own = relief.heightAt(topo.tile[v], topo.fanIndex[v], topo.wa[v], topo.wb[v], d);
+    const fw = 1 / (4 * r0);
+    const reach = r0 * (LOWLAND.reach + LOWLAND.vary * noise.noise(d.x * fw + 3.1, d.y * fw, d.z * fw - 5.7));
+    const lift = LOWLAND.floor + (1 - LOWLAND.floor) * smoothstep(0, reach, D);
+    // (Not under mountains: their foot stays at its level.)
+    own -= (1 - lift) * Math.min(Math.max(own - wl, 0), PLAIN) * (1 - rocky[v]);
+    const near = 1 - smoothstep(FLOOR_FULL * r0, FLOOR_END * r0, D);
+    const land = own + (Math.max(own, wl + SHORE_RISE) - own) * near;
+    // Beach width varies along the coast.
+    const fl = 1 / (3 * r0);
+    const L = r0 * (0.42 + 0.3 * noise.noise(d.x * fl, d.y * fl, d.z * fl));
+    const x = D / L;
+    return { land, ramp: 1 - Math.exp(-(0.35 * x + 0.6 * x * x)) };
+  };
+
+  // ---- the lakes' levels ----
+  // A lake is a pool on the land as it would lie without it: the land rises from the sea's coast alone, a
+  // lowland by the shore climbing to the plain inland, and each lake stands just under the lowest ground
+  // round its shore there. So a lake by the coast lies low in the coastal lowland, one far inland up on
+  // the plain: neither lifts the land about it to the plain's height at once.
+  {
+    const lakeOf = new Int32Array(tiles.length).fill(-1);
+    let lakes = 0;
+    for (const start of tiles) {
+      if (map.biome[start.id] !== 'lake' || lakeOf[start.id] >= 0) continue;
+      const stack = [start.id];
+      lakeOf[start.id] = lakes;
+      while (stack.length) for (const nb of tiles[stack.pop()!]!.neighbors) if (map.biome[nb] === 'lake' && lakeOf[nb] < 0) { lakeOf[nb] = lakes; stack.push(nb); }
+      lakes++;
+    }
+    if (lakes > 0) {
+      // (The sea alone: its shore, and how far each vertex lies from it.)
+      const sea = Float32Array.from(wet, (m, v) => m * (1 - lake[v]!));
+      const { dist: fromSea } = coastDistance(topo, sea, new Float32Array(V).fill(SEA_LEVEL), COAST_CAP * r0);
+      const low = new Float64Array(lakes).fill(Infinity);
+      for (let v = 0; v < V; v++) {
+        // (Land by a lake's shore: within the lake's painting, short of its water.)
+        if (wet[v]! >= 0.5 || fromSea[v]! < 0) continue;
+        let h = NaN;
+        for (let k = 0; k < 4; k++) {
+          const u = waterTile[v * 4 + k]!;
+          if (u < 0 || lakeOf[u]! < 0 || waterShare[v * 4 + k]! < LAKE_SHORE) continue;
+          if (Number.isNaN(h)) { const { land, ramp: r } = landAt(v, fromSea[v]!, SEA_LEVEL); h = SEA_LEVEL + (land - SEA_LEVEL) * r; }
+          low[lakeOf[u]!] = Math.min(low[lakeOf[u]!]!, h);
+        }
+      }
+      // (And never over the foot of the land its tiles border: the plain's own level, far inland.)
+      for (const t of tiles) {
+        const k = lakeOf[t.id]!;
+        if (k >= 0) for (const nb of t.neighbors) if (!looks[nb]!.water) low[k] = Math.min(low[k]!, relief.base[nb]!);
+      }
+      for (const t of tiles) {
+        const k = lakeOf[t.id]!;
+        if (k >= 0) bodyLevel[t.id] = Number.isFinite(low[k]!) ? Math.max(SEA_LEVEL + LAKE_OVER_SEA, low[k]! - LAKE_BANK) : SEA_LEVEL;
+      }
+    }
+  }
+  for (let v = 0; v < V; v++) {
+    let m = 0, wl = 0;
+    for (let k = 0; k < 4; k++) { const u = waterTile[v * 4 + k]!; if (u >= 0) { m += waterShare[v * 4 + k]!; wl += waterShare[v * 4 + k]! * bodyLevel[u]!; } }
+    level0[v] = m > 0 ? wl / m : SEA_LEVEL;
   }
 
   // ---- 1. distance to the painted shore, and the level of the water there ----
@@ -205,27 +281,13 @@ export function buildSurface(globe: Globe, map: MapData, looks: readonly TileLoo
   const height = new Float32Array(V);
   const hill = new Float32Array(V);
   const ramp = new Float32Array(V); // 0 at a shore, 1 inland: how far the land has risen from the water
-  const d = new THREE.Vector3();
   for (let v = 0; v < V; v++) {
     dirOf(v, d);
     const D = coast[v], wl = shoreLevel[v];
     if (D >= 0) {
-      // Near the shore the land stays above the water (no spills); further
-      // inland it keeps its own relief, even where that is lower (a
-      // floodplain beside a lake).
-      let own = relief.heightAt(topo.tile[v], topo.fanIndex[v], topo.wa[v], topo.wb[v], d);
-      const fw = 1 / (4 * r0);
-      const reach = r0 * (LOWLAND.reach + LOWLAND.vary * noise.noise(d.x * fw + 3.1, d.y * fw, d.z * fw - 5.7));
-      const lift = LOWLAND.floor + (1 - LOWLAND.floor) * smoothstep(0, reach, D);
-      // (Not under mountains: their foot stays at its level.)
-      own -= (1 - lift) * Math.min(Math.max(own - wl, 0), PLAIN) * (1 - rocky[v]);
-      const near = 1 - smoothstep(FLOOR_FULL * r0, FLOOR_END * r0, D);
-      const land = own + (Math.max(own, wl + SHORE_RISE) - own) * near;
-      // Beach width varies along the coast.
-      const fl = 1 / (3 * r0);
-      const L = r0 * (0.42 + 0.3 * noise.noise(d.x * fl, d.y * fl, d.z * fl));
-      const x = D / L;
-      ramp[v] = 1 - Math.exp(-(0.35 * x + 0.6 * x * x));
+      const { land, ramp: r } = landAt(v, D, wl);
+      dirOf(v, d);
+      ramp[v] = r;
       height[v] = wl + (land - wl) * ramp[v];
       hill[v] = relief.hillAt(topo.tile[v], topo.fanIndex[v], topo.wa[v], topo.wb[v], d) * ramp[v];
     } else {
@@ -719,6 +781,7 @@ export function buildSurface(globe: Globe, map: MapData, looks: readonly TileLoo
   }
 
   return {
+    bodyLevel,
     fields: {
       height, water,
       ground: { bank, shore },
@@ -802,29 +865,6 @@ function coastDistance(topo: Topology, wet: Float32Array, level: Float32Array, c
     }
   }
   return { dist: Float32Array.from(dist[0], (dd, v) => (wet[v] >= 0.5 ? -dd : dd)), level: out };
-}
-
-// Level of each open-water tile: the sea at sea level; each lake just under
-// the lowest land around it (all tiles of a lake share one level).
-export function waterLevels(globe: Globe, map: MapData, looks: readonly TileLook[], relief: Relief): Float32Array {
-  const { tiles } = globe;
-  const level = new Float32Array(tiles.length).fill(SEA_LEVEL);
-  const seen = new Uint8Array(tiles.length);
-  for (const start of tiles) {
-    if (map.biome[start.id] !== 'lake' || seen[start.id]) continue;
-    const lake: number[] = [start.id];
-    seen[start.id] = 1;
-    let low = Infinity;
-    for (let k = 0; k < lake.length; k++) {
-      for (const nb of tiles[lake[k]].neighbors) {
-        if (map.biome[nb] === 'lake') { if (!seen[nb]) { seen[nb] = 1; lake.push(nb); } }
-        else if (!looks[nb].water) low = Math.min(low, relief.base[nb]);
-      }
-    }
-    const l = Number.isFinite(low) ? Math.max(SEA_LEVEL + 0.001, low - LAKE_BANK) : SEA_LEVEL;
-    for (const t of lake) level[t] = l;
-  }
-  return level;
 }
 
 // Per vertex under water: how steeply its water level changes toward wet
