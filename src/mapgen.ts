@@ -239,7 +239,8 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
   for (let t = 0; t < N; t++) {
     biome[t] = isLand(t)
       ? landBiome(biomeTemp(t), rainfall[t], lat(t), maritime[t] === 1)
-      : seaLevelTemp[t] < SEA_ICE_TEMP ? 'seaIce' : 'ocean';
+      // (A painted map has no ice but what is painted: its polar seas are open, its poles as drawn.)
+      : !paint && seaLevelTemp[t] < SEA_ICE_TEMP ? 'seaIce' : 'ocean';
   }
   const feature = new Array<FeatureKey | null>(N).fill(null);
   const toLand = (t: number) => { relief[t] = 'flat'; biome[t] = landBiome(biomeTemp(t), rainfall[t], lat(t), maritime[t] === 1); };

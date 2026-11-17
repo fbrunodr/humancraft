@@ -380,9 +380,10 @@ const far = (a: LL, b: LL): number => vec(a).angleTo(vec(b)) / RAD;
 // as Europe's drawing lays it (it faces Europe across the sea and must run the sea's whole length); the Red Sea's shore
 // and the Horn as Asia lays Arabia, so the sea between stays a narrow sea; the rest its own, narrowing little by little
 // from the sea's length to its own waist at the Equator. Down, it runs from Europe's shore to the Horn where Asia sets
-// it, and from there to the Cape at CAPE degrees south (far enough to keep its shape, not so far as the cold).
+// it, and from there to the Cape at CAPE degrees south: far south, as the price of a Europe drawn so large (the Horn
+// falls where the Equator should), so that the south keeps its shape.
 // (`inland`: without the Red Sea's laying, for a river's course: between the two layings its valley would be torn.)
-const AFRICA = { centre: [-13, 20] as LL, cols: 160, rows: 104, cape: -45 };
+const AFRICA = { centre: [-22, 20] as LL, cols: 160, rows: 124, cape: -61 };
 let africaRows: { horn: number; south: number } | null = null;
 function africaLaid(real: LL, inland: boolean): THREE.Vector3 {
   const [lat] = real, x = vec(real), ease = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
@@ -450,6 +451,9 @@ const REGIONS: readonly Region[] = [
   { name: 'oceania', at: [-25, 140], to: () => vec([0, 0]), by: 1, middle: [-24, 146], cols: 110, rows: 84, cell: CELL,
     eased: ['newGuinea', 'australia', 'newZealand'],
     keep: ([lat, lon]) => lon > 110 && lat < 1.5 && lat > -50 && (lon > 130.8 || lat < -10.5) },
+  // (Antarctica: the land round the south pole, six tenths of life size, so that a sea lies between it and every cape.)
+  { name: 'antarctica', at: [-90, 0], to: () => vec([-90, 0]), by: 0.6, middle: [-90, 0], cols: 72, rows: 72, cell: CELL,
+    keep: ([lat]) => lat < -60 },
 ];
 const regionOf = (name: string): Region => { const r = REGIONS.find((x) => x.name === name); if (!r) throw new Error(`no region ${name}`); return r; };
 // A region's own laying of the real world on the game's, and back; the middle of its picture on the game's globe.
@@ -474,8 +478,8 @@ function arabia(p: THREE.Vector3): THREE.Vector3 {
   return go(c, Math.hypot(x, y), Math.atan2(x, y));
 }
 // The regions drawn so far for the large map (the others are being drawn again against Europe's new size).
-const DRAWN: readonly string[] = ['europe', 'asia', 'africa', 'americas', 'oceania'];
-const OVER_SEA: readonly string[] = ['americas', 'oceania'];
+const DRAWN: readonly string[] = ['europe', 'asia', 'africa', 'americas', 'oceania', 'antarctica'];
+const OVER_SEA: readonly string[] = ['americas', 'oceania', 'antarctica'];
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
   if (!DRAWN.includes(r.name)) continue;
@@ -559,7 +563,10 @@ const riversKept = (): boolean => { try { readFileSync(new URL('./earth/rivers.j
 // The rivers as places on the game's globe, source to mouth: the kept ones, or failing those the great rivers laid down.
 const riverWays = (): LL[][] => {
   if (!DRAWN.includes('asia') || !DRAWN.includes('africa')) return [];
-  try { return (JSON.parse(readFileSync(new URL('./earth/rivers.json', import.meta.url), 'utf8')) as { rivers: LL[][] }).rivers; }
+  // (--addRivers "Nile,Congo": those of the great rivers laid anew from their real courses, beside the kept ones: for a
+  // region drawn again, whose kept rivers were dropped with --dropRivers <region> while its old drawing still stood.)
+  const fresh = (names: readonly string[]): LL[][] => RIVERS.filter(([name]) => names.includes(name)).map(([name, ...pts]) => pts.map((p) => latLon(name.includes('Nile') ? africaLaid(p, true) : layAny(p)) as unknown as LL));
+  try { return [...(JSON.parse(readFileSync(new URL('./earth/rivers.json', import.meta.url), 'utf8')) as { rivers: LL[][] }).rivers, ...fresh(arg('addRivers', '').split(',').filter(Boolean))]; }
   catch {
     // (The Nile and the Blue Nile by Africa's inland laying alone: between it and the Red Sea's their valley would be torn.)
     return RIVERS.map(([name, ...pts]) => pts.map((p) => latLon(name.includes('Nile') ? africaLaid(p, true) : layAny(p)) as unknown as LL));
@@ -611,6 +618,17 @@ function riverOn(globe: Globe, paint: Painting, way: readonly LL[], taken: Set<n
   if (end > 0) out = out.slice(0, end + 1);
   else if (!wet(out[out.length - 1]!) && !taken.has(out[out.length - 1]!)) { const on = walk(out[out.length - 1]!, (c) => wet(c) || taken.has(c), true, 8); if (on) out.push(...on.slice(1)); }
   return out;
+}
+
+// --dropRivers <region>: the kept rivers that rise on that region's land (as its drawing now stands) are dropped from rivers.json.
+if (arg('dropRivers', '')) {
+  const patch = PATCHES.find((x) => x.name === arg('dropRivers', ''))!, url = new URL('./earth/rivers.json', import.meta.url);
+  const file = JSON.parse(readFileSync(url, 'utf8')) as { note: string; rivers: LL[][] };
+  const on = (p: LL): boolean => { const at = cellOf(patch.to, vec(p), Math.max(...patch.rows.map((x) => x.length)), patch.rows.length, patch.cell), ch = at ? patch.rows[Math.floor(at[1])]?.[Math.floor(at[0])] : undefined; return ch !== undefined && ch !== '.' && ch !== ' ' && ch !== 'o'; };
+  const kept = file.rivers.filter((r) => !on(r[Math.floor(r.length / 2)]!));
+  console.log(`${file.rivers.length - kept.length} rivers dropped, ${kept.length} kept`);
+  writeFileSync(url, JSON.stringify({ note: file.note, rivers: kept }).replace(/\]\],\[\[/g, ']],\n[[') + '\n');
+  process.exit(0);
 }
 
 // ---------- painting a size ----------
