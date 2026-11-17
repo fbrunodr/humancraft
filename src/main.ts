@@ -1,5 +1,5 @@
 import './game.css';
-import { Game, HUMAN, TURN_LIMIT, type City, type Unit } from './game.ts';
+import { Game, HUMAN, type City, type Unit } from './game.ts';
 import { loadSettings, saveSettings, RESOLUTION_NAME, isResolution } from './settingsMenu.ts';
 import { Minimap } from './minimap.ts';
 import { icon, type IconKey } from './icons.ts';
@@ -40,7 +40,7 @@ const isCiv = (s: string): s is ArchCiv => CIVS.some((c) => c.name === s);
 function showStartScreen(): void {
   const menu = document.getElementById('start')!;
   const params = new URLSearchParams(location.search);
-  const TITLE = '<div class="title"><h1>Human craft</h1><p>An empire to stand the test of time, on a world that is round</p></div>';
+  const TITLE = '<div class="title"><h1>Human craft</h1></div>';
   // (What is chosen is kept while going back and forth.)
   let size: MapSizeKey = 'small', script: MapScriptKey = 'continents', speed: GameSpeedKey = DEFAULT_SPEED, level = DEFAULT_LEVEL, civ: ArchCiv | 'random' = 'random', seedText = params.get('seed') ?? String(Math.floor(Math.random() * 1e6));
   const pLevel = Number(params.get('level') ?? NaN);
@@ -87,7 +87,7 @@ function showStartScreen(): void {
   function setup(): void {
     const sizes = (Object.keys(MAP_SIZES) as MapSizeKey[]).map((k) => {
       const s = MAP_SIZES[k];
-      return `<button data-size="${k}"><b>${s.name}</b><span>${tileCount(s.n).toLocaleString()} tiles · ${s.players} civs</span><small>≈ ${s.civEquivalent}</small></button>`;
+      return `<button data-size="${k}"><b>${s.name}</b><span>${tileCount(s.n).toLocaleString()} tiles · ${s.players} civs</span></button>`;
     }).join('');
     const scripts = (Object.keys(MAP_SCRIPTS) as MapScriptKey[]).map((k) => `<button data-script="${k}">${MAP_SCRIPTS[k].name}</button>`).join('');
     menu.innerHTML = `<div>${TITLE}<div class="card">
@@ -98,9 +98,9 @@ function showStartScreen(): void {
       <div class="sizes">${sizes}</div>
       <span class="label">Lands</span>
       <div class="scripts">${scripts}</div>
-      <span class="label">Speed <small>· how long the game is: what everything costs to make, and the last turn. Units move and fight the same</small></span>
-      <div class="scripts">${(Object.keys(GAME_SPEEDS) as GameSpeedKey[]).map((k) => `<button data-speed="${k}"><b>${GAME_SPEEDS[k].name}</b> <small>${Math.round(TURN_LIMIT * GAME_SPEEDS[k].pace)} turns · ${GAME_SPEEDS[k].what}</small></button>`).join('')}</div>
-      <span class="label">Rivals <small>· how well they decide: no level is given, or spared, anything</small></span>
+      <span class="label">Speed</span>
+      <div class="scripts">${(Object.keys(GAME_SPEEDS) as GameSpeedKey[]).map((k) => `<button data-speed="${k}">${GAME_SPEEDS[k].name}</button>`).join('')}</div>
+      <span class="label">Rivals</span>
       <div class="scripts">${LEVELS.map((l, i) => `<button data-level="${i}">${l.name}</button>`).join('')}</div>
       <span class="label">Seed <small>· the same seed makes the same world</small></span>
       <div class="seedrow"><input id="seed" type="text" inputmode="numeric" value="${seedText.replace(/[^0-9]/g, '')}"><button id="dice">Another</button></div>
