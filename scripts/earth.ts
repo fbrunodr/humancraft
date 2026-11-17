@@ -23,6 +23,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as THREE from 'three';
 import { globeFor } from '../src/globes.ts';
+import { cornerGraph } from '../src/rivers.ts';
 import { latLon, nearestTile } from '../src/geo.ts';
 import type { Globe } from '../src/goldberg.ts';
 import { MAP_SIZES, type MapSizeKey } from '../src/rules.ts';
@@ -89,11 +90,11 @@ const go = (p: THREE.Vector3, far: number, b: number): THREE.Vector3 => {
   const { e, n } = frame(p), dir = n.multiplyScalar(Math.cos(b)).addScaledVector(e, Math.sin(b));
   return p.clone().multiplyScalar(Math.cos(far * RAD)).addScaledVector(dir, Math.sin(far * RAD)).normalize();
 };
-interface Set { readonly name: string; readonly real: THREE.Vector3; readonly game: THREE.Vector3; readonly by: number; readonly reach: number }
+interface Laying { readonly name: string; readonly real: THREE.Vector3; readonly game: THREE.Vector3; readonly by: number; readonly reach: number }
 const SETS = (() => {
-  const out = new Map<string, Set>();
+  const out = new Map<string, Laying>();
   // (A real place as one piece draws it.)
-  const draw = (s: Set, x: THREE.Vector3): THREE.Vector3 => go(s.game, (s.real.angleTo(x) / RAD) * s.by, bearing(s.real, x));
+  const draw = (s: Laying, x: THREE.Vector3): THREE.Vector3 => go(s.game, (s.real.angleTo(x) / RAD) * s.by, bearing(s.real, x));
   for (const p of PIECES) {
     const real = vec(p.at);
     let game: THREE.Vector3;
@@ -111,7 +112,7 @@ const SETS = (() => {
 })();
 // The game's globe to the real one: each piece's own answer, weighed by how near its middle the point is (within its reach, all but its own).
 const EASE = 4;
-const toRealV = (p: THREE.Vector3, sets: readonly Set[] = SETS): THREE.Vector3 => {
+const toRealV = (p: THREE.Vector3, sets: readonly Laying[] = SETS): THREE.Vector3 => {
   const sum = new THREE.Vector3();
   for (const s of sets) {
     const d = s.game.angleTo(p) / RAD, w = (s.reach * s.by / Math.max(d, 0.5)) ** EASE;
@@ -121,7 +122,7 @@ const toRealV = (p: THREE.Vector3, sets: readonly Set[] = SETS): THREE.Vector3 =
 };
 const toReal = (game: THREE.Vector3): LL => latLon(toRealV(game)) as unknown as LL;
 // And the real one to the game's: the nearest piece's answer, then corrected until it comes back to the place asked for.
-const toGame = (real: LL, sets: readonly Set[] = SETS): THREE.Vector3 => {
+const toGame = (real: LL, sets: readonly Laying[] = SETS): THREE.Vector3 => {
   const x = vec(real);
   let best = sets[0]!, bw = -1;
   for (const s of sets) { const w = s.reach / Math.max(s.real.angleTo(x) / RAD, 0.5); if (w > bw) { bw = w; best = s; } }
@@ -390,21 +391,20 @@ const REGIONS: readonly Region[] = [
   { name: 'africa', at: [0, 18], to: () => vec([0, 0]), by: 1, middle: [3, 18], centre: [-9.9, 14.2], cols: 136, rows: 124, cell: 1,
     forward: (real) => {
       const [lat] = real, x = vec(real), ease = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
-      const set = (n: string) => SETS.find((q) => q.name === n)!, lay = (q: Set) => go(q.game, (q.real.angleTo(x) / RAD) * q.by, bearing(q.real, x));
+      const set = (n: string) => SETS.find((q) => q.name === n)!, lay = (q: Laying) => go(q.game, (q.real.angleTo(x) / RAD) * q.by, bearing(q.real, x));
       // (How near the Red Sea and the Gulf of Aden: all the Horn's laying within 4 degrees of their middle line, none of it 14 away.)
       const line: LL[] = [[30, 32.5], [27.5, 34], [20, 38.5], [15, 41.5], [12.5, 43.5], [12, 47], [12.3, 51.5]];
       let near = 99;
       for (let i = 0; i + 1 < line.length; i++) for (let f = 0; f <= 1; f += 0.1) near = Math.min(near, far(real, [line[i]![0] + (line[i + 1]![0] - line[i]![0]) * f, line[i]![1] + (line[i + 1]![1] - line[i]![1]) * f]));
       // (Eased in the picture, across and down apart. Across: Europe's size gives way only little by little down to the
       // Equator, so the continent narrows evenly from the sea's whole length to its own waist. Down: Europe's size on the
-      // shore itself; from there to the Horn's latitude nearly life size (Arabia, drawn half as large again, reaches that
-      // far south beside it, and the Red Sea must stay a sea between two shores); below that seven tenths, which keeps
-      // the Cape out of the cold.)
+      // shore itself, a third over life size from there to the Horn's latitude (Arabia, drawn large and hung from the
+      // Levant, reaches far south beside it, and the Red Sea must stay a sea between two shores), two thirds below.)
       const c = vec([-9.9, 14.2]), cols = 136, rows = 124;
       const cell = (p: THREE.Vector3): [number, number] => { const d = c.angleTo(p) / RAD, b = bearing(c, p); return [cols / 2 + d * Math.sin(b), rows / 2 - d * Math.cos(b)]; };
       const europe = regionOf('europe'), e = cell(laid(europe, x)), a = cell(lay(set('africa')));
-      const shore = cell(laid(europe, vec([33, real[1]])))[1], below = shore + (lat > 12 ? (33 - lat) * 0.95 : 21 * 0.95 + (12 - lat) * 0.72);
-      const h = cell(toGame(real, setsOf(regionOf('asia'))));
+      const shore = cell(laid(europe, vec([33, real[1]])))[1], below = shore + (lat > 12 ? (33 - lat) * 1.33 : 21 * 1.33 + (12 - lat) * 0.65);
+      const h = cell(arabia(toGame(real, setsOf(regionOf('asia')))));
       const horn = 1 - ease((near - 4) / 10), across = ease((35 - lat) / 38), down = ease((35 - lat) / 4);
       const col = horn * h[0] + (1 - horn) * (e[0] + (a[0] - e[0]) * across), row = horn * h[1] + (1 - horn) * (e[1] + (below - e[1]) * down);
       const px = col - cols / 2, py = rows / 2 - row;
@@ -421,7 +421,7 @@ const REGIONS: readonly Region[] = [
 const regionOf = (name: string): Region => { const r = REGIONS.find((x) => x.name === name); if (!r) throw new Error(`no region ${name}`); return r; };
 // A region's own laying of the real world on the game's, and back; the middle of its picture on the game's globe.
 const layOf = (r: Region): { real: THREE.Vector3; game: THREE.Vector3; by: number } => ({ real: vec(r.at), game: r.to(), by: r.by });
-const setsOf = (r: Region): Set[] => SETS.filter((s) => r.eased!.includes(s.name));
+const setsOf = (r: Region): Laying[] => SETS.filter((s) => r.eased!.includes(s.name));
 const laid = (r: Region, real: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toGame(latLon(real) as unknown as LL, setsOf(r)); const l = layOf(r); return go(l.game, (l.real.angleTo(real) / RAD) * l.by, bearing(l.real, real)); };
 const unlaid = (r: Region, game: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toRealV(game, setsOf(r)); const l = layOf(r); return go(l.real, l.game.angleTo(game) / RAD / l.by, bearing(l.game, game)); };
 const middleOf = (r: Region): THREE.Vector3 => (r.centre ? vec(r.centre) : laid(r, vec(r.middle)));
@@ -430,6 +430,15 @@ if (process.argv.includes('--centres')) for (const r of REGIONS) console.log(`${
 function cellGame(name: string, col: number, row: number): THREE.Vector3 {
   const r = regionOf(name), x = (col + 0.5 - r.cols / 2) * r.cell, y = (r.rows / 2 - row - 0.5) * r.cell;
   return go(middleOf(r), Math.hypot(x, y), Math.atan2(x, y));
+}
+// Arabia is drawn shorter than its tracing (asia.fix.py: from row 58 of Asia's picture down, seven tenths as long): as
+// traced it reached too far south beside Africa. A place Asia lays there, as the drawing has it.
+const ARABIA = { row: 58, by: 0.7, cols: 56 };
+function arabia(p: THREE.Vector3): THREE.Vector3 {
+  const asia = regionOf('asia'), c = middleOf(asia), at = cellOf(c, p, asia.cols, asia.rows, asia.cell);
+  if (!at || at[0] >= ARABIA.cols || at[1] <= ARABIA.row) return p;
+  const x = (at[0] - asia.cols / 2) * asia.cell, y = (asia.rows / 2 - (ARABIA.row + (at[1] - ARABIA.row) * ARABIA.by)) * asia.cell;
+  return go(c, Math.hypot(x, y), Math.atan2(x, y));
 }
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
@@ -447,6 +456,111 @@ const cellOf = (c: THREE.Vector3, p: THREE.Vector3, cols: number, rows: number, 
   const b = bearing(c, p);
   return [cols / 2 + (d * Math.sin(b)) / cell, rows / 2 - (d * Math.cos(b)) / cell];
 };
+
+// ---------- rivers ----------
+
+// The great rivers, by real places from source to mouth (a tributary after the river it joins). They are the first
+// drawing only: once scripts/earth/rivers.json is there (--absorb writes it from the medium map, with whatever was
+// drawn or erased since in the map editor), the rivers are those, as places on the game's globe.
+const RIVERS: readonly (readonly [string, ...LL[]])[] = [
+  ['Danube', [48.1, 8.3], [48.4, 10], [48.9, 12.1], [48.3, 14.3], [48.2, 16.4], [47.5, 19.05], [45.8, 18.9], [44.8, 20.5], [44.6, 22.7], [43.7, 24.5], [44.1, 27.3], [45.2, 29.7]],
+  ['Rhine', [46.7, 8.8], [47.6, 8.2], [49, 8.3], [50.4, 7.6], [51.2, 6.8], [51.95, 4.2]],
+  ['Elbe', [50.1, 14.4], [51.05, 13.7], [52.1, 11.6], [53.55, 10], [53.9, 8.8]],
+  ['Vistula', [50.05, 19.9], [52.2, 21], [53, 18.6], [54.35, 18.95]],
+  ['Loire', [45.4, 4.1], [47.4, 2], [47.2, -1.6], [47.3, -2.3]],
+  ['Rhône', [46.2, 6.1], [45.75, 4.85], [44, 4.8], [43.35, 4.8]],
+  ['Po', [45.05, 7.7], [45.1, 10], [44.95, 12.4]],
+  ['Tagus', [40.3, -2], [39.86, -4], [39.5, -8], [38.7, -9.3]],
+  ['Dnieper', [55.2, 33.5], [54.5, 30.4], [50.45, 30.5], [48.5, 35], [46.6, 32.5]],
+  ['Don', [53.9, 38.3], [51.7, 39.2], [49.5, 43.5], [47.2, 39.6]],
+  ['Volga', [57.2, 32.6], [56.9, 35.9], [57.6, 39.9], [56.3, 44], [55.8, 49.1], [53.2, 50.1], [51.5, 46], [48.7, 44.5], [46.2, 48.1]],
+  ['Niger', [9.5, -10.7], [12.6, -8], [14.5, -4.2], [16.8, -3], [16.3, -0.05], [13.5, 2.1], [11.9, 3.6], [9, 4.8], [7.75, 6.75], [4.4, 6]],
+  ['Congo', [-11.8, 27.5], [-5, 27], [0.5, 25.2], [2, 21], [0, 18.3], [-4.3, 15.3], [-6, 12.4]],
+  ['Zambezi', [-11.4, 24.3], [-15.2, 23], [-17.9, 25.9], [-15.6, 30.4], [-16.2, 33.6], [-18.6, 36.3]],
+  ['Orange', [-29, 29], [-30.7, 25.5], [-28.7, 20.5], [-28.6, 16.5]],
+  ['Senegal', [11, -11.5], [14.4, -11.4], [16.5, -14.5], [16, -16.5]],
+  ['Tigris', [38.4, 39.6], [37.9, 40.2], [36.3, 43.1], [33.3, 44.4], [31, 47.4], [30, 48.5]],
+  ['Euphrates', [39.7, 40.3], [36.9, 38], [35.9, 39], [34.4, 40.9], [32.5, 44.4], [31, 47.4]],
+  ['Indus', [32.5, 80], [34.1, 77.5], [35.7, 74.6], [33.9, 72.2], [30, 70.8], [27.7, 68.8], [24, 67.5]],
+  ['Ganges', [30.9, 79], [29.9, 78.2], [27.5, 80], [25.4, 81.9], [25.6, 85.1], [24.8, 87.9], [23.7, 90.4], [22.3, 91]],
+  ['Brahmaputra', [30.3, 82], [29.3, 88.9], [29.6, 94.9], [28.1, 95.3], [26.2, 91.7], [24.9, 89.6], [23.7, 90.4]],
+  ['Amu Darya', [37.1, 71.5], [37.2, 67.3], [41.5, 60.6], [43.7, 59.2]],
+  ['Yangtze', [33.4, 91], [31.5, 97.3], [26.5, 100.2], [28.8, 104.6], [29.6, 106.6], [30.7, 111.3], [30.6, 114.3], [32.05, 118.8], [31.4, 121.9]],
+  ['Yellow River', [34.9, 96.3], [36, 103.8], [40.6, 108], [40.2, 111.2], [34.8, 110.3], [34.9, 113.6], [37.8, 119]],
+  ['Mekong', [33, 94], [29.7, 98.1], [22, 100.8], [17.97, 102.6], [13.5, 105.9], [11.56, 104.9], [10, 106.6]],
+  ['Irrawaddy', [27, 97.6], [24.3, 96.5], [21.97, 96.1], [18.8, 95.2], [16, 95.3]],
+  ['Amur', [53.3, 121.5], [50.3, 127.5], [48.5, 135.1], [50.5, 137], [53.1, 140.8]],
+  ['Ob', [51.95, 85.9], [55, 82.9], [58.3, 82.9], [61, 69], [66.5, 66.6], [66.9, 69.5]],
+  ['Yenisei', [51.7, 94.4], [53.7, 91.4], [56, 92.9], [58.45, 92.2], [61.6, 90.1], [66, 87], [69.4, 86.2], [71.9, 82.6]],
+  ['Lena', [53.9, 108], [57.8, 108.1], [60.7, 114.9], [62, 129.7], [66.8, 123.4], [72.5, 127]],
+];
+// Rivers set down in a region's picture itself, [column, row] by [column, row]: where the laying of real places bends
+// too much to follow a course (the Nile runs between Africa's own laying and the Red Sea's).
+const RIVERS_DRAWN: readonly (readonly [string, string, ...(readonly [number, number])[]])[] = [
+  ['Nile', 'africa', [84, 81], [90, 76], [95, 72], [99, 69], [101, 64], [99, 59], [100, 54], [99, 50], [98, 47]],
+  ['Blue Nile', 'africa', [111, 75], [106, 73], [102, 71], [99, 69]],
+];
+// A real place on the game's globe, by whichever region draws it.
+const layAny = (real: LL): THREE.Vector3 => {
+  const africa = regionOf('africa'), europe = regionOf('europe');
+  if (africa.keep(real)) return africa.forward!(real);
+  if (europe.keep(real)) { const p = laid(europe, vec(real)), at = cellOf(middleOf(europe), p, europe.cols, europe.rows, europe.cell); if (at && at[0] >= 0 && at[0] < europe.cols - 6 && at[1] >= 0 && at[1] < europe.rows) return p; }
+  return arabia(laid(regionOf('asia'), vec(real)));
+};
+// The rivers as places on the game's globe, source to mouth: the kept ones, or failing those the great rivers laid down.
+const riverWays = (): LL[][] => {
+  try { return (JSON.parse(readFileSync(new URL('./earth/rivers.json', import.meta.url), 'utf8')) as { rivers: LL[][] }).rivers; }
+  catch {
+    return [
+      ...RIVERS_DRAWN.map(([name, region, ...cells]) => { const way = cells.map(([q, r]) => latLon(cellGame(region, q, r)) as unknown as LL); if (process.env['RIVER'] === name) console.log(name, way.map((p) => p.map((x) => x.toFixed(1)).join(',')).join(' | ')); return way; }),
+      ...RIVERS.map(([, ...pts]) => pts.map((p) => latLon(layAny(p)) as unknown as LL)),
+    ];
+  }
+};
+// A way of places set on a globe's corners: from each place's nearest corner on to the next's by the shortest way along
+// tile borders that have land on both sides (any border, if there is none); ended at the first corner that touches
+// water or lies on a river set before it, and carried on to one if it stops short.
+function riverOn(globe: Globe, paint: Painting, way: readonly LL[], taken: Set<number>): number[] {
+  const g = cornerGraph(globe), T = globe.tris.length;
+  const wet = (c: number) => globe.tris[c]!.some((t) => paint.terrain[t] !== LAND);
+  const nearest = (p: THREE.Vector3): number => { let best = 0, bd = -2; for (let c = 0; c < T; c++) { const d = globe.triCenters[c]!.dot(p); if (d > bd) { bd = d; best = c; } } return best; };
+  const walk = (from: number, done: (c: number) => boolean, dry: boolean, limit = 1e9): number[] | null => {
+    const came = new Int32Array(T).fill(-1), steps = new Int32Array(T), queue = [from];
+    came[from] = from;
+    for (let i = 0; i < queue.length; i++) {
+      const x = queue[i]!;
+      if (x !== from && done(x)) { const path = [x]; for (let y = x; y !== from;) { y = came[y]!; path.push(y); } return path.reverse(); }
+      if (steps[x]! >= limit) continue;
+      for (let k = 0; k < 3; k++) {
+        const y = g.neighbors[x * 3 + k]!;
+        if (y < 0 || came[y]! >= 0) continue;
+        if (dry && (paint.terrain[g.borderTiles[x * 6 + k * 2]!] !== LAND || paint.terrain[g.borderTiles[x * 6 + k * 2 + 1]!] !== LAND)) continue;
+        came[y] = x; steps[y] = steps[x]! + 1; queue.push(y);
+      }
+    }
+    return null;
+  };
+  let out = [nearest(vec(way[0]!))];
+  for (const place of way.slice(1)) {
+    const to = nearest(vec(place)), from = out[out.length - 1]!;
+    if (to === from) continue;
+    const leg = walk(from, (c) => c === to, true) ?? walk(from, (c) => c === to, false);
+    if (leg) out.push(...leg.slice(1));
+  }
+  // (No corner twice: where the way comes back to a corner it has passed (it overshot a place and turned), the loop is dropped.)
+  const once: number[] = [];
+  for (const c of out) { const at = once.indexOf(c); if (at >= 0) once.length = at; once.push(c); }
+  out = once;
+  // (A river that rises in a lake leaves it first: its end is looked for from where it is clear of the water.)
+  const clear = Math.max(1, out.findIndex((c) => !wet(c)) + 1);
+  out = out.slice(Math.max(0, clear - 2));
+  // (It ends at the sea or on another river; a lake on its way it passes by, and ends in one only if that is where its way stops.)
+  const salt = (c: number) => globe.tris[c]!.some((t) => paint.terrain[t] === SEA);
+  const end = out.findIndex((c, i) => i > 1 && (salt(c) || taken.has(c)));
+  if (end > 0) out = out.slice(0, end + 1);
+  else { const on = walk(out[out.length - 1]!, (c) => wet(c) || taken.has(c), true, 8); if (on) out.push(...on.slice(1)); }
+  return out;
+}
 
 // ---------- painting a size ----------
 
@@ -644,6 +758,14 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     const t = tileAt([lat, lon]), back = toReal(globe.tiles[t]!.center), at = latLon(globe.tiles[t]!.center);
     console.log(`  ${name} [${lat}, ${lon}]: tile ${t} at game ${at[0].toFixed(1)}, ${at[1].toFixed(1)}; its middle is really ${back[0].toFixed(1)}, ${back[1].toFixed(1)}; share ${share[t]!.toFixed(2)} lake ${lake[t]!.toFixed(2)} terrain ${paint.terrain[t]}`);
   }
+  // The rivers.
+  const taken = new Set<number>();
+  for (const way of riverWays()) {
+    const r = riverOn(globe, paint, way, taken);
+    if (r.length < 3) continue;
+    paint.rivers.push(r);
+    for (const c of r) taken.add(c);
+  }
   return { paint, globe, notes };
 }
 
@@ -708,10 +830,11 @@ if (arg('draft', '')) {
       let t = nearestTile(trueScale.globe, v);
       if (on && trueScale.paint.terrain[t] !== LAND) t = trueScale.globe.tiles[t]!.neighbors.find((n) => trueScale.paint.terrain[n] === LAND) ?? t;
       const relief = trueScale.paint.terrain[t] === LAND ? trueScale.paint.relief[t] : FLAT, biome = trueScale.paint.terrain[t] === LAND ? trueScale.paint.biome[t] : null;
-      // (What is not the region's is left blank: another region's to draw.)
+      // (What is not the region's is left blank where it is another's to draw: sea drawn there would drown the other's land.)
+      const others = !kept && (!reg.eased || REGIONS.some((o) => o !== reg && o.keep(real)));
       // (A lake is a lake: left as sea, an inland sea is joined to the ocean by the game.)
-      a += !kept && !reg.eased ? ' ' : lake ? 'o' : !on ? '.' : relief === MOUNTAINS ? '^' : relief === HILLS ? 'h' : '#';
-      b += !kept && !reg.eased ? ' ' : !on ? '.' : '-ItTcspFRmdvMJ'[biome ? PAINTABLE_BIOMES.indexOf(biome as typeof PAINTABLE_BIOMES[number]) + 1 : 7]!;
+      a += others ? ' ' : lake ? 'o' : !on ? '.' : relief === MOUNTAINS ? '^' : relief === HILLS ? 'h' : '#';
+      b += others ? ' ' : !on ? '.' : '-ItTcspFRmdvMJ'[biome ? PAINTABLE_BIOMES.indexOf(biome as typeof PAINTABLE_BIOMES[number]) + 1 : 7]!;
     }
     land.push(a); kinds.push(b);
   }
@@ -783,6 +906,9 @@ if (process.argv.includes('--absorb')) {
     writeFileSync(path('hand.biomes.txt'), `; ${patch.name}: the biomes of what was changed by hand, over ${patch.name}.biomes.txt.\n` + kinds.map((row) => row.join('').trimEnd()).join('\n') + '\n');
     console.log(`${patch.name}: ${[...changed].filter((t) => owner.get(t) === patch.name).length} tiles changed by hand, ${n} characters`);
   }
+  // (And its rivers, as the places they run through: all of them, as they now stand.)
+  writeFileSync(new URL('./earth/rivers.json', import.meta.url), JSON.stringify({ note: 'The rivers of the Earth map as places on the game\'s globe (latitude, longitude), source to mouth; written by scripts/earth.ts --absorb from the medium map.', rivers: edited.rivers.map((r) => r.map((c) => latLon(globe.triCenters[c]!).map((x) => Math.round(x * 100) / 100))) }).replace(/\]\],\[\[/g, ']],\n[[') + '\n');
+  console.log(`${edited.rivers.length} rivers kept`);
   console.log(`${changed.size} tiles differ; ${[...changed].filter((t) => !owner.has(t)).length} lie under no drawing. Run again without --absorb to paint every size from the drawings.`);
   process.exit(0);
 }

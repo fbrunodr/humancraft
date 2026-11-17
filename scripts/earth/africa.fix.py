@@ -39,16 +39,14 @@ for r in range(0,40):
         if T[r][c]!='.': T[r][c]='.'; B[r][c]='.'
 clear(57,70,0,45)
 clear(18,47,0,42)                                      # (and the Strait of Gibraltar three wide under Spain)
-# 2. East Africa made whole: the Red Sea's shore is laid as Asia lays Arabia and the inland as the rest of Africa, and the
-#    land tore between them. Land from the Horn's root down a straight coast from Mogadishu to Mombasa; sea below it.
-for c in range(84,100):
-    edge=int(80+(c-85)*0.5)
-    for r in range(72,edge+1):
-        if T[r][c]=='.': T[r][c]='#'; B[r][c]=near(r,c,'v')
-    for r in range(edge+1,90):
-        if c>=86 and T[r][c]!='.': T[r][c]='.'; B[r][c]='.'
-# 3. Madagascar clear of the coast.
-move(86,95,89,99,3,0)
+
+# 2. Madagascar clear of the coast.
+move(85,96,93,106,3,0)
+
+# 3. No Lake Nasser (it is the Nile's own, dammed in 1970, and at this scale it stops the river short).
+for r in range(40,74):
+    for c in range(86,112):
+        if T[r][c]=='o': T[r][c]='#'; B[r][c]='d'
 
 head="; Africa, drawn by hand over a tracing of the real coastlines (scripts/earth.ts REGIONS): '.' sea, '#' land, 'h' hills, '^' mountains, 'o' lake.\n; A tile is three characters: every strait is three wide at least. Where Europe's or Asia's drawing lies, theirs is kept.\n"
 open(D+'africa.txt','w').write(head+'\n'.join(''.join(r) for r in T)+'\n')

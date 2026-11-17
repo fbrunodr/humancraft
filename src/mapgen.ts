@@ -335,7 +335,9 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
     if (mains >= limits.rivers.min && network.rivers.filter(longEnough).length >= limits.longRivers) break;
     network = generateRivers(globe, biome, elevation, rainfall, { ...RIVER_DEFAULTS, flowQuantile: q });
   }
-  const { rivers, cornerElevation } = network;
+  const { cornerElevation } = network;
+  // (A painted map with rivers drawn has those, and no others: each as wide as a generated river of its rank, swelling to its mouth.)
+  const rivers = paint && paint.rivers.length ? drawnRivers(globe, paint.rivers, network.rivers) : network.rivers;
   const riverTile = new Uint8Array(N);
   const riverFlowAt = new Float32Array(N);
   for (const r of rivers) {
@@ -782,4 +784,24 @@ class MinHeap {
     [this.tilesQ[a], this.tilesQ[b]] = [this.tilesQ[b], this.tilesQ[a]];
     [this.idsQ[a], this.idsQ[b]] = [this.idsQ[b], this.idsQ[a]];
   }
+}
+
+// The rivers drawn on a painted map (mapPaint.ts), as the game's: runs of corners each joined to the next by a tile
+// border (anything else is dropped), a tributary if it ends on a river drawn before it. The water each carries is
+// set from the generated rivers' own range (which nothing else of theirs is kept of), so they are drawn as wide.
+function drawnRivers(globe: Globe, drawn: readonly (readonly number[])[], like: readonly River[]): River[] {
+  const top = Math.max(1, ...like.flatMap((r) => r.flow)), out: River[] = [], on = new Set<number>();
+  for (const path of drawn) {
+    const corners: number[] = [];
+    for (const c of path) {
+      if (c < 0 || c >= globe.tris.length) break;
+      if (corners.length && (c === corners[corners.length - 1] || !borderBetween(globe, corners[corners.length - 1]!, c))) break;
+      corners.push(c);
+    }
+    if (corners.length < 2) continue;
+    const tributary = on.has(corners[corners.length - 1]!), lo = tributary ? 0.12 : 0.25, hi = tributary ? 0.45 : 1;
+    out.push({ corners, flow: corners.map((_, i) => top * (lo + ((hi - lo) * i) / (corners.length - 1))), tributary });
+    for (const c of corners) on.add(c);
+  }
+  return out;
 }

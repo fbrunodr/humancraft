@@ -10,7 +10,8 @@ B=[list(l) for l in open(D+'asia.draft.biomes.txt').read().split('\n') if l]
 H,W=len(T),len(T[0])
 def clear(c0,c1,r0,r1):
     for r in range(max(0,r0),min(H,r1+1)):
-        for c in range(max(0,c0),min(W,c1+1)): T[r][c]='.'; B[r][c]='.'
+        for c in range(max(0,c0),min(W,c1+1)):
+            if T[r][c]!=' ': T[r][c]='.'; B[r][c]='.'
 def near(r,c,d):
     for k in range(1,12):
         for dr in range(-k,k+1):
@@ -99,6 +100,30 @@ for r in range(10,43):
 for r in range(24,54):
     for c in range(37,64):
         if T[r][c]=='.': T[r][c]='o'
+
+# 11. Arabia shorter: as traced (half as large again as life, hung from the Levant) it reached too far south beside Africa.
+#     From row 58 down, the peninsula (all its land west of a line from the Gulf's head to Hormuz) is drawn seven tenths
+#     as long (scripts/earth.ts ARABIA says the same, for what is laid against it: Africa's Red Sea shore).
+ROW,BY=58,0.7
+for r in range(ROW+1,H):
+    for c in range(0,56):
+        if T[r][c]==' ': T[r][c]='.'; B[r][c]='.'   # (the blanks are set again below, for Arabia as drawn)
+cells=[(r,c) for r in range(ROW+1,H) for c in range(0,56) if T[r][c] not in '. o' and c <= 35+(r-63)*1.25]
+keep=[(r,c,T[r][c],B[r][c]) for r,c in cells]
+for r,c in cells: T[r][c]='.'; B[r][c]='.'
+for r,c,t,b in keep:
+    rr=ROW+round((r-ROW)*BY)
+    T[rr][c]=t; B[rr][c]=b
+
+# (And what lies beyond the Red Sea from it is Africa's to draw: blank from three characters off Arabia's western shore,
+# and everything west of the Gulf below its tip.)
+for r in range(ROW+1,H):
+    land=[c for c in range(0,56) if T[r][c] not in '. o']
+    edge=min(land)-3 if land else 56
+    for c in range(0,max(0,edge)):
+        if T[r][c] in '. ': T[r][c]=' '; B[r][c]=' '
+# (And the Strait of Hormuz kept open: drawn up, Oman's point came against Persia's coast.)
+clear(43,50,67,70); clear(49,55,70,72)
 
 head="; Asia, drawn by hand over a tracing of the real coastlines (scripts/earth.ts REGIONS): '.' sea, '#' land, 'h' hills, '^' mountains.\n; A tile is three characters: every strait is three wide at least. Where Europe's drawing lies, Europe's is kept.\n"
 open(D+'asia.txt','w').write(head+'\n'.join(''.join(r) for r in T)+'\n')

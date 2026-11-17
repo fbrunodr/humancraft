@@ -17,13 +17,16 @@ export interface Painting {
   terrain: Uint8Array;           // SEA, LAND or LAKE
   relief: Uint8Array;            // FLAT, HILLS or MOUNTAINS (land only)
   biome: (BiomeKey | null)[];    // painted biome (land only), or null: the climate's
+  // Rivers drawn by hand, each the corners it runs through from source to mouth (rivers.ts: a corner is a
+  // triangle of the grid, a river runs along tile borders). If there are any, the map has these and no others.
+  rivers: number[][];
 }
 
 // ---------- the stored form ----------
 
 // Each layer is one character per tile, run-length coded ("120.3#": 120
 // tiles of '.', then 3 of '#').
-export interface StoredPainting { terrain: string; relief: string; biome: string }
+export interface StoredPainting { terrain: string; relief: string; biome: string; rivers?: number[][] }
 export type PaintFile = Partial<Record<MapSizeKey, StoredPainting>>;
 
 const TERRAIN_CH = '.#o';
@@ -56,6 +59,7 @@ export function store(p: Painting): StoredPainting {
     terrain: encodeRuns(Array.from(p.terrain, (v) => TERRAIN_CH[v]!).join('')),
     relief: encodeRuns(Array.from(p.relief, (v) => RELIEF_CH[v]!).join('')),
     biome: encodeRuns(p.biome.map((b) => BIOME_CH[b ? PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1 : 0]!).join('')),
+    ...(p.rivers.length ? { rivers: p.rivers.map((r) => [...r]) } : {}),
   };
 }
 export function load(s: StoredPainting, n: number): Painting {
@@ -65,14 +69,16 @@ export function load(s: StoredPainting, n: number): Painting {
     terrain: code(s.terrain, TERRAIN_CH),
     relief: code(s.relief, RELIEF_CH),
     biome: Array.from(b, (i) => (i ? PAINTABLE_BIOMES[i - 1]! : null)),
+    rivers: (s.rivers ?? []).map((r) => [...r]),
   };
 }
 
-export const blank = (n: number): Painting => ({ terrain: new Uint8Array(n), relief: new Uint8Array(n), biome: new Array<BiomeKey | null>(n).fill(null) });
+export const blank = (n: number): Painting => ({ terrain: new Uint8Array(n), relief: new Uint8Array(n), biome: new Array<BiomeKey | null>(n).fill(null), rivers: [] });
 
 // ---------- between sizes ----------
 
 // A painting laid onto another globe: each tile takes the nearest tile's paint.
+// (Its rivers are not carried: they run on one globe's own corners.)
 export function resample(p: Painting, from: Globe, to: Globe): Painting {
   const out = blank(to.tiles.length);
   let near = -1;
