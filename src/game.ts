@@ -1497,7 +1497,8 @@ export class Game {
     const r = this.resources[t];
     if (!r) return null;
     const need = resourceDef(r).reveal;
-    return !need || (owner >= 0 && this.players[owner]!.techs.has(need)) ? r : null;
+    // (A world with no civs on it, a map being drawn: no one knows the hidden ones.)
+    return !need || (owner >= 0 && this.players[owner]?.techs.has(need)) ? r : null;
   }
 
   // What tile t yields worked by civ `owner`: its terrain, its improvement

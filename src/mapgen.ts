@@ -364,7 +364,8 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
   // Volcanoes: an exact count, far apart, favoring coastal ranges (F1).
   const volcanoSites = shuffle(rand, mountains.filter((t) => allowed('volcano', t)))
     .sort((a, b) => (coastDist[a] <= 3 ? 0 : 1) - (coastDist[b] <= 3 ? 0 : 1));
-  if (!pickSpaced(globe, volcanoSites, randInt(rand, limits.volcanoes), limits.volcanoSpacing, (t) => { feature[t] = 'volcano'; })) return null;
+  // (A painted map takes what features fit it: a small land may have no room for them all.)
+  if (!pickSpaced(globe, volcanoSites, randInt(rand, limits.volcanoes), limits.volcanoSpacing, (t) => { feature[t] = 'volcano'; }) && !paint) return null;
 
   // Floodplains and riverside wetlands follow the bigger rivers; coastal
   // marshes and swamps form in wet lowlands by the water.
@@ -392,12 +393,12 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
 
   // Oases: an exact count in deserts, spread out (F4).
   const oasisSites = shuffle(rand, tiles.map((t) => t.id).filter((t) => allowed('oasis', t)));
-  if (!pickSpaced(globe, oasisSites, randInt(rand, limits.oases), limits.oasisSpacing, (t) => { feature[t] = 'oasis'; })) return null;
+  if (!pickSpaced(globe, oasisSites, randInt(rand, limits.oases), limits.oasisSpacing, (t) => { feature[t] = 'oasis'; }) && !paint) return null;
 
   // Reef systems in warm shallows, kelp forests in cool ones (F2, F3).
   const shallowFree = (t: number) => biome[t] === 'shallowSea' && feature[t] === null;
-  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 21, randInt(rand, limits.reefSystems), limits.clusterTiles, (t) => { feature[t] = 'reef'; })) return null;
-  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 4 && seaLevelTemp[t] < 16, randInt(rand, limits.kelpSystems), limits.clusterTiles, (t) => { feature[t] = 'kelp'; })) return null;
+  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 21, randInt(rand, limits.reefSystems), limits.clusterTiles, (t) => { feature[t] = 'reef'; }) && !paint) return null;
+  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 4 && seaLevelTemp[t] < 16, randInt(rand, limits.kelpSystems), limits.clusterTiles, (t) => { feature[t] = 'kelp'; }) && !paint) return null;
 
   return { biome, relief, feature, elevation, temperature, rainfall, flow, rivers, riverTile, cornerElevation };
 }

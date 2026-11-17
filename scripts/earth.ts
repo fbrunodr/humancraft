@@ -54,7 +54,7 @@ const vec = ([lat, lon]: LL): THREE.Vector3 => new THREE.Vector3(Math.cos(lat * 
 //   from   another piece and a real place the two share (a strait, a
 //          border): this piece is set so that place falls where the other puts it
 interface Piece { readonly name: string; readonly at: LL; readonly reach: number; readonly by: number; readonly to?: LL; readonly from?: readonly [string, LL] }
-const PIECES: readonly Piece[] = [
+const PIECES: readonly Piece[] = process.env['EARTH_TRIAL'] ? [{ name: 'europe', at: [48, 14], reach: 60, by: Number(process.env['EARTH_TRIAL']), to: [40, 15] }] : [
   { name: 'europe', at: [50, 12], reach: 24, by: 1.55, to: [46, 12] },
   { name: 'africa', at: [3, 20], reach: 38, by: 0.85, from: ['europe', [36.8, 10]] },
   { name: 'nearEast', at: [31, 44], reach: 17, by: 1.2, from: ['europe', [41, 29]] },
@@ -342,18 +342,27 @@ const CHECKS: readonly (readonly [boolean, string, LL, string, LL])[] = [
 // game's globe, its middle over a real place. '.' sea, '#' land, 'h'
 // hills, '^' mountains, 'o' lake, ' ' as the coastlines gave it. A tile
 // takes what most of the characters under it say.
-const CELL = 1.5;
-interface Patch { readonly name: string; readonly over: LL; readonly rows: readonly string[] }
+// (Its biomes in a second picture of the same size, scripts/earth/<name>.biomes.txt, in mapPaint.ts's letters:
+// t tundra, T taiga, F temperate forest, R temperate rainforest, p prairie, s steppe, m mediterranean, d hot desert...)
+//   to    where the picture's middle is set on the game's globe
+//   cell  degrees of the game's globe to a character
+// TRACED: whether what is not drawn is filled from the real coastlines (the pieces above). While the
+// world is being drawn region by region it is not: what is not drawn yet is sea.
+const TRIAL = process.env['EARTH_TRIAL'] ?? ''; // (a trial: Europe alone traced from the coastlines at this size, to compare with the drawing)
+const TRACED = TRIAL !== '';
+interface Patch { readonly name: string; readonly to: LL; readonly cell: number; readonly rows: readonly string[]; readonly biomes: readonly string[] }
 const PATCHES: Patch[] = [];
-for (const [name, over] of [['europe', [48, 14]]] as const) {
-  try { PATCHES.push({ name, over, rows: readFileSync(new URL(`./earth/${name}.txt`, import.meta.url), 'utf8').split('\n').filter((r) => !r.startsWith(';')) }); } catch { /* not drawn yet */ }
+for (const [name, to, cell] of TRIAL ? [] : [['europe', [40, 15], 1]] as const) {
+  const read = (f: string): string[] => { try { return readFileSync(new URL(`./earth/${f}`, import.meta.url), 'utf8').split('\n').filter((r) => !r.startsWith(';')); } catch { return []; } };
+  const rows = read(`${name}.txt`);
+  if (rows.length) PATCHES.push({ name, to, cell, rows, biomes: read(`${name}.biomes.txt`) });
 }
 // Where a point of the game's globe falls in a picture whose middle is at c: [column, row] (fractions), or null if behind it.
-const cellOf = (c: THREE.Vector3, p: THREE.Vector3, cols: number, rows: number): [number, number] | null => {
+const cellOf = (c: THREE.Vector3, p: THREE.Vector3, cols: number, rows: number, cell: number): [number, number] | null => {
   const d = c.angleTo(p) / RAD;
   if (d > 85) return null;
   const b = bearing(c, p);
-  return [cols / 2 + (d * Math.sin(b)) / CELL, rows / 2 - (d * Math.cos(b)) / CELL];
+  return [cols / 2 + (d * Math.sin(b)) / cell, rows / 2 - (d * Math.cos(b)) / cell];
 };
 
 // ---------- painting a size ----------
@@ -384,29 +393,32 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
       pts.push(t.center.clone().lerp(a.clone().add(b).multiplyScalar(0.5), 0.7).normalize());
     }
     let on = 0, wet = 0;
-    for (const p of pts) { const real = toReal(p); if (within(COAST, real)) { on++; if (within(LAKES, real)) wet++; } }
+    for (const p of pts) { const real = toReal(p); if (TRIAL && (vec(real).angleTo(vec([48, 14])) / RAD > 31 || real[0] < 29.5)) continue; if (within(COAST, real)) { on++; if (within(LAKES, real)) wet++; } }
     share[t.id] = on / pts.length;
     lake[t.id] = wet / pts.length;
   }
-  for (let t = 0; t < n; t++) paint.terrain[t] = lake[t]! >= LAKE_SHARE ? LAKE : share[t]! >= LAND_SHARE ? LAND : SEA;
+  for (let t = 0; t < n; t++) paint.terrain[t] = !TRACED ? SEA : lake[t]! >= LAKE_SHARE ? LAKE : share[t]! >= LAND_SHARE ? LAND : SEA;
   // (And the lakes the true-scale painting has, where they really lie.)
   for (const t of globe.tiles) {
-    if (paint.terrain[t.id] !== LAND) continue;
+    if (!TRACED || paint.terrain[t.id] !== LAND) continue;
     const s = nearestTile(trueScale.globe, vec(toReal(t.center)));
     if (trueScale.paint.terrain[s] === LAKE && t.neighbors.every((x) => share[x]! >= LAND_SHARE)) paint.terrain[t.id] = LAKE;
   }
   // The regions drawn by hand.
   const drawn = new Uint8Array(n);
   for (const patch of PATCHES) {
-    const c = toGame(patch.over), rows = patch.rows.length, cols = Math.max(...patch.rows.map((r) => r.length));
+    const c = vec(patch.to), rows = patch.rows.length, cols = Math.max(...patch.rows.map((r) => r.length));
+    const biomeAt = new Map<number, BiomeKey>();
     for (const t of globe.tiles) {
-      const count = new Map<string, number>();
+      const count = new Map<string, number>(), kinds = new Map<string, number>();
       const pts = [t.center, ...t.corners.map((i) => t.center.clone().lerp(globe.triCenters[i]!, 0.55).normalize())];
       for (const p of pts) {
-        const at = cellOf(c, p, cols, rows);
+        const at = cellOf(c, p, cols, rows, patch.cell);
         if (!at) continue;
         const ch = patch.rows[Math.floor(at[1])]?.[Math.floor(at[0])];
         if (ch && ch !== ' ') count.set(ch, (count.get(ch) ?? 0) + 1);
+        const kind = patch.biomes[Math.floor(at[1])]?.[Math.floor(at[0])];
+        if (kind && kind !== ' ' && kind !== '.') kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
       }
       let total = 0, land = 0, best = '', bestN = 0;
       for (const [ch, k] of count) { total += k; if (ch !== '.' && ch !== 'o') land += k; if (k > bestN) { bestN = k; best = ch; } }
@@ -415,15 +427,18 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
       paint.terrain[t.id] = wet ? LAKE : land * 2 >= total ? LAND : SEA;
       drawn[t.id] = land * 2 >= total && !wet ? ((count.get('^') ?? 0) * 3 >= total ? 3 : ((count.get('h') ?? 0) + (count.get('^') ?? 0)) * 3 >= total ? 2 : 1) : 4;
       void best;
+      const kind = [...kinds].sort((x, y) => y[1] - x[1])[0]?.[0], k = kind ? '-ItTcspFRmdvMJ'.indexOf(kind) : 0;
+      if (k > 0) biomeAt.set(t.id, PAINTABLE_BIOMES[k - 1]!);
     }
+    for (const [t, b] of biomeAt) if (paint.terrain[t] === LAND) paint.biome[t] = b;
   }
   // By hand: straits opened, islands set down (islands last: a strait never drowns one named).
-  for (const [, ...pts] of STRAITS) for (const p of pts) { const t = tileAt(p); if (!drawn[t]) paint.terrain[t] = SEA; }
-  for (const [, ...pts] of ISLANDS) for (const p of pts) { const t = tileAt(p); if (!drawn[t]) paint.terrain[t] = LAND; }
+  if (TRACED) for (const [, ...pts] of STRAITS) for (const p of pts) { const t = tileAt(p); if (!drawn[t]) paint.terrain[t] = SEA; }
+  if (TRACED) for (const [, ...pts] of ISLANDS) for (const p of pts) { const t = tileAt(p); if (!drawn[t]) paint.terrain[t] = LAND; }
   // Hills, mountains and biomes: the true-scale painting's, where each tile really lies (the nearest land there).
   const src = trueScale;
   for (const t of globe.tiles) {
-    if (paint.terrain[t.id] !== LAND) continue;
+    if (paint.terrain[t.id] !== LAND || drawn[t.id]) continue;
     let s = nearestTile(src.globe, vec(toReal(t.center)));
     if (src.paint.terrain[s] !== LAND) {
       const near = src.globe.tiles[s]!.neighbors.filter((x) => src.paint.terrain[x] === LAND);
@@ -436,14 +451,14 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
   // (Where a region was drawn by hand, its hills and mountains are the drawing's.)
   for (let t = 0; t < n; t++) if (drawn[t]! >= 1 && drawn[t]! <= 3 && paint.terrain[t] === LAND) paint.relief[t] = drawn[t] === 3 ? MOUNTAINS : drawn[t] === 2 ? HILLS : FLAT;
   const handDrawn = (t: number) => drawn[t]! > 0;
-  for (const [, relief, ...line] of RANGES) {
+  if (TRACED) for (const [, relief, ...line] of RANGES) {
     for (let i = 0; i < line.length; i++) {
       const a = line[i]!, b = line[Math.min(i + 1, line.length - 1)]!;
       for (let f = 0; f <= 1; f += 0.125) { const t = tileAt([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]); if (paint.terrain[t] === LAND && !handDrawn(t) && paint.relief[t]! < relief) paint.relief[t] = relief; }
     }
   }
   // (Biomes the climate gets wrong at true scale: set by name.)
-  for (const [, biome, ...pts] of BIOMES) for (const p of pts) { const t = tileAt(p); if (paint.terrain[t] === LAND) paint.biome[t] = biome; }
+  if (TRACED) for (const [, biome, ...pts] of BIOMES) for (const p of pts) { const t = tileAt(p); if (paint.terrain[t] === LAND) paint.biome[t] = biome; }
   // (A mountain alone on a one-tile island or isthmus would shut it: hills there.)
   for (const t of globe.tiles) {
     if (paint.terrain[t.id] !== LAND || paint.relief[t.id] !== MOUNTAINS) continue;
@@ -468,7 +483,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     }
     return null;
   };
-  for (const [joined, an, a, bn, b] of CHECKS) {
+  for (const [joined, an, a, bn, b] of TRACED ? CHECKS : []) {
     const ta = tileAt(a), tb = tileAt(b);
     // (Where a region is drawn by hand the drawing is the word: its places are not where the real ones fall.)
     if (drawn[ta] || drawn[tb]) continue;
@@ -499,14 +514,14 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     }
     if ((way(ta, tb, dry) !== null) !== joined) notes.push(`${an} and ${bn} should be ${joined ? 'joined' : 'apart'}`);
   }
-  for (const [name, ...pts] of ISLANDS) if (pts.every((p) => paint.terrain[tileAt(p)] !== LAND && !drawn[tileAt(p)])) notes.push(`${name} is not there`);
+  if (TRACED) for (const [name, ...pts] of ISLANDS) if (pts.every((p) => paint.terrain[tileAt(p)] !== LAND && !drawn[tileAt(p)])) notes.push(`${name} is not there`);
   // A sketch of a region as it stands, in the form it is drawn in (to start a drawing from): --sketch <real lat>,<real lon>,<columns>,<rows>
   const sk = arg('sketch', '');
   if (sk && size === 'large') {
-    const [la, lo, cols, rows] = sk.split(',').map(Number) as [number, number, number, number];
+    const [la, lo, cols, rows] = sk.split(',').map(Number) as [number, number, number, number], CELL = 1.5;
     const c = toGame([la, lo]);
     const marks = new Map<string, string>();
-    for (const [ch, lat, lon] of JSON.parse(arg('marks', '[]')) as [string, number, number][]) { const at = cellOf(c, toGame([lat, lon]), cols, rows); if (at) marks.set(`${Math.floor(at[0])},${Math.floor(at[1])}`, ch); }
+    for (const [ch, lat, lon] of JSON.parse(arg('marks', '[]')) as [string, number, number][]) { const at = cellOf(c, toGame([lat, lon]), cols, rows, CELL); if (at) marks.set(`${Math.floor(at[0])},${Math.floor(at[1])}`, ch); }
     const lines: string[] = [], marked: string[] = [];
     for (let r = 0; r < rows; r++) {
       let line = '', mline = '';
@@ -530,8 +545,8 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
 // ---------- a picture of it ----------
 
 // The globe seen from over a real place, as far round as `reach` degrees.
-function picture(globe: Globe, paint: Painting, over: LL, reach: number, px = 900): string {
-  const c = toGame(over), up = new THREE.Vector3(0, 1, 0);
+function picture(globe: Globe, paint: Painting, c: THREE.Vector3, reach: number, px = 900): string {
+  const up = new THREE.Vector3(0, 1, 0);
   const east = up.clone().cross(c).normalize(), north = c.clone().cross(east).normalize();
   const k = px / 2 / Math.sin(reach * RAD);
   const color = (t: number): string => {
@@ -555,6 +570,37 @@ const VIEWS: readonly (readonly [string, LL, number])[] = [
   ['africa', [5, 20], 60], ['americas', [10, -80], 75], ['asia', [35, 90], 65], ['pacific', [0, -160], 80], ['oceania', [-28, 150], 45],
 ];
 
+// ---------- a draft to draw over ----------
+
+// --draft <name>,<columns>,<rows>,<cell> (with EARTH_TRIAL set: the size it is traced at): the region as the
+// real coastlines give it, in the form a drawing takes (scripts/earth/<name>.txt and .biomes.txt), to be corrected by hand.
+if (arg('draft', '') && TRIAL) {
+  const [name, colsS, rowsS, cellS] = arg('draft', '').split(','), cols = Number(colsS), rows = Number(rowsS), cell = Number(cellS);
+  const c = SETS[0]!.game, land: string[] = [], kinds: string[] = [];
+  for (let r = 0; r < rows; r++) {
+    let a = '', b = '';
+    for (let q = 0; q < cols; q++) {
+      const x = (q + 0.5 - cols / 2) * cell, y = (rows / 2 - r - 0.5) * cell;
+      const real = toReal(go(c, Math.hypot(x, y), Math.atan2(x, y))), v = vec(real);
+      const on = !(v.angleTo(vec([48, 14])) / RAD > 31 || real[0] < 29.5) && within(COAST, real) && !(within(LAKES, real));
+      let t = nearestTile(trueScale.globe, v);
+      if (on && trueScale.paint.terrain[t] !== LAND) t = trueScale.globe.tiles[t]!.neighbors.find((n) => trueScale.paint.terrain[n] === LAND) ?? t;
+      const relief = trueScale.paint.terrain[t] === LAND ? trueScale.paint.relief[t] : FLAT, biome = trueScale.paint.terrain[t] === LAND ? trueScale.paint.biome[t] : null;
+      a += !on ? '.' : relief === MOUNTAINS ? '^' : relief === HILLS ? 'h' : '#';
+      b += !on ? '.' : '-ItTcspFRmdvMJ'[biome ? PAINTABLE_BIOMES.indexOf(biome as typeof PAINTABLE_BIOMES[number]) + 1 : 7]!;
+    }
+    land.push(a); kinds.push(b);
+  }
+  // (Where real places fall in it, to find one's way: --marks '[["name",lat,lon],...]')
+  for (const [label, lat, lon] of JSON.parse(arg('marks', '[]')) as [string, number, number][]) {
+    const g = toGame([lat, lon]), d = c.angleTo(g) / RAD, b = bearing(c, g);
+    console.log(`${label}: column ${Math.floor(cols / 2 + (d * Math.sin(b)) / cell)}, row ${Math.floor(rows / 2 - (d * Math.cos(b)) / cell)}`);
+  }
+  writeFileSync(new URL(`./earth/${name}.draft.txt`, import.meta.url), land.join('\n') + '\n');
+  writeFileSync(new URL(`./earth/${name}.draft.biomes.txt`, import.meta.url), kinds.join('\n') + '\n');
+  process.exit(0);
+}
+
 // ---------- all sizes ----------
 
 const file: PaintFile = {};
@@ -571,9 +617,10 @@ for (const size of Object.keys(MAP_SIZES) as MapSizeKey[]) {
   for (const m of notes) { console.log(`  ! ${m}`); failed = true; }
   if (PREVIEW) {
     mkdirSync(PREVIEW, { recursive: true });
-    for (const [name, over, reach] of VIEWS) writeFileSync(`${PREVIEW}/${size}_${name}.svg`, picture(globe, paint, over, reach));
+    for (const [name, over, reach] of VIEWS) writeFileSync(`${PREVIEW}/${size}_${name}.svg`, picture(globe, paint, toGame(over), reach));
+    for (const p of PATCHES) writeFileSync(`${PREVIEW}/${size}_${p.name}.svg`, picture(globe, paint, vec(p.to), 55));
     // (And the tile over each of those places, for looking at them in the game.)
-    writeFileSync(`${PREVIEW}/${size}_views.json`, JSON.stringify(Object.fromEntries(VIEWS.map(([name, over]) => [name, nearestTile(globe, toGame(over))]))));
+    writeFileSync(`${PREVIEW}/${size}_views.json`, JSON.stringify({ ...Object.fromEntries(VIEWS.map(([name, over]) => [name, nearestTile(globe, toGame(over))])), ...Object.fromEntries(PATCHES.map((p) => [p.name, nearestTile(globe, vec(p.to))])) }));
   }
 }
 if (failed && !process.argv.includes('--anyway')) { console.error('Not written: the checks above failed (--anyway to write it all the same).'); process.exit(1); }
