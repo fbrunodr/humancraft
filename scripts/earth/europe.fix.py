@@ -58,6 +58,24 @@ clear(39,47,23,25)
 clear(42,48,26,32)
 blob({26:(43,45),27:(42,45),28:(42,45),29:(42,45),30:(42,45),31:(42,45),32:(42,45)},'#','F')
 
+# 12. Italy redrawn: a boot, long and narrow, running south-east, its heel and toe, the Adriatic five wide beside it;
+#     Sicily off the toe (there is no Africa to crowd it).
+coast={54:53,55:53,56:55,57:57,58:58,59:59,60:59,61:59,62:59,63:60,64:61,65:61,66:61,67:61,68:61,69:61}
+for r,c in coast.items(): clear(42,c-1,r,r)
+clear(42,56,66,76)
+clear(48,50,51,51); clear(48,52,52,53); clear(49,53,54,55)
+boot={54:(44,47),55:(44,48),56:(45,49),57:(45,49),58:(46,50),59:(47,51),60:(47,51),61:(48,52),62:(49,53),63:(50,56),64:(51,57),65:(51,54),66:(50,54),67:(48,53),68:(47,51),69:(46,49)}
+blob(boot)
+fill(56,57,65,65)
+for r,(a,z) in boot.items():
+    if 55<=r<=66: T[r][(a+z)//2]='h'; T[r][(a+z)//2+1]='h'          # the Apennines down its middle
+blob({73:(43,49),74:(42,49),75:(43,48),76:(44,46)})
+T[74][46]='h'; T[74][47]='^'                                         # Etna
+# 13. Scotland fuller.
+blob({15:(26,28),16:(25,29),17:(24,29),18:(24,30),19:(25,30),20:(25,30),21:(25,29),22:(26,29)},'#','F')
+for r in range(16,22):
+    for c in range(25,28): T[r][c]='h'
+
 # 11. The ranges the tracing's relief is too coarse for: the Alps, the Pyrenees, the Caucasus (mountains where there is land).
 def ridge(cells):
     for c0,c1,r in cells:
