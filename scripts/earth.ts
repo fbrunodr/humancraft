@@ -507,6 +507,7 @@ const layAny = (real: LL): THREE.Vector3 => {
   if (europe.keep(real)) { const p = laid(europe, vec(real)), at = cellOf(middleOf(europe), p, europe.cols, europe.rows, europe.cell); if (at && at[0] >= 0 && at[0] < europe.cols - 6 && at[1] >= 0 && at[1] < europe.rows) return p; }
   return arabia(laid(regionOf('asia'), vec(real)));
 };
+const riversKept = (): boolean => { try { readFileSync(new URL('./earth/rivers.json', import.meta.url)); return true; } catch { return false; } };
 // The rivers as places on the game's globe, source to mouth: the kept ones, or failing those the great rivers laid down.
 const riverWays = (): LL[][] => {
   try { return (JSON.parse(readFileSync(new URL('./earth/rivers.json', import.meta.url), 'utf8')) as { rivers: LL[][] }).rivers; }
@@ -520,7 +521,7 @@ const riverWays = (): LL[][] => {
 // A way of places set on a globe's corners: from each place's nearest corner on to the next's by the shortest way along
 // tile borders that have land on both sides (any border, if there is none); ended at the first corner that touches
 // water or lies on a river set before it, and carried on to one if it stops short.
-function riverOn(globe: Globe, paint: Painting, way: readonly LL[], taken: Set<number>): number[] {
+function riverOn(globe: Globe, paint: Painting, way: readonly LL[], taken: Set<number>, first: boolean): number[] {
   const g = cornerGraph(globe), T = globe.tris.length;
   const wet = (c: number) => globe.tris[c]!.some((t) => paint.terrain[t] !== LAND);
   const nearest = (p: THREE.Vector3): number => { let best = 0, bd = -2; for (let c = 0; c < T; c++) { const d = globe.triCenters[c]!.dot(p); if (d > bd) { bd = d; best = c; } } return best; };
@@ -552,13 +553,13 @@ function riverOn(globe: Globe, paint: Painting, way: readonly LL[], taken: Set<n
   for (const c of out) { const at = once.indexOf(c); if (at >= 0) once.length = at; once.push(c); }
   out = once;
   // (A river that rises in a lake leaves it first: its end is looked for from where it is clear of the water.)
-  const clear = Math.max(1, out.findIndex((c) => !wet(c)) + 1);
-  out = out.slice(Math.max(0, clear - 2));
+  // (Only when a river is first laid down from its real course: one kept from the map is already clear.)
+  if (first) { const clear = Math.max(1, out.findIndex((c) => !wet(c)) + 1); out = out.slice(Math.max(0, clear - 2)); }
   // (It ends at the sea or on another river; a lake on its way it passes by, and ends in one only if that is where its way stops.)
   const salt = (c: number) => globe.tris[c]!.some((t) => paint.terrain[t] === SEA);
   const end = out.findIndex((c, i) => i > 1 && (salt(c) || taken.has(c)));
   if (end > 0) out = out.slice(0, end + 1);
-  else { const on = walk(out[out.length - 1]!, (c) => wet(c) || taken.has(c), true, 8); if (on) out.push(...on.slice(1)); }
+  else if (!wet(out[out.length - 1]!) && !taken.has(out[out.length - 1]!)) { const on = walk(out[out.length - 1]!, (c) => wet(c) || taken.has(c), true, 8); if (on) out.push(...on.slice(1)); }
   return out;
 }
 
@@ -758,10 +759,16 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     const t = tileAt([lat, lon]), back = toReal(globe.tiles[t]!.center), at = latLon(globe.tiles[t]!.center);
     console.log(`  ${name} [${lat}, ${lon}]: tile ${t} at game ${at[0].toFixed(1)}, ${at[1].toFixed(1)}; its middle is really ${back[0].toFixed(1)}, ${back[1].toFixed(1)}; share ${share[t]!.toFixed(2)} lake ${lake[t]!.toFixed(2)} terrain ${paint.terrain[t]}`);
   }
+  // (A lake that touches the sea is the sea: on a smaller globe a lake drawn near a coast can come to lie against it.)
+  for (let again = true; again;) {
+    again = false;
+    for (const t of globe.tiles) if (paint.terrain[t.id] === LAKE && t.neighbors.some((x) => paint.terrain[x] === SEA)) { paint.terrain[t.id] = SEA; again = true; }
+  }
   // The rivers.
+  const fromFile = riversKept();
   const taken = new Set<number>();
   for (const way of riverWays()) {
-    const r = riverOn(globe, paint, way, taken);
+    const r = riverOn(globe, paint, way, taken, !fromFile);
     if (r.length < 3) continue;
     paint.rivers.push(r);
     for (const c of r) taken.add(c);
