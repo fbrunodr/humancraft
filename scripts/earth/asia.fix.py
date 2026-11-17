@@ -87,7 +87,8 @@ for r, c in cells: T[r][c] = '.'; B[r][c] = '.'
 for r, c, t, b in keep:
     rr = ROW + round((r - ROW) * BY)
     T[rr][c] = t; B[rr][c] = b
-for r in range(ROW + 1, p.H):
+# (From the Levant's corner down: the sea off Egypt too is Africa's to draw, or Asia's water lies on the Nile's delta.)
+for r in range(M['Iskenderun'][1] + 3, p.H):
     land = [c for c in range(0, COLS) if T[r][c] not in '. o']
     edge = min(land) - 3 if land else COLS
     for c in range(0, max(0, edge)):

@@ -70,7 +70,7 @@ const PIECES: readonly Piece[] = [
   { name: 'siberia', at: [62, 135], reach: 24, by: 1.0, from: ['china', [50, 120]] },
   { name: 'japan', at: [37, 138], reach: 7, by: 1.7, from: ['china', [34.5, 129.5]] },
   { name: 'indies', at: [0, 117], reach: 20, by: 1.25, from: ['china', [6, 101]] },
-  { name: 'africa', at: [0, 18], reach: 34, by: 0.8, from: ['europe', [36.8, 10]] },
+  { name: 'africa', at: [0, 18], reach: 34, by: 0.85, from: ['europe', [36.8, 10]] },
   // (The Horn and the Red Sea's southern shore at the Near East's size: they face Arabia across a sea that must stay narrow.
   // Egypt is the Near East's already, by nearness.)
   { name: 'nileHorn', at: [16, 40], reach: 12, by: 1.5, from: ['nearEast', [20, 39]] },
@@ -372,13 +372,45 @@ interface Region {
   readonly eased?: readonly string[]; // traced through these of the pieces above (its size easing into its neighbours'), not at one size about `at`
 }
 const far = (a: LL, b: LL): number => vec(a).angleTo(vec(b)) / RAD;
+// Africa's picture, and its laying. Three layings eased into one another by where a place really is: its northern shore
+// as Europe's drawing lays it (it faces Europe across the sea and must run the sea's whole length); the Red Sea's shore
+// and the Horn as Asia lays Arabia, so the sea between stays a narrow sea; the rest its own, narrowing little by little
+// from the sea's length to its own waist at the Equator. Down, it runs from Europe's shore to the Horn where Asia sets
+// it, and from there to the Cape at CAPE degrees south (far enough to keep its shape, not so far as the cold).
+// (`inland`: without the Red Sea's laying, for a river's course: between the two layings its valley would be torn.)
+const AFRICA = { centre: [-13, 20] as LL, cols: 160, rows: 104, cape: -45 };
+let africaRows: { horn: number; south: number } | null = null;
+function africaLaid(real: LL, inland: boolean): THREE.Vector3 {
+  const [lat] = real, x = vec(real), ease = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
+  const c = vec(AFRICA.centre), { cols, rows } = AFRICA;
+  const cell = (p: THREE.Vector3): [number, number] => { const d = c.angleTo(p) / RAD, b = bearing(c, p); return [cols / 2 + (d * Math.sin(b)) / CELL, rows / 2 - (d * Math.cos(b)) / CELL]; };
+  const own = SETS.find((q) => q.name === 'africa')!, europe = regionOf('europe'), asia = regionOf('asia');
+  const asiaCell = (r: LL) => cell(arabia(toGame(r, setsOf(asia))));
+  const shoreAt = (lon: number) => cell(laid(europe, vec([33, lon])))[1];
+  // (How far down the Horn's latitude and the Cape fall: where Asia sets Djibouti, and CAPE.)
+  if (!africaRows) {
+    const horn = asiaCell([12, 43.1])[1], cape = rows / 2 + (AFRICA.centre[0] - AFRICA.cape) / CELL;
+    africaRows = { horn: (horn - shoreAt(43.1)) / 21, south: (cape - horn) / 46.5 };
+  }
+  // (How near the Red Sea and the Gulf of Aden: all Asia's laying within 4 degrees of their middle line, none of it 14 away.)
+  const line: LL[] = [[30, 32.5], [27.5, 34], [20, 38.5], [15, 41.5], [12.5, 43.5], [12, 47], [12.3, 51.5]];
+  let near = 99;
+  if (!inland) for (let i = 0; i + 1 < line.length; i++) for (let f = 0; f <= 1; f += 0.1) near = Math.min(near, far(real, [line[i]![0] + (line[i + 1]![0] - line[i]![0]) * f, line[i]![1] + (line[i + 1]![1] - line[i]![1]) * f]));
+  const e = cell(laid(europe, x)), a = cell(go(own.game, (own.real.angleTo(x) / RAD) * own.by, bearing(own.real, x)));
+  const below = shoreAt(real[1]) + (lat > 12 ? (33 - lat) * africaRows.horn : 21 * africaRows.horn + (12 - lat) * africaRows.south);
+  const horn = 1 - ease((near - 4) / 10), across = ease((35 - lat) / 38), down = ease((35 - lat) / 4);
+  let col = e[0] + (a[0] - e[0]) * across, row = e[1] + (below - e[1]) * down;
+  if (horn > 0) { const h = asiaCell(real); col = horn * h[0] + (1 - horn) * col; row = horn * h[1] + (1 - horn) * row; }
+  const px = (col - cols / 2) * CELL, py = (rows / 2 - row) * CELL;
+  return go(c, Math.hypot(px, py), Math.atan2(px, py));
+}
 const REGIONS: readonly Region[] = [
   // (Europe as it was drawn for the medium map, tile for tile: there a character was a degree, a third of a tile; here it
   // is CELL of one, a third of the large map's smaller tile. So Europe is as many tiles as it was, and takes less of the globe.)
   { name: 'europe', at: [48, 14], to: () => vec([45, 15]), by: 2.2 * CELL, middle: [48, 14], cols: 100, rows: 92, cell: CELL,
     keep: (r) => far(r, [48, 14]) <= 31 && r[0] >= 29.5 },
   // (Asia, traced through the pieces: all that lies east of the Red Sea, the Levant and Europe's drawing.)
-  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], cols: 204, rows: 136, cell: CELL,
+  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], centre: [21.0836, 115.2291], cols: 204, rows: 136, cell: CELL,
     eased: ['europe', 'nearEast', 'russia', 'india', 'china', 'siberia', 'japan', 'indies'],
     keep: (r) => {
       const [lat, lon] = r;
@@ -394,28 +426,8 @@ const REGIONS: readonly Region[] = [
   // Europe's drawing lays it (2.2 times life: it faces Europe across the sea and must run the sea's whole length), the
   // rest at three quarters of life hung from Tunis, and the Red Sea's shore and the Horn as the Near East is laid (half as
   // large again), so they face Arabia across a narrow sea. West of the Red Sea; Sicily, Crete, Cyprus and Spain are Europe's.)
-  { name: 'africa', at: [0, 18], to: () => vec([0, 0]), by: 1, middle: [3, 18], centre: [-9.9, 14.2], cols: 136, rows: 124, cell: 1,
-    forward: (real) => {
-      const [lat] = real, x = vec(real), ease = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
-      const set = (n: string) => SETS.find((q) => q.name === n)!, lay = (q: Laying) => go(q.game, (q.real.angleTo(x) / RAD) * q.by, bearing(q.real, x));
-      // (How near the Red Sea and the Gulf of Aden: all the Horn's laying within 4 degrees of their middle line, none of it 14 away.)
-      const line: LL[] = [[30, 32.5], [27.5, 34], [20, 38.5], [15, 41.5], [12.5, 43.5], [12, 47], [12.3, 51.5]];
-      let near = 99;
-      for (let i = 0; i + 1 < line.length; i++) for (let f = 0; f <= 1; f += 0.1) near = Math.min(near, far(real, [line[i]![0] + (line[i + 1]![0] - line[i]![0]) * f, line[i]![1] + (line[i + 1]![1] - line[i]![1]) * f]));
-      // (Eased in the picture, across and down apart. Across: Europe's size gives way only little by little down to the
-      // Equator, so the continent narrows evenly from the sea's whole length to its own waist. Down: Europe's size on the
-      // shore itself, a third over life size from there to the Horn's latitude (Arabia, drawn large and hung from the
-      // Levant, reaches far south beside it, and the Red Sea must stay a sea between two shores), two thirds below.)
-      const c = vec([-9.9, 14.2]), cols = 136, rows = 124;
-      const cell = (p: THREE.Vector3): [number, number] => { const d = c.angleTo(p) / RAD, b = bearing(c, p); return [cols / 2 + d * Math.sin(b), rows / 2 - d * Math.cos(b)]; };
-      const europe = regionOf('europe'), e = cell(laid(europe, x)), a = cell(lay(set('africa')));
-      const shore = cell(laid(europe, vec([33, real[1]])))[1], below = shore + (lat > 12 ? (33 - lat) * 1.33 : 21 * 1.33 + (12 - lat) * 0.65);
-      const h = cell(arabia(toGame(real, setsOf(regionOf('asia')))));
-      const horn = 1 - ease((near - 4) / 10), across = ease((35 - lat) / 38), down = ease((35 - lat) / 4);
-      const col = horn * h[0] + (1 - horn) * (e[0] + (a[0] - e[0]) * across), row = horn * h[1] + (1 - horn) * (e[1] + (below - e[1]) * down);
-      const px = col - cols / 2, py = rows / 2 - row;
-      return go(c, Math.hypot(px, py), Math.atan2(px, py));
-    },
+  { name: 'africa', at: [0, 18], to: () => vec([0, 0]), by: 1, middle: [3, 18], centre: AFRICA.centre, cols: AFRICA.cols, rows: AFRICA.rows, cell: CELL,
+    forward: (real) => africaLaid(real, false),
     keep: (r) => {
       const [lat, lon] = r;
       if (lon < -26 || lon > 52 || lat < -36) return false;
@@ -447,7 +459,7 @@ function arabia(p: THREE.Vector3): THREE.Vector3 {
   return go(c, Math.hypot(x, y), Math.atan2(x, y));
 }
 // The regions drawn so far for the large map (the others are being drawn again against Europe's new size).
-const DRAWN: readonly string[] = ['europe', 'asia'];
+const DRAWN: readonly string[] = ['europe', 'asia', 'africa'];
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
   if (!DRAWN.includes(r.name)) continue;
@@ -483,6 +495,8 @@ const RIVERS: readonly (readonly [string, ...LL[]])[] = [
   ['Dnieper', [55.2, 33.5], [54.5, 30.4], [50.45, 30.5], [48.5, 35], [46.6, 32.5]],
   ['Don', [53.9, 38.3], [51.7, 39.2], [49.5, 43.5], [47.2, 39.6]],
   ['Volga', [57.2, 32.6], [56.9, 35.9], [57.6, 39.9], [56.3, 44], [55.8, 49.1], [53.2, 50.1], [51.5, 46], [48.7, 44.5], [46.2, 48.1]],
+  ['Nile', [4.85, 31.6], [9.5, 31.6], [15.6, 32.5], [17.7, 33.5], [19.5, 30.5], [21.8, 31], [24.1, 32.6], [26, 32.4], [29.8, 31.2], [31.45, 30.4]],
+  ['Blue Nile', [11.6, 37.4], [10.3, 37], [11.2, 35.1], [13.5, 33.6], [15.6, 32.5]],
   ['Niger', [9.5, -10.7], [12.6, -8], [14.5, -4.2], [16.8, -3], [16.3, -0.05], [13.5, 2.1], [11.9, 3.6], [9, 4.8], [7.75, 6.75], [4.4, 6]],
   ['Congo', [-11.8, 27.5], [-5, 27], [0.5, 25.2], [2, 21], [0, 18.3], [-4.3, 15.3], [-6, 12.4]],
   ['Zambezi', [-11.4, 24.3], [-15.2, 23], [-17.9, 25.9], [-15.6, 30.4], [-16.2, 33.6], [-18.6, 36.3]],
@@ -503,16 +517,10 @@ const RIVERS: readonly (readonly [string, ...LL[]])[] = [
   ['Yenisei', [51.7, 94.4], [53.7, 91.4], [56, 92.9], [58.45, 92.2], [61.6, 90.1], [66, 87], [69.4, 86.2], [71.9, 82.6]],
   ['Lena', [53.9, 108], [57.8, 108.1], [60.7, 114.9], [62, 129.7], [66.8, 123.4], [72.5, 127]],
 ];
-// Rivers set down in a region's picture itself, [column, row] by [column, row]: where the laying of real places bends
-// too much to follow a course (the Nile runs between Africa's own laying and the Red Sea's).
-const RIVERS_DRAWN: readonly (readonly [string, string, ...(readonly [number, number])[]])[] = [
-  ['Nile', 'africa', [84, 81], [90, 76], [95, 72], [99, 69], [101, 64], [99, 59], [100, 54], [99, 50], [98, 47]],
-  ['Blue Nile', 'africa', [111, 75], [106, 73], [102, 71], [99, 69]],
-];
 // A real place on the game's globe, by whichever region draws it.
 const layAny = (real: LL): THREE.Vector3 => {
   const africa = regionOf('africa'), europe = regionOf('europe');
-  if (africa.keep(real)) return africa.forward!(real);
+  if (africa.keep(real)) return africaLaid(real, false);
   if (europe.keep(real)) { const p = laid(europe, vec(real)), at = cellOf(middleOf(europe), p, europe.cols, europe.rows, europe.cell); if (at && at[0] >= 0 && at[0] < europe.cols - 6 && at[1] >= 0 && at[1] < europe.rows) return p; }
   return arabia(laid(regionOf('asia'), vec(real)));
 };
@@ -522,10 +530,8 @@ const riverWays = (): LL[][] => {
   if (!DRAWN.includes('asia') || !DRAWN.includes('africa')) return [];
   try { return (JSON.parse(readFileSync(new URL('./earth/rivers.json', import.meta.url), 'utf8')) as { rivers: LL[][] }).rivers; }
   catch {
-    return [
-      ...RIVERS_DRAWN.map(([name, region, ...cells]) => { const way = cells.map(([q, r]) => latLon(cellGame(region, q, r)) as unknown as LL); if (process.env['RIVER'] === name) console.log(name, way.map((p) => p.map((x) => x.toFixed(1)).join(',')).join(' | ')); return way; }),
-      ...RIVERS.map(([, ...pts]) => pts.map((p) => latLon(layAny(p)) as unknown as LL)),
-    ];
+    // (The Nile and the Blue Nile by Africa's inland laying alone: between it and the Red Sea's their valley would be torn.)
+    return RIVERS.map(([name, ...pts]) => pts.map((p) => latLon(name.includes('Nile') ? africaLaid(p, true) : layAny(p)) as unknown as LL));
   }
 };
 // A way of places set on a globe's corners: from each place's nearest corner on to the next's by the shortest way along
@@ -545,7 +551,10 @@ function riverOn(globe: Globe, paint: Painting, way: readonly LL[], taken: Set<n
       for (let k = 0; k < 3; k++) {
         const y = g.neighbors[x * 3 + k]!;
         if (y < 0 || came[y]! >= 0) continue;
-        if (dry && (paint.terrain[g.borderTiles[x * 6 + k * 2]!] !== LAND || paint.terrain[g.borderTiles[x * 6 + k * 2 + 1]!] !== LAND)) continue;
+        const ta = g.borderTiles[x * 6 + k * 2]!, tb = g.borderTiles[x * 6 + k * 2 + 1]!;
+        if (dry && (paint.terrain[ta] !== LAND || paint.terrain[tb] !== LAND)) continue;
+        // (Never between two mountains: a river in a cleft of peaks is drawn badly, and none runs so.)
+        if (paint.relief[ta] === MOUNTAINS && paint.relief[tb] === MOUNTAINS) continue;
         came[y] = x; steps[y] = steps[x]! + 1; queue.push(y);
       }
     }
@@ -908,6 +917,26 @@ if (arg('draft', '')) {
       }
       console.log(line);
     }
+  }
+  // (And where the regions drawn before it have land, in this picture: <name>.under.txt, by which its corrections keep
+  // a strait between its land and theirs.)
+  {
+    const under: string[] = [];
+    for (let r = 0; r < rows; r++) {
+      let line = '';
+      for (let q = 0; q < cols; q++) {
+        const p = cellGame(reg.name, q, r);
+        let ch = '.';
+        for (const patch of PATCHES) {
+          if (patch.name === reg.name) continue;
+          const at = cellOf(patch.to, p, Math.max(...patch.rows.map((x) => x.length)), patch.rows.length, patch.cell), was = at ? patch.rows[Math.floor(at[1])]?.[Math.floor(at[0])] : undefined;
+          if (was && was !== '.' && was !== ' ' && was !== 'o') { ch = '#'; break; }
+        }
+        line += ch;
+      }
+      under.push(line);
+    }
+    writeFileSync(new URL(`./earth/${reg.name}.under.txt`, import.meta.url), under.join('\n') + '\n');
   }
   writeFileSync(new URL(`./earth/${reg.name}.draft.txt`, import.meta.url), land.join('\n') + '\n');
   writeFileSync(new URL(`./earth/${reg.name}.draft.biomes.txt`, import.meta.url), kinds.join('\n') + '\n');

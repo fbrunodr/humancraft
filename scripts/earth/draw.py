@@ -62,3 +62,25 @@ class Picture:
     def save(self, head, biome_head):
         open(D + self.name + '.txt', 'w').write(head + '\n'.join(''.join(r) for r in self.T) + '\n')
         open(D + self.name + '.biomes.txt', 'w').write(biome_head + '\n'.join(''.join(r) for r in self.B) + '\n')
+
+def _under(name):
+    try: return [l for l in open(D + name + '.under.txt').read().split('\n') if l]
+    except OSError: return []
+
+def moat(p, radius=3.2, joins=()):
+    # A strait between this region's land and the land of the regions drawn before it (<name>.under.txt): its own land
+    # within `radius` characters of theirs goes under, except round the places where the two really join (`joins`:
+    # (col, row, reach) each). So Gibraltar, Sicily's channel, the Red Sea keep themselves open.
+    under = _under(p.name)
+    if not under: return
+    k = int(radius) + 1
+    theirs = [(c, r) for r, row in enumerate(under) for c, ch in enumerate(row) if ch == '#']
+    near = set()
+    for c, r in theirs:
+        for dr in range(-k, k + 1):
+            for dc in range(-k, k + 1):
+                if dc * dc + dr * dr <= radius * radius: near.add((c + dc, r + dr))
+    for c, r in near:
+        if not p.inside(c, r) or p.T[r][c] in '. ': continue
+        if any((c - jc) ** 2 + (r - jr) ** 2 <= jw * jw for jc, jr, jw in joins): continue
+        p.sea(c, r)
