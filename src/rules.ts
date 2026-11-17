@@ -236,8 +236,8 @@ export const tileCount = (n: number): number => 10 * n * n + 2;
 // from the seed; the Earth is the real one (earth.ts).
 export const MAP_SCRIPTS = {
   continents: { name: 'Continents' },
-  earth: { name: 'Earth' },
-} satisfies Record<string, { name: string }>;
+  earth: { name: 'Earth', only: 'large' },
+} satisfies Record<string, { name: string; only?: MapSizeKey }>; // (`only`: the one size of map it is made for)
 export type MapScriptKey = keyof typeof MAP_SCRIPTS;
 export const isMapScript = (s: string): s is MapScriptKey => s in MAP_SCRIPTS;
 

@@ -8,6 +8,7 @@ import { FLAT, HILLS, LAND, MOUNTAINS, load, store, type PaintFile } from '../sr
 import type { BiomeKey } from '../src/terrain.ts';
 const url = new URL('../src/maps/earth.json', import.meta.url), file = JSON.parse(readFileSync(url, 'utf8')) as PaintFile, fix = process.argv.includes('--fix');
 for (const size of ['small', 'medium', 'large'] as const) {
+  if (!file[size]) continue;
   const g = globeFor(size), p = load(file[size]!, g.tiles.length), out: string[] = [];
   const at = (t: number) => latLon(g.tiles[t]!.center).map((x) => x.toFixed(0)).join(',');
   for (let pass = 0; pass < (fix ? 3 : 1); pass++) for (const t of g.tiles) {
@@ -28,4 +29,4 @@ for (const size of ['small', 'medium', 'large'] as const) {
   if (process.argv.includes('--list')) for (const o of out) console.log('  ' + o);
   if (fix) file[size] = store(p);
 }
-if (fix) { writeFileSync(url, '{\n' + (['small', 'medium', 'large'] as const).map((k) => `  ${JSON.stringify(k)}: ${JSON.stringify(file[k])}`).join(',\n') + '\n}\n'); console.log('written'); }
+if (fix) { writeFileSync(url, '{\n' + (['small', 'medium', 'large'] as const).filter((k) => file[k]).map((k) => `  ${JSON.stringify(k)}: ${JSON.stringify(file[k])}`).join(',\n') + '\n}\n'); console.log('written'); }

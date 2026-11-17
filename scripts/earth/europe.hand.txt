@@ -51,14 +51,14 @@
                          ####         ^^^hhhhhhh...hh       hhh                               ^^^^^
                          ####          ^^h                   h
                        #####           hhh
-           ###         ####            hhh                                                 #
-           ####        ###            ..hh                                               ####   hhh
-           ###       ^^^#            ....                                                ####   hhh
-                     ^^^    hhh      ....                                                ###    hhh
+           ###         ####         #  hhh                                                 #
+           ####        ###         ###..hh                                               ####   hhh
+           ###       ^^^#         ####...                                                ####   hhh
+                     ^^^    hhh    ##....                                                ###    hhh
                      ^^^    hhh       ..                                                         h
-                            hhh
-                             h                                                 hh
-                                                                              hhhh
+                            hhh                                            ####
+                             h                                             ####hh
+                                                                           ####hhh
                                                                               hhhh
             hh                                                           hhh   hh
            hhhh    h                                         hh          hhh          hhh

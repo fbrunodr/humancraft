@@ -7,6 +7,7 @@ import { load, type PaintFile } from '../src/mapPaint.ts';
 const old = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as PaintFile;
 const now = JSON.parse(readFileSync(new URL('../src/maps/earth.json', import.meta.url), 'utf8')) as PaintFile;
 for (const size of ['small', 'medium', 'large'] as const) {
+  if (!old[size] || !now[size]) continue;
   const g = globeFor(size), a = load(old[size]!, g.tiles.length), b = load(now[size]!, g.tiles.length);
   const rows: string[] = [];
   let terrain = 0, relief = 0, biome = 0;

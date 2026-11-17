@@ -51,14 +51,14 @@
                          mmmm         FFFFFFFTTT...FF       mmm                               FFFFF
                          mmmm          FFF                   m
                        mmmmm           FFF
-           mmm         mmmm            FFF                                                 m
-           mmmm        mmm            ..FF                                               mmmm   ppp
-           mmm       mmmm            ....                                                mmmm   ppp
-                     mmm    FFF      ....                                                mmm    ppp
+           mmm         mmmm         F  FFF                                                 m
+           mmmm        mmm         FFF..FF                                               mmmm   ppp
+           mmm       mmmm         FFFF...                                                mmmm   ppp
+                     mmm    FFF    FF....                                                mmm    ppp
                      mmm    FFF       ..                                                         p
-                            FFF
-                             F                                                 FF
-                                                                              FFFF
+                            FFF                                            FFFF
+                             F                                             FFFFFF
+                                                                           FFFFFFF
                                                                               FFFF
             mm                                                           FFF   FF
            mmmm    m                                         mm          FFF          ppp
