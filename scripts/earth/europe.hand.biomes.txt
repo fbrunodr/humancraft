@@ -50,10 +50,10 @@
                          Fmm          FFFFFFTTT   FFF       mmm                              FFFFFF
                          mmmm         FFFFFFFTTT...FF       mmm                               FFFFF
                          mmmm          FFF                   m
-                       mmmmm           FFF      -
-           mmm         mmmm         F  FFF     ---                                         m
-           mmmm        mmm         FFF..FF     ---                                       mmmm   ppp
-           mmm       mmmm         FFFF...      ---                                       mmmm   ppp
+                       mmmmm           FFF      m
+           mmm         mmmm         F  FFF     mmm                                         m
+           mmmm        mmm         FFF..FF     mmm                                       mmmm   ppp
+           mmm       mmmm         FFFF...      mmm                                       mmmm   ppp
                      mmm    FFF    FF....                                                mmm    ppp
                      mmm    FFF       ..                                                         p
                             FFF                                            FFFF
