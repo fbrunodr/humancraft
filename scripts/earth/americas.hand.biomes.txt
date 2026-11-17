@@ -19,13 +19,13 @@
 
 
 
-
-
-                                                     ttt
-                                                    tttt
-                                                    tttt
-                                                     t
-
+                                                                           ....
+                                                                           .....
+                                                     ttt                   ......
+                                                    tttt                  ........
+                                                    tttt                 .........
+                                                     t                   ........
+                                                                           .
 
 
 
@@ -42,17 +42,17 @@
 
 
 
-
-
-
-                                                      TTT
-                                                      TTTT   cc
-                                                      TTT   cccc
-                                                     TTT    cccc
-                                                    TTTT
-                                                     TTT
-                                                     TT                                     FFF
-                                                              ppp                           FFF
+                                                    TTT
+                                                   TTTT
+                                                   TTTT
+                                                   TTTTTT
+                                                  mmmmTTTT   cc
+                                                  mmmmTTT   cccc
+                                                  mmmTTT    cccc
+                                                  mmTTTT
+                                                 mmmmTTT
+                                                 mmmmTT                                     FFF
+                                                 mmm          ppp                           FFF
                                                              pppp                           FFF
                                                               ppp
 
@@ -66,22 +66,22 @@
 
 
 
+                                                                                    JJ
+                                                                                 JJJJJ  .
+                                                                                JJJJJJJ...
+                                                                                 JJJJJJJ..
+                                                                                  JJJJJ...
+                                                                                   JJJJ......
+                                                                                     JJJJJ.....
+                                                                                       JJJ.....
+                                                                                        JJ...
+                                                                                          ..
 
 
 
-
-
-
-
-
-
-
-
-
-
-                                                                 ppp
-                                                                 ppp
-                                                                 ppp
+                                                                 ppp                      vvv
+                                                                 ppp                      vvv
+                                                                 ppp                      vvv
 
 
 
@@ -149,9 +149,9 @@
                                                                                                            ddd
                                                                                                            dd
 
-                                                                                                                ddd
-                                                                                                               dddd
-                                                                                                                ddd
+                                                                                                      ...       ddd
+                                                                                                      ....     dddd
+                                                                                                      ...       ddd
 
 
 

@@ -1020,7 +1020,7 @@ if (process.argv.includes('--absorb')) {
       if (!changed.has(t) || owner.get(t) !== patch.name) continue;
       hand[r]![q] = edited.terrain[t] === SEA ? '.' : edited.terrain[t] === LAKE ? 'o' : edited.relief[t] === MOUNTAINS ? '^' : edited.relief[t] === HILLS ? 'h' : '#';
       const b = edited.biome[t];
-      kinds[r]![q] = edited.terrain[t] !== LAND ? '.' : b ? '-ItTcspFRmdvMJ'[PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1]! : ' ';
+      kinds[r]![q] = edited.terrain[t] !== LAND ? '.' : b ? '-ItTcspFRmdvMJ'[PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1]! : '-'; // ('-': left to the climate)
       n++;
     }
     if (!n) continue;
