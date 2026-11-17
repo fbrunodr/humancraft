@@ -92,7 +92,7 @@ const refGeo = new THREE.SphereGeometry(0.996, 128, 64);
 scene.add(new THREE.Mesh(refGeo, refMat));
 
 const tileMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1 });
-const edgeMat = new THREE.LineBasicMaterial({ color: '#000000', transparent: true, opacity: 0.22 });
+const edgeMat = new THREE.LineBasicMaterial({ color: '#000000', transparent: true, opacity: 0.45 });
 let tiles: THREE.Mesh | null = null, edges: THREE.LineSegments | null = null;
 let faceTile = new Int32Array(0), tileVerts: [number, number][] = [];
 
@@ -156,6 +156,9 @@ const markTool = () => {
   const hint = document.getElementById('riverHint');
   if (hint) hint.textContent = tool.kind !== 'river' ? '' : tool.v === 'draw' ? 'Click from the source toward the mouth: each click runs the river on along the tile borders to the corner nearest it. Enter or Esc ends it; the next click starts another. End on a river already drawn to make a tributary.' : 'Click a river to remove it.';
   if (tool.kind !== 'river' || tool.v !== 'draw') drawing = null;
+  // (Drawing rivers, the tile borders are what is drawn on: shown light and plain.)
+  edgeMat.color.set(tool.kind === 'river' ? '#ffffff' : '#000000');
+  edgeMat.opacity = tool.kind === 'river' ? 0.55 : 0.45;
 };
 addTool('terrainTools', 'Sea', `#${SEA_COLOR.getHexString()}`, { kind: 'terrain', v: SEA });
 addTool('terrainTools', 'Land', `#${LAND_COLOR.getHexString()}`, { kind: 'terrain', v: LAND });
@@ -165,7 +168,7 @@ addTool('reliefTools', 'Hills', `#${LAND_COLOR.clone().lerp(HILL_TINT, 0.35).get
 addTool('reliefTools', 'Mountains', `#${LAND_COLOR.clone().lerp(MOUNTAIN_TINT, 0.7).getHexString()}`, { kind: 'relief', v: MOUNTAINS });
 addTool('biomeTools', 'Auto (climate)', `#${LAND_COLOR.getHexString()}`, { kind: 'biome', v: null });
 for (const b of PAINTABLE_BIOMES) addTool('biomeTools', terrainName({ biome: b, relief: 'flat', feature: null }), BIOME_COLOR[b], { kind: 'biome', v: b });
-addTool('riverTools', 'Draw river', '#3aa0ff', { kind: 'river', v: 'draw' });
+addTool('riverTools', 'Draw river', '#ff3df2', { kind: 'river', v: 'draw' });
 addTool('riverTools', 'Erase river', '#7a2a2a', { kind: 'river', v: 'erase' });
 markTool();
 
@@ -258,7 +261,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // A river runs along tile borders, from corner to corner (rivers.ts). Drawing one: each click carries it on, by the
 // shortest way along the borders, to the corner of the clicked tile nearest the pointer.
 let hitPoint = new THREE.Vector3();
-const riverMat = new THREE.LineBasicMaterial({ color: '#3aa0ff' }), riverTipMat = new THREE.PointsMaterial({ color: '#ffffff', size: 6, sizeAttenuation: false });
+const riverMat = new THREE.LineBasicMaterial({ color: '#ff3df2' }), riverTipMat = new THREE.PointsMaterial({ color: '#ffffff', size: 6, sizeAttenuation: false });
 let riverLines: THREE.LineSegments | null = null, riverTip: THREE.Points | null = null;
 function drawRivers(): void {
   if (riverLines) { scene.remove(riverLines); riverLines.geometry.dispose(); }

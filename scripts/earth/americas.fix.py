@@ -25,5 +25,9 @@ p.thick([at('LosAngeles', 2.5, 4), (c0 - 1, r0)], 1.0, '#', 'd')
 p.channel([at('Churchill', 6, -3), at('Iqaluit', -4, -3), at('Iqaluit', 5, 2), at('Iqaluit', 10, 4)], 1.7)
 inland(p, 150)
 
+# 6. Hawaii, out in the Pacific south-west of California: two islands' worth, so it is there to be found and settled.
+p.thick([at('SanFrancisco', -38, 19), at('SanFrancisco', -34.5, 21.5)], 1.5, '#', 'J')
+p.ridge([at('SanFrancisco', -35, 21)], 0.7)
+
 p.save("; The Americas and Greenland, drawn by hand over a tracing of the real coastlines (scripts/earth.ts REGIONS): '.' sea, '#' land, 'h' hills, '^' mountains, 'o' lake.\n; A tile is three characters: every strait is three wide at least.\n",
        "; The Americas' biomes, cell for cell with americas.txt, in mapPaint.ts's letters.\n")

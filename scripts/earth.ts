@@ -1035,7 +1035,8 @@ if (process.argv.includes('--absorb')) {
     let n = 0, from = -1;
     for (let r = 0; r < reg.rows; r++) for (let q = 0; q < reg.cols; q++) {
       const t = from = nearestTile(globe, cellGame(patch.name, q, r), from);
-      if (!changed.has(t) || owner.get(t) !== patch.name) continue;
+      // (A tile made sea is sea in every drawing that reaches it: the New World's land is laid over the Old World's sea.)
+      if (!changed.has(t) || (owner.get(t) !== patch.name && !(edited.terrain[t] === SEA && patch.rows[r]?.[q] !== undefined && patch.rows[r]![q] !== ' ' && patch.rows[r]![q] !== '.'))) continue;
       hand[r]![q] = edited.terrain[t] === SEA ? '.' : edited.terrain[t] === LAKE ? 'o' : edited.relief[t] === MOUNTAINS ? '^' : edited.relief[t] === HILLS ? 'h' : '#';
       const b = edited.biome[t];
       kinds[r]![q] = edited.terrain[t] !== LAND ? '.' : b ? '-ItTcspFRmdvMJ'[PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1]! : '-'; // ('-': left to the climate)
