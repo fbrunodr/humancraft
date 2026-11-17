@@ -54,22 +54,24 @@ const vec = ([lat, lon]: LL): THREE.Vector3 => new THREE.Vector3(Math.cos(lat * 
 //   from   another piece and a real place the two share (a strait, a
 //          border): this piece is set so that place falls where the other puts it
 interface Piece { readonly name: string; readonly at: LL; readonly reach: number; readonly by: number; readonly to?: LL; readonly from?: readonly [string, LL] }
-const PIECES: readonly Piece[] = process.env['EARTH_TRIAL'] ? [{ name: 'europe', at: [48, 14], reach: 60, by: Number(process.env['EARTH_TRIAL']), to: [40, 15] }] : [
-  { name: 'europe', at: [50, 12], reach: 24, by: 1.55, to: [46, 12] },
-  { name: 'africa', at: [3, 20], reach: 38, by: 0.85, from: ['europe', [36.8, 10]] },
-  { name: 'nearEast', at: [31, 44], reach: 17, by: 1.2, from: ['europe', [41, 29]] },
-  { name: 'india', at: [21, 79], reach: 14, by: 1.15, from: ['nearEast', [30, 62]] },
-  { name: 'russia', at: [58, 90], reach: 35, by: 0.72, from: ['europe', [56, 50]] },
-  { name: 'china', at: [30, 108], reach: 22, by: 1.05, from: ['india', [28, 90]] },
-  { name: 'japan', at: [37, 138], reach: 8, by: 1.7, from: ['china', [34.5, 129.5]] },
-  { name: 'indies', at: [0, 117], reach: 20, by: 1.2, from: ['china', [6, 101]] },
+const PIECES: readonly Piece[] = [
+  // (Europe as its drawing has it, REGIONS below: 2.2 times life size. What lies round it eases down from that:
+  // the Near East half as large again as life, India and Japan a little over, the rest about life size, Siberia less.)
+  { name: 'europe', at: [48, 14], reach: 26, by: 2.2, to: [40, 15] },
+  { name: 'nearEast', at: [30, 45], reach: 15, by: 1.5, from: ['europe', [36.6, 36.2]] },
+  { name: 'russia', at: [58, 75], reach: 26, by: 0.85, from: ['europe', [56, 50]] },
+  { name: 'india', at: [21, 79], reach: 13, by: 1.25, from: ['nearEast', [28, 62]] },
+  { name: 'china', at: [32, 108], reach: 20, by: 1.05, from: ['india', [27, 92]] },
+  { name: 'siberia', at: [62, 135], reach: 24, by: 0.8, from: ['china', [50, 120]] },
+  { name: 'japan', at: [37, 138], reach: 7, by: 1.7, from: ['china', [34.5, 129.5]] },
+  { name: 'indies', at: [0, 117], reach: 20, by: 1.25, from: ['china', [6, 101]] },
+  { name: 'africa', at: [3, 20], reach: 38, by: 0.9, from: ['europe', [36.8, 10]] },
   { name: 'australia', at: [-26, 135], reach: 22, by: 0.95, from: ['indies', [-10, 135]] },
   { name: 'newZealand', at: [-41, 173], reach: 7, by: 1.5, from: ['australia', [-36, 156]] },
-  { name: 'northAmerica', at: [45, -100], reach: 32, by: 0.95, to: [44, -78] },
+  { name: 'northAmerica', at: [45, -100], reach: 32, by: 0.95, to: [44, -110] },
   { name: 'caribbean', at: [17, -82], reach: 13, by: 1.45, from: ['northAmerica', [27, -103]] },
   { name: 'southAmerica', at: [-15, -60], reach: 30, by: 0.85, from: ['caribbean', [8, -77]] },
-  { name: 'greenland', at: [72, -40], reach: 14, by: 0.55, to: [73, -36] },
-  { name: 'hawaii', at: [20, -157], reach: 5, by: 1.5, to: [20, -150] },
+  { name: 'greenland', at: [72, -40], reach: 14, by: 0.55, to: [78, -70] },
   { name: 'antarctica', at: [-85, 0], reach: 25, by: 0.5, to: [-87, 0] },
 ];
 // The point `far` degrees from p on the compass bearing `bearing` (radians, clockwise from north).
@@ -348,14 +350,50 @@ const CHECKS: readonly (readonly [boolean, string, LL, string, LL])[] = [
 //   cell  degrees of the game's globe to a character
 // TRACED: whether what is not drawn is filled from the real coastlines (the pieces above). While the
 // world is being drawn region by region it is not: what is not drawn yet is sea.
-const TRIAL = process.env['EARTH_TRIAL'] ?? ''; // (a trial: Europe alone traced from the coastlines at this size, to compare with the drawing)
-const TRACED = TRIAL !== '';
-interface Patch { readonly name: string; readonly to: LL; readonly cell: number; readonly rows: readonly string[]; readonly biomes: readonly string[] }
+const TRACED = false;
+interface Patch { readonly name: string; readonly to: THREE.Vector3; readonly cell: number; readonly rows: readonly string[]; readonly biomes: readonly string[] }
+// The regions drawn, in the order they are laid down (a later one only where the earlier left blank). Each was
+// begun from a tracing (--draft <name>): the real coastline at `by` times life size, the real place `at`
+// set down at `to` on the game's globe, the picture's middle over the real place `middle`; `keep` says
+// what of the real world belongs to the region.
+interface Region {
+  readonly name: string; readonly at: LL; readonly to: () => THREE.Vector3; readonly by: number; readonly middle: LL;
+  readonly cols: number; readonly rows: number; readonly cell: number; readonly keep: (real: LL) => boolean;
+  readonly eased?: boolean; // traced through the pieces above (its size easing into its neighbours'), not at one size about `at`
+}
+const far = (a: LL, b: LL): number => vec(a).angleTo(vec(b)) / RAD;
+const REGIONS: readonly Region[] = [
+  { name: 'europe', at: [48, 14], to: () => vec([40, 15]), by: 2.2, middle: [48, 14], cols: 100, rows: 92, cell: 1,
+    keep: (r) => far(r, [48, 14]) <= 31 && r[0] >= 29.5 },
+  // (Asia, traced through the pieces: all that lies east of the Red Sea, the Levant and Europe's drawing.)
+  { name: 'asia', at: [35, 95], to: () => toGame([35, 95]), by: 1, middle: [35, 95], cols: 180, rows: 120, cell: 1, eased: true,
+    keep: (r) => {
+      const [lat, lon] = r;
+      if (lon < 0 ? lon > -168 : lon < 26) return false;           // (as far east as the Bering Strait)
+      if (lat < -11.5) return false;                               // (Australia is not Asia's)
+      if (lat < 30 && lat >= 12.4 && lon < 32.6 + 0.62 * (30 - lat)) return false; // (Africa, west of the Red Sea)
+      if (lat < 12.4 && lon < 52) return false;                    // (the Horn of Africa)
+      if (lat >= 30 && lat < 31.6 && lon < 34.2) return false;     // (the Nile's delta)
+      if (lat < 1.5 && lon > 130.8) return false;                  // (New Guinea goes with Australia)
+      return true;
+    } },
+];
+const regionOf = (name: string): Region => { const r = REGIONS.find((x) => x.name === name); if (!r) throw new Error(`no region ${name}`); return r; };
+// A region's own laying of the real world on the game's, and back; the middle of its picture on the game's globe.
+const layOf = (r: Region): { real: THREE.Vector3; game: THREE.Vector3; by: number } => ({ real: vec(r.at), game: r.to(), by: r.by });
+const laid = (r: Region, real: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toGame(latLon(real) as unknown as LL); const l = layOf(r); return go(l.game, (l.real.angleTo(real) / RAD) * l.by, bearing(l.real, real)); };
+const unlaid = (r: Region, game: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toRealV(game); const l = layOf(r); return go(l.real, l.game.angleTo(game) / RAD / l.by, bearing(l.game, game)); };
+const middleOf = (r: Region): THREE.Vector3 => laid(r, vec(r.middle));
+// The point of the game's globe under a cell of a region's picture.
+function cellGame(name: string, col: number, row: number): THREE.Vector3 {
+  const r = regionOf(name), x = (col + 0.5 - r.cols / 2) * r.cell, y = (r.rows / 2 - row - 0.5) * r.cell;
+  return go(middleOf(r), Math.hypot(x, y), Math.atan2(x, y));
+}
 const PATCHES: Patch[] = [];
-for (const [name, to, cell] of TRIAL ? [] : [['europe', [40, 15], 1]] as const) {
-  const read = (f: string): string[] => { try { return readFileSync(new URL(`./earth/${f}`, import.meta.url), 'utf8').split('\n').filter((r) => !r.startsWith(';')); } catch { return []; } };
-  const rows = read(`${name}.txt`);
-  if (rows.length) PATCHES.push({ name, to, cell, rows, biomes: read(`${name}.biomes.txt`) });
+for (const r of REGIONS) {
+  const read = (f: string): string[] => { try { return readFileSync(new URL(`./earth/${f}`, import.meta.url), 'utf8').split('\n').filter((l) => !l.startsWith(';')); } catch { return []; } };
+  const rows = read(`${r.name}.txt`);
+  if (rows.length) PATCHES.push({ name: r.name, to: middleOf(r), cell: r.cell, rows, biomes: read(`${r.name}.biomes.txt`) });
 }
 // Where a point of the game's globe falls in a picture whose middle is at c: [column, row] (fractions), or null if behind it.
 const cellOf = (c: THREE.Vector3, p: THREE.Vector3, cols: number, rows: number, cell: number): [number, number] | null => {
@@ -393,7 +431,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
       pts.push(t.center.clone().lerp(a.clone().add(b).multiplyScalar(0.5), 0.7).normalize());
     }
     let on = 0, wet = 0;
-    for (const p of pts) { const real = toReal(p); if (TRIAL && (vec(real).angleTo(vec([48, 14])) / RAD > 31 || real[0] < 29.5)) continue; if (within(COAST, real)) { on++; if (within(LAKES, real)) wet++; } }
+    for (const p of pts) { const real = toReal(p); if (within(COAST, real)) { on++; if (within(LAKES, real)) wet++; } }
     share[t.id] = on / pts.length;
     lake[t.id] = wet / pts.length;
   }
@@ -407,7 +445,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
   // The regions drawn by hand.
   const drawn = new Uint8Array(n);
   for (const patch of PATCHES) {
-    const c = vec(patch.to), rows = patch.rows.length, cols = Math.max(...patch.rows.map((r) => r.length));
+    const c = patch.to, rows = patch.rows.length, cols = Math.max(...patch.rows.map((r) => r.length));
     const biomeAt = new Map<number, BiomeKey>();
     for (const t of globe.tiles) {
       const count = new Map<string, number>(), kinds = new Map<string, number>();
@@ -422,7 +460,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
       }
       let total = 0, land = 0, best = '', bestN = 0;
       for (const [ch, k] of count) { total += k; if (ch !== '.' && ch !== 'o') land += k; if (k > bestN) { bestN = k; best = ch; } }
-      if (total * 2 <= pts.length) continue; // (mostly outside the picture, or left as it was)
+      if (total * 2 <= pts.length || drawn[t.id]) continue; // (mostly outside the picture or left blank; or an earlier region's)
       const wet = (count.get('o') ?? 0) * 2 > total;
       paint.terrain[t.id] = wet ? LAKE : land * 2 >= total ? LAND : SEA;
       drawn[t.id] = land * 2 >= total && !wet ? ((count.get('^') ?? 0) * 3 >= total ? 3 : ((count.get('h') ?? 0) + (count.get('^') ?? 0)) * 3 >= total ? 2 : 1) : 4;
@@ -572,17 +610,16 @@ const VIEWS: readonly (readonly [string, LL, number])[] = [
 
 // ---------- a draft to draw over ----------
 
-// --draft <name>,<columns>,<rows>,<cell> (with EARTH_TRIAL set: the size it is traced at): the region as the
-// real coastlines give it, in the form a drawing takes (scripts/earth/<name>.txt and .biomes.txt), to be corrected by hand.
-if (arg('draft', '') && TRIAL) {
-  const [name, colsS, rowsS, cellS] = arg('draft', '').split(','), cols = Number(colsS), rows = Number(rowsS), cell = Number(cellS);
-  const c = SETS[0]!.game, land: string[] = [], kinds: string[] = [];
+// --draft <name>: the region as the real coastlines give it, in the form a drawing takes
+// (scripts/earth/<name>.draft.txt and .draft.biomes.txt), to be corrected by hand into <name>.txt.
+if (arg('draft', '')) {
+  const reg = regionOf(arg('draft', '')), { cols, rows, cell } = reg;
+  const c = middleOf(reg), land: string[] = [], kinds: string[] = [];
   for (let r = 0; r < rows; r++) {
     let a = '', b = '';
     for (let q = 0; q < cols; q++) {
-      const x = (q + 0.5 - cols / 2) * cell, y = (rows / 2 - r - 0.5) * cell;
-      const real = toReal(go(c, Math.hypot(x, y), Math.atan2(x, y))), v = vec(real);
-      const on = !(v.angleTo(vec([48, 14])) / RAD > 31 || real[0] < 29.5) && within(COAST, real) && !(within(LAKES, real));
+      const v = unlaid(reg, cellGame(reg.name, q, r)), real = latLon(v) as unknown as LL;
+      const on = reg.keep(real) && within(COAST, real) && !within(LAKES, real);
       let t = nearestTile(trueScale.globe, v);
       if (on && trueScale.paint.terrain[t] !== LAND) t = trueScale.globe.tiles[t]!.neighbors.find((n) => trueScale.paint.terrain[n] === LAND) ?? t;
       const relief = trueScale.paint.terrain[t] === LAND ? trueScale.paint.relief[t] : FLAT, biome = trueScale.paint.terrain[t] === LAND ? trueScale.paint.biome[t] : null;
@@ -593,11 +630,28 @@ if (arg('draft', '') && TRIAL) {
   }
   // (Where real places fall in it, to find one's way: --marks '[["name",lat,lon],...]')
   for (const [label, lat, lon] of JSON.parse(arg('marks', '[]')) as [string, number, number][]) {
-    const g = toGame([lat, lon]), d = c.angleTo(g) / RAD, b = bearing(c, g);
+    const g = laid(reg, vec([lat, lon])), d = c.angleTo(g) / RAD, b = bearing(c, g);
     console.log(`${label}: column ${Math.floor(cols / 2 + (d * Math.sin(b)) / cell)}, row ${Math.floor(rows / 2 - (d * Math.cos(b)) / cell)}`);
   }
-  writeFileSync(new URL(`./earth/${name}.draft.txt`, import.meta.url), land.join('\n') + '\n');
-  writeFileSync(new URL(`./earth/${name}.draft.biomes.txt`, import.meta.url), kinds.join('\n') + '\n');
+  // (And where the regions drawn before it lie in it: '+' on the sea where an earlier drawing has land.)
+  if (process.argv.includes('--under')) {
+    for (let r = 0; r < rows; r++) {
+      let line = '';
+      for (let q = 0; q < cols; q++) {
+        const p = cellGame(reg.name, q, r);
+        let under = false;
+        for (const patch of PATCHES) {
+          if (patch.name === reg.name) continue;
+          const at = cellOf(patch.to, p, Math.max(...patch.rows.map((x) => x.length)), patch.rows.length, patch.cell), ch = at ? patch.rows[Math.floor(at[1])]?.[Math.floor(at[0])] : undefined;
+          if (ch && ch !== '.' && ch !== ' ') under = true;
+        }
+        line += under ? (land[r]![q] === '.' ? '+' : '*') : land[r]![q];
+      }
+      console.log(line);
+    }
+  }
+  writeFileSync(new URL(`./earth/${reg.name}.draft.txt`, import.meta.url), land.join('\n') + '\n');
+  writeFileSync(new URL(`./earth/${reg.name}.draft.biomes.txt`, import.meta.url), kinds.join('\n') + '\n');
   process.exit(0);
 }
 
@@ -618,9 +672,9 @@ for (const size of Object.keys(MAP_SIZES) as MapSizeKey[]) {
   if (PREVIEW) {
     mkdirSync(PREVIEW, { recursive: true });
     for (const [name, over, reach] of VIEWS) writeFileSync(`${PREVIEW}/${size}_${name}.svg`, picture(globe, paint, toGame(over), reach));
-    for (const p of PATCHES) writeFileSync(`${PREVIEW}/${size}_${p.name}.svg`, picture(globe, paint, vec(p.to), 55));
+    for (const p of PATCHES) writeFileSync(`${PREVIEW}/${size}_${p.name}.svg`, picture(globe, paint, p.to, 55));
     // (And the tile over each of those places, for looking at them in the game.)
-    writeFileSync(`${PREVIEW}/${size}_views.json`, JSON.stringify({ ...Object.fromEntries(VIEWS.map(([name, over]) => [name, nearestTile(globe, toGame(over))])), ...Object.fromEntries(PATCHES.map((p) => [p.name, nearestTile(globe, vec(p.to))])) }));
+    writeFileSync(`${PREVIEW}/${size}_views.json`, JSON.stringify({ ...Object.fromEntries(VIEWS.map(([name, over]) => [name, nearestTile(globe, toGame(over))])), ...Object.fromEntries(PATCHES.map((p) => [p.name, nearestTile(globe, p.to)])) }));
   }
 }
 if (failed && !process.argv.includes('--anyway')) { console.error('Not written: the checks above failed (--anyway to write it all the same).'); process.exit(1); }

@@ -1,6 +1,6 @@
 # The hand corrections to the traced draft of Europe -> europe.txt, europe.biomes.txt.
 # The draft (europe.draft.txt, europe.draft.biomes.txt) is the real coastline at 2.2 times life size:
-#   EARTH_TRIAL=2.2 npx tsx scripts/earth.ts --data <dir> --draft europe,100,92,1
+#   npx tsx scripts/earth.ts --data <dir> --draft europe
 # then: python3 scripts/earth/europe.fix.py; npx tsx scripts/earth.ts --data <dir>
 import os
 D=os.path.dirname(os.path.abspath(__file__))+'/'
@@ -84,6 +84,12 @@ def ridge(cells):
 ridge([(38,41,51),(39,44,50),(41,47,49),(44,50,48),(47,51,47)])          # the Alps
 ridge([(22,30,55),(23,29,56)])                                            # the Pyrenees
 ridge([(86,99,49),(88,99,50),(91,99,51)])                                 # the Caucasus
+
+# 14. What is not Europe's to draw is left blank for the regions laid after it: the sea's south-east corner (the Levant's
+#     and Egypt's shores: Asia's and Africa's) and everything south of Crete.
+for r in range(H):
+    for c in range(W):
+        if (c>=88 and r>=66) or r>=78: T[r][c]=' '; B[r][c]=' '
 
 head="; Europe and the Mediterranean's northern shores, drawn by hand over a tracing of the real coastlines at 2.2 times life size\n; (scripts/earth.ts PATCHES): '.' sea, '#' land, 'h' hills, '^' mountains. A tile is three characters: every strait is three wide at least.\n"
 open(D+'europe.txt','w').write(head+'\n'.join(''.join(r) for r in T)+'\n')
