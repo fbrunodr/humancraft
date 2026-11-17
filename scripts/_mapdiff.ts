@@ -1,10 +1,10 @@
 // What changed in src/maps/earth.json against the last commit, per size: the tiles whose land, relief or biome differ.
-import { execSync } from 'node:child_process';
+
 import { readFileSync } from 'node:fs';
 import { globeFor } from '../src/globes.ts';
 import { latLon } from '../src/geo.ts';
 import { load, type PaintFile } from '../src/mapPaint.ts';
-const old = JSON.parse(execSync('git show HEAD:src/maps/earth.json', { maxBuffer: 1e8 }).toString()) as PaintFile;
+const old = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as PaintFile;
 const now = JSON.parse(readFileSync(new URL('../src/maps/earth.json', import.meta.url), 'utf8')) as PaintFile;
 for (const size of ['small', 'medium', 'large'] as const) {
   const g = globeFor(size), a = load(old[size]!, g.tiles.length), b = load(now[size]!, g.tiles.length);

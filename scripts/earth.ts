@@ -394,8 +394,11 @@ function cellGame(name: string, col: number, row: number): THREE.Vector3 {
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
   const read = (f: string): string[] => { try { return readFileSync(new URL(`./earth/${f}`, import.meta.url), 'utf8').split('\n').filter((l) => !l.startsWith(';')); } catch { return []; } };
+  // (And over the drawing, what was changed by hand in the map editor since (<name>.hand.txt, .hand.biomes.txt: --absorb
+  // writes them): the last word, whatever the tracing and its corrections say.)
+  const over = (base: string[], hand: string[]): string[] => base.map((row, i) => { const h = hand[i] ?? ''; return Array.from(row.padEnd(r.cols), (ch, j) => (h[j] && h[j] !== ' ' ? h[j] : ch)).join(''); });
   const rows = read(`${r.name}.txt`);
-  if (rows.length) PATCHES.push({ name: r.name, to: middleOf(r), cell: r.cell, rows, biomes: read(`${r.name}.biomes.txt`) });
+  if (rows.length) PATCHES.push({ name: r.name, to: middleOf(r), cell: r.cell, rows: over(rows.slice(0, r.rows), read(`${r.name}.hand.txt`)), biomes: over(read(`${r.name}.biomes.txt`).slice(0, r.rows), read(`${r.name}.hand.biomes.txt`)) });
 }
 // Where a point of the game's globe falls in a picture whose middle is at c: [column, row] (fractions), or null if behind it.
 const cellOf = (c: THREE.Vector3, p: THREE.Vector3, cols: number, rows: number, cell: number): [number, number] | null => {
@@ -682,6 +685,49 @@ if (arg('draft', '')) {
 }
 
 // ---------- all sizes ----------
+
+// --absorb: the medium map as it stands in src/maps/earth.json was changed by hand in the map editor. Its differences
+// from what the drawings give are written into the drawings' hand layers (every character under a changed tile), so
+// they outlast the next run and reach the other sizes too.
+if (process.argv.includes('--absorb')) {
+  const size: MapSizeKey = 'medium', { paint: fresh, globe } = paintSize(size);
+  const edited = load((JSON.parse(readFileSync(new URL('../src/maps/earth.json', import.meta.url), 'utf8')) as PaintFile)[size]!, globe.tiles.length);
+  const changed = new Set<number>();
+  for (let t = 0; t < globe.tiles.length; t++) if (fresh.terrain[t] !== edited.terrain[t] || fresh.relief[t] !== edited.relief[t] || fresh.biome[t] !== edited.biome[t]) changed.add(t);
+  // (Each changed tile belongs to the first drawing that says something there; failing that, the last that reaches it.)
+  const owner = new Map<number, string>();
+  for (const t of changed) {
+    let last = '';
+    for (const patch of PATCHES) {
+      const reg = regionOf(patch.name), at = cellOf(patch.to, globe.tiles[t]!.center, reg.cols, reg.rows, reg.cell);
+      if (!at || at[0] < 0 || at[1] < 0 || at[0] >= reg.cols || at[1] >= reg.rows) continue;
+      last = patch.name;
+      const ch = patch.rows[Math.floor(at[1])]?.[Math.floor(at[0])];
+      if (ch && ch !== ' ') { owner.set(t, patch.name); break; }
+    }
+    if (!owner.has(t) && last) owner.set(t, last);
+  }
+  for (const patch of PATCHES) {
+    const reg = regionOf(patch.name), path = (f: string) => new URL(`./earth/${patch.name}.${f}`, import.meta.url);
+    const readOr = (f: string): string[][] => { let rows: string[] = []; try { rows = readFileSync(path(f), 'utf8').split('\n').filter((l) => !l.startsWith(';')); } catch { /* none yet */ } return Array.from({ length: reg.rows }, (_, i) => Array.from((rows[i] ?? '').padEnd(reg.cols).slice(0, reg.cols))); };
+    const hand = readOr('hand.txt'), kinds = readOr('hand.biomes.txt');
+    let n = 0, from = -1;
+    for (let r = 0; r < reg.rows; r++) for (let q = 0; q < reg.cols; q++) {
+      const t = from = nearestTile(globe, cellGame(patch.name, q, r), from);
+      if (!changed.has(t) || owner.get(t) !== patch.name) continue;
+      hand[r]![q] = edited.terrain[t] === SEA ? '.' : edited.terrain[t] === LAKE ? 'o' : edited.relief[t] === MOUNTAINS ? '^' : edited.relief[t] === HILLS ? 'h' : '#';
+      const b = edited.biome[t];
+      kinds[r]![q] = edited.terrain[t] !== LAND ? '.' : b ? '-ItTcspFRmdvMJ'[PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1]! : ' ';
+      n++;
+    }
+    if (!n) continue;
+    writeFileSync(path('hand.txt'), `; ${patch.name}: what was changed by hand in the map editor (scripts/earth.ts --absorb), over ${patch.name}.txt. Blank: as the drawing has it.\n` + hand.map((row) => row.join('').trimEnd()).join('\n') + '\n');
+    writeFileSync(path('hand.biomes.txt'), `; ${patch.name}: the biomes of what was changed by hand, over ${patch.name}.biomes.txt.\n` + kinds.map((row) => row.join('').trimEnd()).join('\n') + '\n');
+    console.log(`${patch.name}: ${[...changed].filter((t) => owner.get(t) === patch.name).length} tiles changed by hand, ${n} characters`);
+  }
+  console.log(`${changed.size} tiles differ; ${[...changed].filter((t) => !owner.has(t)).length} lie under no drawing. Run again without --absorb to paint every size from the drawings.`);
+  process.exit(0);
+}
 
 const file: PaintFile = {};
 let failed = false;

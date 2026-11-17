@@ -1,0 +1,93 @@
+; europe: the biomes of what was changed by hand, over europe.biomes.txt.
+                                                                                               ttt
+                                                                                               ttt
+                                                                   TTT....                     ttt
+                                                                  TTTT....                      t
+                                                                  TTTT....
+                                                                    T   .
+                                                          ...                               TTT
+                                                          ...                               TTT
+                                                          ...                               TTT
+                                                          t..                                T
+                                                        tttt
+                                                         ttt
+                                                         ttt                                pp
+                                                                                            ppp
+                          FF                                                                ppp
+                         FFFF                                                               ppp
+                       FFFFFF
+                      FFFFFF                  TT
+                       FF                    TTT                                 FFFF
+                                             TTT                                 FFFF
+                                          t  ..                                  FFFF
+                     FF                   tt...            FFF
+                    FFF      FF           ttt....          FFF
+                    FFF     FFFF               ..          FFF
+                     FF      FF                ...
+                     FF      FF
+                    FFFF     FFF
+                     FFF     FFF                                                              F
+                              F                                                              FFF
+                                                                                             FFF
+                                                      FFF                                     FF
+                                                      FFF
+                      FFF                              F
+                     FFFF            F                                                     p
+                      FFF           FFF                                                   ppp
+                                   FFFF                   FF                              ppp
+                                    F                    FFF                               pp
+                                                         FFF
+                               FFF                        F
+                       FFF     FFFF
+                       FFFFFF   FF
+                       FFFFFF                   FFFFFF
+                          FFF                  FFFFFFF
+                                                FF FFF
+
+                         FF             FFF  T
+                        FFFF            FFFFTTT                                               FF F
+                        FFFF           FFFFTTTT   FFF        m                               FFFFFF
+                         Fmm          FFFFFFTTT   FFF       mmm                              FFFFFF
+                         mmmm         FFFFFFFTTT...FF       mmm                               FFFFF
+                         mmmm          FFFFFFTTT....         m
+                       mmmmm           FFFF  TTT...
+           mmm         mmmm            FFFF   mmm.                                         m
+           mmmm        mmm            ..FFF   mmmm                                       mmmm   ppp
+           mmm       mmmm            ....      mm                                        mmmm   ppp
+                     mmm    FFF      ....       mmm                                      mmm    ppp
+                     mmm    FFF       ..        mmm                                              p
+                            FFF                 mmm
+                             F                                                 FF
+                                                                              FFFF
+                                                                              FFFF
+            mm                                         .                 FFF   FF
+           mmmm    m                                  ...    mm          FFF          ppp
+           mmm    mmm                                 ...   mmmmFFF      FFF          pppp
+             mm   mmm                            mm   ...   mmmmFFF                   ppp
+             mmmmmmmm                           mmmm         m  FFF                 pppp
+            mmmmmmmmmm                          mmmm             ...                ppp
+             mmmmmmmmmm                                          ...                ppp
+                 m mmm                                           ...
+                    m
+
+                                                                                   ...
+                                                                                   ...
+                                                                                   ...
+
+
+                                            ...
+                                            ...
+                                            ...
+
+
+
+
+
+
+
+
+
+
+
+
+
