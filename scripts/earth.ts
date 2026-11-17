@@ -26,7 +26,7 @@ import { globeFor } from '../src/globes.ts';
 import { cornerGraph } from '../src/rivers.ts';
 import { latLon, nearestTile } from '../src/geo.ts';
 import type { Globe } from '../src/goldberg.ts';
-import { MAP_SIZES, type MapSizeKey } from '../src/rules.ts';
+import type { MapSizeKey } from '../src/rules.ts';
 import { FLAT, HILLS, LAKE, LAND, MOUNTAINS, PAINTABLE_BIOMES, PAINTED, SEA, blank, load, store, type PaintFile, type Painting } from '../src/mapPaint.ts';
 import { generateMap } from '../src/mapgen.ts';
 import type { BiomeKey } from '../src/terrain.ts';
@@ -35,6 +35,10 @@ const arg = (k: string, d: string) => { const i = process.argv.indexOf(`--${k}`)
 const DATA = arg('data', ''), PREVIEW = arg('preview', '');
 if (!DATA) { console.error('--data <dir with ne_50m_land.geojson and ne_50m_lakes.geojson>'); process.exit(1); }
 const RAD = Math.PI / 180;
+// The Earth is painted for one size of map, the large one: it is the only one with tiles enough for it. (A tile there is
+// 2.67 degrees across; the drawings' characters are sized to it, three to a tile: CELL.)
+const EARTH_SIZE: MapSizeKey = 'large';
+const CELL = 0.875;
 
 // ---------- points ----------
 
@@ -58,7 +62,7 @@ interface Piece { readonly name: string; readonly at: LL; readonly reach: number
 const PIECES: readonly Piece[] = [
   // (Europe as its drawing has it, REGIONS below: 2.2 times life size. What lies round it eases down from that:
   // the Near East half as large again as life, India and Japan a little over, the rest about life size, Siberia less.)
-  { name: 'europe', at: [48, 14], reach: 26, by: 2.2, to: [40, 15] },
+  { name: 'europe', at: [48, 14], reach: 26, by: 2.2 * CELL, to: [45, 15] },
   { name: 'nearEast', at: [30, 45], reach: 15, by: 1.5, from: ['europe', [36.6, 36.2]] },
   { name: 'russia', at: [58, 75], reach: 26, by: 0.85, from: ['europe', [56, 50]] },
   { name: 'india', at: [21, 79], reach: 13, by: 1.25, from: ['nearEast', [28, 62]] },
@@ -369,7 +373,9 @@ interface Region {
 }
 const far = (a: LL, b: LL): number => vec(a).angleTo(vec(b)) / RAD;
 const REGIONS: readonly Region[] = [
-  { name: 'europe', at: [48, 14], to: () => vec([40, 15]), by: 2.2, middle: [48, 14], cols: 100, rows: 92, cell: 1,
+  // (Europe as it was drawn for the medium map, tile for tile: there a character was a degree, a third of a tile; here it
+  // is CELL of one, a third of the large map's smaller tile. So Europe is as many tiles as it was, and takes less of the globe.)
+  { name: 'europe', at: [48, 14], to: () => vec([45, 15]), by: 2.2 * CELL, middle: [48, 14], cols: 100, rows: 92, cell: CELL,
     keep: (r) => far(r, [48, 14]) <= 31 && r[0] >= 29.5 },
   // (Asia, traced through the pieces: all that lies east of the Red Sea, the Levant and Europe's drawing.)
   { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], centre: [12.5612, 125.4194], cols: 180, rows: 120, cell: 1,
@@ -440,8 +446,11 @@ function arabia(p: THREE.Vector3): THREE.Vector3 {
   const x = (at[0] - asia.cols / 2) * asia.cell, y = (asia.rows / 2 - (ARABIA.row + (at[1] - ARABIA.row) * ARABIA.by)) * asia.cell;
   return go(c, Math.hypot(x, y), Math.atan2(x, y));
 }
+// The regions drawn so far for the large map (the others are being drawn again against Europe's new size).
+const DRAWN: readonly string[] = ['europe'];
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
+  if (!DRAWN.includes(r.name)) continue;
   const read = (f: string): string[] => { try { return readFileSync(new URL(`./earth/${f}`, import.meta.url), 'utf8').split('\n').filter((l) => !l.startsWith(';')); } catch { return []; } };
   // (And over the drawing, what was changed by hand in the map editor since (<name>.hand.txt, .hand.biomes.txt: --absorb
   // writes them): the last word, whatever the tracing and its corrections say.)
@@ -510,6 +519,7 @@ const layAny = (real: LL): THREE.Vector3 => {
 const riversKept = (): boolean => { try { readFileSync(new URL('./earth/rivers.json', import.meta.url)); return true; } catch { return false; } };
 // The rivers as places on the game's globe, source to mouth: the kept ones, or failing those the great rivers laid down.
 const riverWays = (): LL[][] => {
+  if (!DRAWN.includes('asia') || !DRAWN.includes('africa')) return [];
   try { return (JSON.parse(readFileSync(new URL('./earth/rivers.json', import.meta.url), 'utf8')) as { rivers: LL[][] }).rivers; }
   catch {
     return [
@@ -734,7 +744,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     console.log(lines.join('\n')); console.log('--- with the places marked ---'); console.log(marked.join('\n'));
   }
   // --show <region>: the world as painted (this size's tiles), seen through a region's picture: to find what the regions make together.
-  if (arg('show', '') && size === arg('showSize', 'medium')) {
+  if (arg('show', '')) {
     const reg = regionOf(arg('show', ''));
     for (let r = 0; r < reg.rows; r++) {
       let line = '';
@@ -743,7 +753,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     }
   }
   // --where <tile,tile...>: where tiles of the medium globe fall in each region's picture, and what is drawn there.
-  if (arg('where', '') && size === 'medium') {
+  if (arg('where', '')) {
     for (const id of arg('where', '').split(',').map(Number)) {
       const t = globe.tiles[id]!, out: string[] = [];
       for (const patch of PATCHES) {
@@ -754,7 +764,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     }
   }
   // --tileAt <region>,<col>,<row>: the medium globe's tile under a cell of a region's picture.
-  if (arg('tileAt', '') && size === 'medium') { const [n, c, r] = arg('tileAt', '').split(','); console.log(`  tileAt ${nearestTile(globe, cellGame(n!, Number(c), Number(r)))}`); }
+  if (arg('tileAt', '')) { const [n, c, r] = arg('tileAt', '').split(','); console.log(`  tileAt ${nearestTile(globe, cellGame(n!, Number(c), Number(r)))}`); }
   if (process.env['PROBE']) for (const [name, lat, lon] of JSON.parse(process.env['PROBE']) as [string, number, number][]) {
     const t = tileAt([lat, lon]), back = toReal(globe.tiles[t]!.center), at = latLon(globe.tiles[t]!.center);
     console.log(`  ${name} [${lat}, ${lon}]: tile ${t} at game ${at[0].toFixed(1)}, ${at[1].toFixed(1)}; its middle is really ${back[0].toFixed(1)}, ${back[1].toFixed(1)}; share ${share[t]!.toFixed(2)} lake ${lake[t]!.toFixed(2)} terrain ${paint.terrain[t]}`);
@@ -878,7 +888,7 @@ if (arg('draft', '')) {
 // from what the drawings give are written into the drawings' hand layers (every character under a changed tile), so
 // they outlast the next run and reach the other sizes too.
 if (process.argv.includes('--absorb')) {
-  const size: MapSizeKey = 'medium', { paint: fresh, globe } = paintSize(size);
+  const size: MapSizeKey = EARTH_SIZE, { paint: fresh, globe } = paintSize(size);
   const edited = load((JSON.parse(readFileSync(new URL('../src/maps/earth.json', import.meta.url), 'utf8')) as PaintFile)[size]!, globe.tiles.length);
   const changed = new Set<number>();
   for (let t = 0; t < globe.tiles.length; t++) if (fresh.terrain[t] !== edited.terrain[t] || fresh.relief[t] !== edited.relief[t] || fresh.biome[t] !== edited.biome[t]) changed.add(t);
@@ -922,7 +932,7 @@ if (process.argv.includes('--absorb')) {
 
 const file: PaintFile = {};
 let failed = false;
-for (const size of Object.keys(MAP_SIZES) as MapSizeKey[]) {
+for (const size of [EARTH_SIZE]) {
   const { paint, globe, notes } = paintSize(size);
   file[size] = store(paint);
   let land = 0, lakes = 0, hills = 0, mountains = 0;
