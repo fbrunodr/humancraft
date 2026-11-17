@@ -767,7 +767,8 @@ function appetite(g: Game, p: Player, o: Player, react = true): { want: number; 
   // anyone: the first capitals it holds of those a conquest takes, the
   // world's people in its faith by tenths, its era. A civ past half way
   // to a victory is one to stop, the more the nearer: stopLeader.)
-  const near = Math.max(g.capitalsHeld(o.id) / g.capitalsToWin, Math.round(10 * g.faithShare(o.id)) / 10 / FAITH_VICTORY, 0.9 * (o.era / (ERAS.length - 1)));
+  // (Its faith's spread is no reason for one of that faith to fight it: a war between them turns no one from it, and what it took would follow it still.)
+  const near = Math.max(g.capitalsHeld(o.id) / g.capitalsToWin, same ? 0 : Math.round(10 * g.faithShare(o.id)) / 10 / FAITH_VICTORY, 0.9 * (o.era / (ERAS.length - 1)));
   const stop = 1 + P.stopLeader * Math.max(0, Math.min(1, near) - 0.5) * 2;
   // (And its own conquest: within two first capitals of it, a civ that holds one draws its wars, by its lust for them.)
   const held = g.capitalsHeld(p.id), need = g.capitalsToWin;
