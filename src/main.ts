@@ -126,7 +126,8 @@ function showStartScreen(): void {
       if (only()) size = only()!;
       // (True starting places, where the map has them painted for this size; then only the civs that have one can be played.)
       const places = trueStartsOf(script, size), hasTrue = Object.keys(places).length >= 2;
-      menu.querySelectorAll<HTMLElement>('[data-true]').forEach((el) => { el.hidden = !hasTrue; });
+      // (By its style: the card's own rules for labels and rows would show a merely `hidden` one.)
+      menu.querySelectorAll<HTMLElement>('[data-true]').forEach((el) => { el.style.display = hasTrue ? '' : 'none'; });
       menu.querySelectorAll<HTMLElement>('[data-starts]').forEach((b) => b.classList.toggle('active', (b.dataset['starts'] === 'true') === trueStarts));
       if (hasTrue && trueStarts && civ !== 'random' && places[civ] === undefined) civ = 'random';
       menu.querySelectorAll<HTMLButtonElement>('[data-civ]').forEach((b) => { b.disabled = hasTrue && trueStarts && b.dataset['civ'] !== 'random' && places[b.dataset['civ'] ?? ''] === undefined; });
