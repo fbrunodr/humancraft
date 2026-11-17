@@ -72,10 +72,16 @@ for r,(a,z) in boot.items():
     if 55<=r<=66: T[r][(a+z)//2]='h'; T[r][(a+z)//2+1]='h'          # the Apennines down its middle
 blob({73:(43,49),74:(42,49),75:(43,48),76:(44,46)})
 T[74][46]='h'; T[74][47]='^'                                         # Etna
-# 13. Scotland fuller.
-blob({15:(26,28),16:(25,29),17:(24,29),18:(24,30),19:(25,30),20:(25,30),21:(25,29),22:(26,29)},'#','F')
-for r in range(16,22):
+# 13. Britain and Ireland drawn whole (on the large map the traced shapes came out ragged): Scotland full, England widening
+#     to East Anglia and Wales, the south-west reaching out; Ireland an island clear of it; hills down the west.
+clear(12,34,10,36)
+blob({13:(26,28),14:(25,29),15:(24,29),16:(24,30),17:(25,30),18:(25,30),19:(25,29),20:(25,29),21:(25,29),22:(25,30),23:(25,30),24:(25,30),
+      25:(24,30),26:(23,31),27:(23,32),28:(23,32),29:(24,32),30:(25,32),31:(23,32),32:(21,31),33:(21,30),34:(23,27)},'#','F')
+for r in range(14,22):
     for c in range(25,28): T[r][c]='h'
+for r in range(26,30): T[r][23]='h'; T[r][24]='h'
+blob({22:(16,19),23:(15,19),24:(14,19),25:(14,19),26:(14,19),27:(14,18),28:(14,17),29:(15,16)},'#','F')
+T[25][15]='h'; T[26][15]='h'
 
 # 11. The ranges the tracing's relief is too coarse for: the Alps, the Pyrenees, the Caucasus (mountains where there is land).
 def ridge(cells):

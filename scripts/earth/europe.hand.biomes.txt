@@ -13,27 +13,27 @@
                                                          ttt
                                                          ttt                                pp
                                                                                             ppp
-                          FF                                                                ppp
-                         FFFF                                                               ppp
-                       FFFFFF
-                      FFFFFF                  TT
-                       FF                    TTT                                 FFFF
+                                                                                            ppp
+                                                                                            ppp
+
+                                              TT
+                                             TTT                                 FFFF
                                              TTT                                 FFFF
                                           t  ..                                  FFFF
-                     FF                   tt...            FFF
-                    FFF      FF           ttt....          FFF
-                    FFF     FFFF               ..          FFF
-                     FF      FF                ...
-                     FF      FF
-                    FFFF     FFF
-                     FFF     FFF                                                              F
-                              F                                                              FFF
+                                          tt...            FFF
+                                          ttt....          FFF
+                                               ..          FFF
+                                               ...
+
+
+                                                                                              F
+                                                                                             FFF
                                                                                              FFF
                                                       FFF                                     FF
                                                       FFF
-                      FFF                              F
-                     FFFF            F                                                     p
-                      FFF           FFF                                                   ppp
+                                                       F
+                                     F                                                     p
+                                    FFF                                                   ppp
                                    FFFF                   FF                              ppp
                                     F                    FFF                               pp
                                                          FFF
@@ -49,23 +49,23 @@
                         FFFF           FFFFTTTT   FFF        m                               FFFFFF
                          Fmm          FFFFFFTTT   FFF       mmm                              FFFFFF
                          mmmm         FFFFFFFTTT...FF       mmm                               FFFFF
-                         mmmm          FFFFFFTTT....         m
-                       mmmmm           FFFF  TTT...
-           mmm         mmmm            FFFF   mmm.                                         m
-           mmmm        mmm            ..FFF   mmmm                                       mmmm   ppp
-           mmm       mmmm            ....      mm                                        mmmm   ppp
-                     mmm    FFF      ....       mmm                                      mmm    ppp
-                     mmm    FFF       ..        mmm                                              p
-                            FFF                 mmm
+                         mmmm          FFF                   m
+                       mmmmm           FFF
+           mmm         mmmm            FFF                                                 m
+           mmmm        mmm            ..FF                                               mmmm   ppp
+           mmm       mmmm            ....                                                mmmm   ppp
+                     mmm    FFF      ....                                                mmm    ppp
+                     mmm    FFF       ..                                                         p
+                            FFF
                              F                                                 FF
                                                                               FFFF
                                                                               FFFF
-            mm                                         .                 FFF   FF
-           mmmm    m                                  ...    mm          FFF          ppp
-           mmm    mmm                                 ...   mmmmFFF      FFF          pppp
-             mm   mmm                            mm   ...   mmmmFFF                   ppp
-             mmmmmmmm                           mmmm         m  FFF                 pppp
-            mmmmmmmmmm                          mmmm             ...                ppp
+            mm                                                           FFF   FF
+           mmmm    m                                         mm          FFF          ppp
+           mmm    mmm                                        mmmFFF      FFF          pppp
+             mm   mmm                                        mmmFFF                   ppp
+             mmmmmmmm                                        m  FFF                 pppp
+            mmmmmmmmmm                                           ...                ppp
              mmmmmmmmmm                                          ...                ppp
                  m mmm                                           ...
                     m
@@ -75,8 +75,8 @@
                                                                                    ...
 
 
-                                            ...
-                                            ...
+
+
                                             ...
 
 

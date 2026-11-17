@@ -13,27 +13,27 @@
                                                          hhh
                                                          hhh                                ##
                                                                                             ###
-                          hh                                                                ###
-                         hhhh                                                               ###
-                       ##hhhh
-                      ####hh                  ##
-                       ##                    ###                                 ####
+                                                                                            ###
+                                                                                            ###
+
+                                              ##
+                                             ###                                 ####
                                              ###                                 ####
                                           h  ..                                  ####
-                     ##                   hh...            ###
-                    ###      ##           hhh....          ###
-                    ###     ####               ..          ###
-                     ##      ##                ...
-                     ##      ##
-                    ####     ###
-                     ###     ###                                                              #
-                              #                                                              ###
+                                          hh...            ###
+                                          hhh....          ###
+                                               ..          ###
+                                               ...
+
+
+                                                                                              #
+                                                                                             ###
                                                                                              ###
                                                       ###                                     ##
                                                       ###
-                      ###                              #
-                     ####            #                                                     #
-                      ###           ###                                                   ###
+                                                       #
+                                     #                                                     #
+                                    ###                                                   ###
                                    ####                   hh                              ###
                                     #                    hhh                               ##
                                                          hhh
@@ -49,23 +49,23 @@
                         ####           ^^^^^^^^   hhh        h                               ^^^^^^
                          ###          ^^^^hh^^h   hhh       hhh                              ^^^^^^
                          ####         ^^^hhhhhhh...hh       hhh                               ^^^^^
-                         ####          ^^hhhhhhh....         h
-                       #####           hhhh  hhh...
-           ###         ####            hhhh   ###.                                         #
-           ####        ###            ..hhh   ####                                       ####   hhh
-           ###       ^^^#            ....      ##                                        ####   hhh
-                     ^^^    hhh      ....       hhh                                      ###    hhh
-                     ^^^    hhh       ..        hhh                                              h
-                            hhh                 hhh
+                         ####          ^^h                   h
+                       #####           hhh
+           ###         ####            hhh                                                 #
+           ####        ###            ..hh                                               ####   hhh
+           ###       ^^^#            ....                                                ####   hhh
+                     ^^^    hhh      ....                                                ###    hhh
+                     ^^^    hhh       ..                                                         h
+                            hhh
                              h                                                 hh
                                                                               hhhh
                                                                               hhhh
-            hh                                         .                 hhh   hh
-           hhhh    h                                  ...    hh          hhh          hhh
-           hhh    hhh                                 ...   hhhh###      hhh          hhhh
-             ##   hhh                            ##   ...   hhhh###                   hhh
-             #####hhh                           ####         h  ###                 hhhh
-            ##########                          ####             ...                hhh
+            hh                                                           hhh   hh
+           hhhh    h                                         hh          hhh          hhh
+           hhh    hhh                                        hhh###      hhh          hhhh
+             ##   hhh                                        hhh###                   hhh
+             #####hhh                                        h  ###                 hhhh
+            ##########                                           ...                hhh
              ##########                                          ...                hhh
                  # ###                                           ...
                     #
@@ -75,8 +75,8 @@
                                                                                    ...
 
 
-                                            ...
-                                            ...
+
+
                                             ...
 
 
