@@ -62,12 +62,12 @@ interface Piece { readonly name: string; readonly at: LL; readonly reach: number
 const PIECES: readonly Piece[] = [
   // (Europe as its drawing has it, REGIONS below: 2.2 times life size. What lies round it eases down from that:
   // the Near East half as large again as life, India and Japan a little over, the rest about life size, Siberia less.)
-  { name: 'europe', at: [48, 14], reach: 26, by: 2.2 * CELL, to: [45, 15] },
-  { name: 'nearEast', at: [30, 45], reach: 15, by: 1.5, from: ['europe', [36.6, 36.2]] },
-  { name: 'russia', at: [58, 75], reach: 26, by: 0.85, from: ['europe', [56, 50]] },
-  { name: 'india', at: [21, 79], reach: 13, by: 1.25, from: ['nearEast', [28, 62]] },
+  { name: 'europe', at: [48, 14], reach: 15, by: 2.2 * CELL, to: [45, 15] },
+  { name: 'nearEast', at: [28, 45], reach: 18, by: 1.2, from: ['europe', [36.6, 36.2]] },
+  { name: 'russia', at: [58, 75], reach: 26, by: 0.8, from: ['europe', [56, 50]] },
+  { name: 'india', at: [21, 79], reach: 13, by: 1.2, from: ['nearEast', [28, 62]] },
   { name: 'china', at: [32, 108], reach: 20, by: 1.05, from: ['india', [27, 92]] },
-  { name: 'siberia', at: [62, 135], reach: 24, by: 1.05, from: ['china', [50, 120]] },
+  { name: 'siberia', at: [62, 135], reach: 24, by: 1.0, from: ['china', [50, 120]] },
   { name: 'japan', at: [37, 138], reach: 7, by: 1.7, from: ['china', [34.5, 129.5]] },
   { name: 'indies', at: [0, 117], reach: 20, by: 1.25, from: ['china', [6, 101]] },
   { name: 'africa', at: [0, 18], reach: 34, by: 0.8, from: ['europe', [36.8, 10]] },
@@ -378,7 +378,7 @@ const REGIONS: readonly Region[] = [
   { name: 'europe', at: [48, 14], to: () => vec([45, 15]), by: 2.2 * CELL, middle: [48, 14], cols: 100, rows: 92, cell: CELL,
     keep: (r) => far(r, [48, 14]) <= 31 && r[0] >= 29.5 },
   // (Asia, traced through the pieces: all that lies east of the Red Sea, the Levant and Europe's drawing.)
-  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], centre: [12.5612, 125.4194], cols: 180, rows: 120, cell: 1,
+  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], cols: 204, rows: 136, cell: CELL,
     eased: ['europe', 'nearEast', 'russia', 'india', 'china', 'siberia', 'japan', 'indies'],
     keep: (r) => {
       const [lat, lon] = r;
@@ -437,9 +437,9 @@ function cellGame(name: string, col: number, row: number): THREE.Vector3 {
   const r = regionOf(name), x = (col + 0.5 - r.cols / 2) * r.cell, y = (r.rows / 2 - row - 0.5) * r.cell;
   return go(middleOf(r), Math.hypot(x, y), Math.atan2(x, y));
 }
-// Arabia is drawn shorter than its tracing (asia.fix.py: from row 58 of Asia's picture down, seven tenths as long): as
-// traced it reached too far south beside Africa. A place Asia lays there, as the drawing has it.
-const ARABIA = { row: 58, by: 0.7, cols: 56 };
+// Arabia is drawn shorter than its tracing (asia.fix.py, which prints these numbers: from that row of Asia's picture
+// down, that much as long): as traced it reached too far south beside Africa. A place Asia lays there, as the drawing has it.
+const ARABIA = { row: 78, by: 0.5, cols: 62 };
 function arabia(p: THREE.Vector3): THREE.Vector3 {
   const asia = regionOf('asia'), c = middleOf(asia), at = cellOf(c, p, asia.cols, asia.rows, asia.cell);
   if (!at || at[0] >= ARABIA.cols || at[1] <= ARABIA.row) return p;
@@ -447,7 +447,7 @@ function arabia(p: THREE.Vector3): THREE.Vector3 {
   return go(c, Math.hypot(x, y), Math.atan2(x, y));
 }
 // The regions drawn so far for the large map (the others are being drawn again against Europe's new size).
-const DRAWN: readonly string[] = ['europe'];
+const DRAWN: readonly string[] = ['europe', 'asia'];
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
   if (!DRAWN.includes(r.name)) continue;
@@ -814,6 +814,27 @@ const VIEWS: readonly (readonly [string, LL, number])[] = [
   ['africa', [5, 20], 60], ['americas', [10, -80], 75], ['asia', [35, 90], 65], ['pacific', [0, -160], 80], ['oceania', [-28, 150], 45],
 ];
 
+// Real places, by which a region's corrections find their way in its tracing (<region>.marks.json).
+const MARKS: readonly (readonly [string, number, number])[] = [
+  ['Lisbon', 38.7, -9.1], ['Gibraltar', 36.1, -5.3], ['Paris', 48.9, 2.3], ['London', 51.5, -0.1], ['Rome', 41.9, 12.5], ['Athens', 38, 23.7], ['Istanbul', 41, 29], ['Moscow', 55.8, 37.6],
+  ['Batumi', 41.6, 41.6], ['Baku', 40.4, 49.9], ['Astrakhan', 46.3, 48], ['Iskenderun', 36.6, 36.2], ['Beirut', 33.9, 35.5], ['Limassol', 34.7, 33], ['Suez', 30, 32.5], ['Aqaba', 29.5, 35],
+  ['Jeddah', 21.5, 39.2], ['Aden', 12.8, 45], ['Salalah', 17, 54.1], ['Muscat', 23.6, 58.4], ['Musandam', 26.3, 56.3], ['BandarAbbas', 27.2, 56.3], ['Doha', 25.3, 51.5], ['Kuwait', 29.4, 48],
+  ['Basra', 30.5, 47.8], ['Tehran', 35.7, 51.4], ['Kabul', 34.5, 69.2], ['Karachi', 24.9, 67], ['Mumbai', 19.1, 72.9], ['Delhi', 28.6, 77.2], ['Srinagar', 34.1, 74.8], ['Kathmandu', 27.7, 85.3],
+  ['Lhasa', 29.7, 91.1], ['Kolkata', 22.6, 88.4], ['Kanyakumari', 8.1, 77.5], ['Chennai', 13.1, 80.3], ['Colombo', 6.9, 79.9], ['Jaffna', 9.7, 80], ['Dondra', 5.9, 80.6], ['Yangon', 16.8, 96.2],
+  ['Bangkok', 13.7, 100.5], ['Kra', 10.3, 99], ['Penang', 5.4, 100.3], ['Singapore', 1.3, 103.8], ['Medan', 3.6, 98.7], ['Aceh', 5.6, 95.3], ['Lampung', -5.6, 105.3], ['Jakarta', -6.2, 106.8],
+  ['Surabaya', -7.3, 112.7], ['Pontianak', 0, 109.3], ['Kuching', 1.5, 110.3], ['Sandakan', 5.8, 118.1], ['Banjarmasin', -3.3, 114.6], ['Makassar', -5.1, 119.4], ['Manado', 1.5, 124.8],
+  ['Manila', 14.6, 121], ['Aparri', 18.4, 121.6], ['Davao', 7.1, 125.6], ['Hanoi', 21, 105.8], ['Saigon', 10.8, 106.7], ['Haikou', 20, 110.3], ['HongKong', 22.3, 114.2], ['Taipei', 25, 121.5],
+  ['Kaohsiung', 22.6, 120.3], ['Shanghai', 31.2, 121.5], ['Qingdao', 36.1, 120.4], ['Beijing', 39.9, 116.4], ['Dalian', 38.9, 121.6], ['Seoul', 37.6, 127], ['Busan', 35.1, 129], ['Pyongyang', 39, 125.8],
+  ['Vladivostok', 43.1, 131.9], ['Fukuoka', 33.6, 130.4], ['Kagoshima', 31.6, 130.6], ['Hiroshima', 34.4, 132.5], ['Osaka', 34.7, 135.5], ['Tokyo', 35.7, 139.7], ['Niigata', 37.9, 139], ['Sendai', 38.3, 140.9],
+  ['Aomori', 40.8, 140.7], ['Sapporo', 43.1, 141.3], ['Wakkanai', 45.4, 141.7], ['Kushiro', 43, 144.4], ['Sakhalin', 50, 142.8], ['Amur', 53.1, 140.7], ['Magadan', 59.6, 150.8], ['Kamchatka', 56, 160],
+  ['Lopatka', 51, 156.7], ['Anadyr', 64.7, 177.5], ['Uelen', 66.2, -169.8], ['Tiksi', 71.6, 128.9], ['Taymyr', 76, 100], ['Yamal', 70, 70], ['Omsk', 55, 73.4], ['Irkutsk', 52.3, 104.3], ['Urumqi', 43.8, 87.6],
+  ['Almaty', 43.2, 76.9], ['Ulaanbaatar', 47.9, 106.9], ['Chengdu', 30.6, 104.1], ['Kunming', 25, 102.7], ['Tashkent', 41.3, 69.3], ['Aral', 45, 60], ['Balkhash', 46.5, 75], ['Baikal', 53.5, 108],
+  ['Tangier', 35.8, -5.8], ['Algiers', 36.75, 3.05], ['Tunis', 36.8, 10.2], ['Tripoli', 32.9, 13.2], ['Benghazi', 32.1, 20.1], ['Alexandria', 31.2, 29.9], ['Cairo', 30, 31.2], ['Aswan', 24.1, 32.9],
+  ['Khartoum', 15.6, 32.5], ['Massawa', 15.6, 39.5], ['Djibouti', 11.6, 43.1], ['Guardafui', 11.8, 51.2], ['Mogadishu', 2, 45.3], ['Mombasa', -4, 39.7], ['Dar', -6.8, 39.3], ['Maputo', -26, 32.6],
+  ['Durban', -29.9, 31], ['CapeTown', -33.9, 18.4], ['Luanda', -8.8, 13.2], ['Douala', 4, 9.7], ['Lagos', 6.5, 3.4], ['Accra', 5.6, -0.2], ['Dakar', 14.7, -17.4], ['Casablanca', 33.6, -7.6],
+  ['Antananarivo', -18.9, 47.5], ['Kinshasa', -4.3, 15.3], ['Victoria', -1, 33], ['Addis', 9, 38.7],
+];
+
 // ---------- a draft to draw over ----------
 
 // --draft <name>: the region as the real coastlines give it, in the form a drawing takes
@@ -855,7 +876,18 @@ if (arg('draft', '')) {
     }
     land.push(a); kinds.push(b);
   }
-  // (Where real places fall in it, to find one's way: --marks '[["name",lat,lon],...]')
+  // (Where real places fall in it: <name>.marks.json, which the corrections are placed by, so they follow the tracing if it is laid anew.)
+  {
+    const marks: Record<string, [number, number]> = {};
+    for (const [label, lat, lon] of MARKS) {
+      if (!reg.keep([lat, lon]) && !reg.eased && !reg.forward) continue;
+      const g = reg.forward ? reg.forward([lat, lon]) : laid(reg, vec([lat, lon])), d = c.angleTo(g) / RAD, b = bearing(c, g);
+      const q = Math.floor(cols / 2 + (d * Math.sin(b)) / cell), r = Math.floor(rows / 2 - (d * Math.cos(b)) / cell);
+      if (q >= 0 && r >= 0 && q < cols && r < rows) marks[label] = [q, r];
+    }
+    writeFileSync(new URL(`./earth/${reg.name}.marks.json`, import.meta.url), JSON.stringify(marks).replace(/\],/g, '],\n') + '\n');
+  }
+  // (And any asked for: --marks '[["name",lat,lon],...]')
   for (const [label, lat, lon] of JSON.parse(arg('marks', '[]')) as [string, number, number][]) {
     const g = reg.forward ? reg.forward([lat, lon]) : laid(reg, vec([lat, lon])), d = c.angleTo(g) / RAD, b = bearing(c, g);
     console.log(`${label}: column ${Math.floor(cols / 2 + (d * Math.sin(b)) / cell)}, row ${Math.floor(rows / 2 - (d * Math.cos(b)) / cell)}`);
