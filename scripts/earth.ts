@@ -643,6 +643,19 @@ const volcanoPlaces = (): LL[] => {
   catch { return VOLCANOES.map(([, region, q, r]) => latLon(cellGame(region, q, r)) as unknown as LL); }
 };
 
+// Where each civ really began: its first capital. (The first laying only: once scripts/earth/starts.json is there, which
+// --absorb writes from the map, the places are those, set or moved in the map editor.)
+const STARTS: readonly (readonly [string, LL])[] = [
+  ['Romans', [41.9, 12.5]], ['Egyptians', [29.8, 31.2]], ['Babylonians', [32.5, 44.4]], ['Chinese', [34.6, 113.6]], ['Aztecs', [19.4, -99.1]],
+  ['Persians', [29.9, 52.9]], ['Greeks', [38, 23.7]], ['Mongols', [47.2, 102.8]], ['Indians', [28.6, 77.2]], ['English', [51.5, -0.1]],
+  ['Japanese', [35, 135.8]], ['French', [48.9, 2.3]], ['Germans', [52.5, 13.4]], ['Russians', [55.8, 37.6]], ['Spanish', [40.4, -3.7]],
+  ['Vikings', [59.9, 10.7]], ['Hebrews', [31.8, 35.2]], ['Ethiopians', [14.1, 38.7]],
+];
+const startPlaces = (): [string, LL][] => {
+  try { return Object.entries((JSON.parse(readFileSync(new URL('./earth/starts.json', import.meta.url), 'utf8')) as { starts: Record<string, LL> }).starts); }
+  catch { return STARTS.map(([civ, real]) => [civ, latLon(civ === 'Egyptians' ? africaLaid(real, true) : layAny(real)) as unknown as LL]); }
+};
+
 // ---------- painting a size ----------
 
 // (Its biomes as the game makes them of it, the climate's where none was
@@ -853,6 +866,20 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     if (paint.terrain[t] !== LAND) continue;
     paint.relief[t] = MOUNTAINS;
     paint.volcanoes.push(t);
+  }
+  // The civs' true starting places: each on the open land nearest its place (flat or hills), three tiles at least from
+  // those set before it.
+  {
+    const fromFile = (() => { try { readFileSync(new URL('./earth/starts.json', import.meta.url)); return true; } catch { return false; } })();
+    const good = (t: number) => paint.terrain[t] === LAND && paint.relief[t] !== MOUNTAINS && paint.biome[t] !== 'iceSheet';
+    const apart = (t: number) => Object.values(paint.starts).every((o) => globe.tiles[o]!.center.angleTo(globe.tiles[t]!.center) > 2.6 * globe.avgEdgeAngle);
+    for (const [civ, place] of startPlaces()) {
+      const p = vec(place), near = nearestTile(globe, p);
+      // (One kept from the map is where it was put; one laid for the first time is found a good tile.)
+      const t = fromFile ? near : globe.tiles.map((x) => x.id).filter((x) => good(x) && apart(x)).reduce((a, b) => (a < 0 || globe.tiles[b]!.center.dot(p) > globe.tiles[a]!.center.dot(p) ? b : a), -1 as number);
+      if (t >= 0 && paint.terrain[t] === LAND) paint.starts[civ] = t;
+      else notes.push(`${civ} has no place to begin`);
+    }
   }
   // The rivers.
   const fromFile = riversKept();
@@ -1071,6 +1098,8 @@ if (process.argv.includes('--absorb')) {
   console.log(`${edited.rivers.length} rivers kept`);
   writeFileSync(new URL('./earth/volcanoes.json', import.meta.url), JSON.stringify({ note: 'The volcanoes of the Earth map as places on the game\'s globe (latitude, longitude); written by scripts/earth.ts --absorb from the map.', volcanoes: edited.volcanoes.map((t) => latLon(globe.tiles[t]!.center).map((x) => Math.round(x * 100) / 100)) }) + '\n');
   console.log(`${edited.volcanoes.length} volcanoes kept`);
+  writeFileSync(new URL('./earth/starts.json', import.meta.url), JSON.stringify({ note: 'Where each civ begins on the Earth with true starting places, as places on the game\'s globe (latitude, longitude); written by scripts/earth.ts --absorb from the map.', starts: Object.fromEntries(Object.entries(edited.starts).map(([civ, t]) => [civ, latLon(globe.tiles[t]!.center).map((x) => Math.round(x * 100) / 100)])) }).replace(/\],/g, '],\n') + '\n');
+  console.log(`${Object.keys(edited.starts).length} starting places kept`);
   console.log(`${changed.size} tiles differ; ${[...changed].filter((t) => !owner.has(t)).length} lie under no drawing. Run again without --absorb to paint every size from the drawings.`);
   process.exit(0);
 }

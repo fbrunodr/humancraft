@@ -15,7 +15,7 @@ import {
   FLAT, HILLS, LAKE, LAND, MOUNTAINS, PAINTABLE_BIOMES, PAINTED, SEA, load, paintingFor, resample, store,
   type PaintFile, type PaintedScript, type Painting,
 } from './mapPaint.ts';
-import { MAP_SCRIPTS, MAP_SIZES, tileCount, type MapSizeKey } from './rules.ts';
+import { CIVS, MAP_SCRIPTS, MAP_SIZES, tileCount, type MapSizeKey } from './rules.ts';
 import { terrainName } from './terrain.ts';
 import { cornerGraph } from './rivers.ts';
 import type { BiomeKey } from './terrain.ts';
@@ -139,7 +139,7 @@ function recolor(list?: Iterable<number>): void {
 
 // ---------- tools ----------
 
-type Tool = { kind: 'terrain'; v: number } | { kind: 'relief'; v: number } | { kind: 'volcano' } | { kind: 'biome'; v: BiomeKey | null } | { kind: 'river'; v: 'draw' | 'erase' };
+type Tool = { kind: 'terrain'; v: number } | { kind: 'relief'; v: number } | { kind: 'volcano' } | { kind: 'start'; v: 'set' | 'remove' } | { kind: 'biome'; v: BiomeKey | null } | { kind: 'river'; v: 'draw' | 'erase' };
 let tool: Tool = { kind: 'terrain', v: LAND };
 let drawing: number[] | null = null; // the river being drawn (one of the painting's own): see rivers, below
 const toolButtons: [HTMLButtonElement, Tool][] = [];
@@ -167,6 +167,8 @@ addTool('reliefTools', 'Mountains', `#${LAND_COLOR.clone().lerp(MOUNTAIN_TINT, 0
 addTool('reliefTools', 'Volcano', '#ff6a2a', { kind: 'volcano' });
 addTool('biomeTools', 'Auto (climate)', `#${LAND_COLOR.getHexString()}`, { kind: 'biome', v: null });
 for (const b of PAINTABLE_BIOMES) addTool('biomeTools', terrainName({ biome: b, relief: 'flat', feature: null }), BIOME_COLOR[b], { kind: 'biome', v: b });
+addTool('startTools', 'Set start', '#ffd24a', { kind: 'start', v: 'set' });
+addTool('startTools', 'Remove start', '#7a2a2a', { kind: 'start', v: 'remove' });
 addTool('riverTools', 'Draw river', '#3aa0ff', { kind: 'river', v: 'draw' });
 addTool('riverTools', 'Erase river', '#7a2a2a', { kind: 'river', v: 'erase' });
 markTool();
@@ -174,7 +176,7 @@ markTool();
 function apply(p: Painting, t: number): void {
   // (A volcano is a mountain: painted as anything else, it is one no more.)
   const at = p.volcanoes.indexOf(t);
-  if (at >= 0 && tool.kind !== 'biome' && tool.kind !== 'river') p.volcanoes.splice(at, 1);
+  if (at >= 0 && tool.kind !== 'biome' && tool.kind !== 'river' && tool.kind !== 'start') p.volcanoes.splice(at, 1);
   switch (tool.kind) {
     case 'terrain':
       p.terrain[t] = tool.v;
@@ -183,14 +185,14 @@ function apply(p: Painting, t: number): void {
     case 'relief': p.terrain[t] = LAND; p.relief[t] = tool.v; break;
     case 'biome': p.terrain[t] = LAND; p.biome[t] = tool.v; break;
     case 'volcano': p.terrain[t] = LAND; p.relief[t] = MOUNTAINS; p.volcanoes.push(t); break;
-    case 'river': break; // (rivers are drawn corner by corner: riverClick)
+    case 'river': case 'start': break; // (set by a click, not painted: riverClick, startClick)
   }
 }
 
 // ---------- undo ----------
 
-interface Snapshot { size: MapSizeKey; terrain: Uint8Array; relief: Uint8Array; biome: (BiomeKey | null)[]; rivers: number[][]; volcanoes: number[] }
-const snap = (s: MapSizeKey): Snapshot => { const p = painting(s); return { size: s, terrain: p.terrain.slice(), relief: p.relief.slice(), biome: p.biome.slice(), rivers: p.rivers.map((r) => [...r]), volcanoes: [...p.volcanoes] }; };
+interface Snapshot { size: MapSizeKey; terrain: Uint8Array; relief: Uint8Array; biome: (BiomeKey | null)[]; rivers: number[][]; volcanoes: number[]; starts: Record<string, number> }
+const snap = (s: MapSizeKey): Snapshot => { const p = painting(s); return { size: s, terrain: p.terrain.slice(), relief: p.relief.slice(), biome: p.biome.slice(), rivers: p.rivers.map((r) => [...r]), volcanoes: [...p.volcanoes], starts: { ...p.starts } }; };
 const undos: Snapshot[] = [], redos: Snapshot[] = [];
 function restore(from: Snapshot[], to: Snapshot[]): void {
   const s = from.pop();
@@ -200,9 +202,10 @@ function restore(from: Snapshot[], to: Snapshot[]): void {
   p.terrain.set(s.terrain); p.relief.set(s.relief); s.biome.forEach((b, i) => { p.biome[i] = b; });
   p.rivers = s.rivers.map((r) => [...r]);
   p.volcanoes = [...s.volcanoes];
+  p.starts = { ...s.starts };
   drawing = null;
   dirty.add(s.size);
-  if (s.size !== size) switchSize(s.size); else { recolor(); drawRivers(); changed(); }
+  if (s.size !== size) switchSize(s.size); else { recolor(); drawRivers(); drawStarts(); changed(); }
 }
 const record = () => { undos.push(snap(size)); if (undos.length > 200) undos.shift(); redos.length = 0; };
 
@@ -243,6 +246,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const t = tileUnder(e);
   if (t < 0) return;
   if (tool.kind === 'river') { riverClick(t); return; }
+  if (tool.kind === 'start') { startClick(t); return; }
   if (e.altKey) { pick(t); return; }
   record();
   stroking = true;
@@ -337,6 +341,55 @@ function endRiver(): void {
   changed();
 }
 
+// ---------- starting places ----------
+
+// Where each civ begins when the map is played with true starting places: a disc of the civ's colour on its tile.
+let startMarks: THREE.Mesh | null = null;
+const startMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+function drawStarts(): void {
+  if (startMarks) { scene.remove(startMarks); startMarks.geometry.dispose(); }
+  const globe = globeFor(size), pos: number[] = [], colors: number[] = [], c = new THREE.Color(), rim = new THREE.Color('#ffffff');
+  const e = new THREE.Vector3(), n = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3();
+  for (const [name, t] of Object.entries(painting(size).starts)) {
+    const civ = CIVS.find((x) => x.name === name), mid = globe.tiles[t]?.center;
+    if (!civ || !mid) continue;
+    c.set(civ.color);
+    e.crossVectors(up, mid).normalize(); n.crossVectors(mid, e).normalize();
+    // (A white rim, the civ's colour within.)
+    for (const [r, col, lift] of [[0.6, rim, 1.003], [0.45, c, 1.004]] as const) for (let k = 0; k < 16; k++) {
+      const a0 = (k / 16) * 2 * Math.PI, a1 = ((k + 1) / 16) * 2 * Math.PI, rad = r * globe.avgEdgeAngle;
+      for (const a of [null, a0, a1]) {
+        p.copy(mid);
+        if (a !== null) p.addScaledVector(e, Math.cos(a) * rad).addScaledVector(n, Math.sin(a) * rad);
+        pos.push(p.x * lift, p.y * lift, p.z * lift); colors.push(col.r, col.g, col.b);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  startMarks = new THREE.Mesh(g, startMat);
+  scene.add(startMarks);
+}
+function startClick(t: number): void {
+  if (tool.kind !== 'start') return;
+  const p = painting(size);
+  if (tool.v === 'remove') {
+    const here = Object.keys(p.starts).filter((k) => p.starts[k] === t);
+    if (!here.length) return;
+    record();
+    for (const k of here) delete p.starts[k];
+  } else {
+    // (On land; one civ to a tile. Set again, a civ's place moves.)
+    if (p.terrain[t] !== LAND || Object.values(p.starts).includes(t)) return;
+    record();
+    p.starts[$<HTMLSelectElement>('startCiv').value] = t;
+  }
+  dirty.add(size);
+  drawStarts();
+  changed();
+}
+
 // Alt+click: the tile's paint becomes the tool (biome, else relief, else terrain).
 function pick(t: number): void {
   const p = painting(size);
@@ -352,7 +405,8 @@ function hover(t: number): void {
   const p = painting(size), [la, lo] = latLon(globeFor(size).tiles[t]!.center);
   const what = p.terrain[t] === SEA ? 'Sea' : p.terrain[t] === LAKE ? 'Lake'
     : `${p.volcanoes.includes(t) ? 'Volcano' : ['Flat', 'Hills', 'Mountains'][p.relief[t]!]} · ${p.biome[t] ? terrainName({ biome: p.biome[t]!, relief: 'flat', feature: null }) : 'biome by climate'}`;
-  el.innerHTML = `${what}<br><small>tile ${t} · ${Math.abs(la).toFixed(1)}°${la >= 0 ? 'N' : 'S'} ${Math.abs(lo).toFixed(1)}°${lo >= 0 ? 'E' : 'W'}</small>`;
+  const begins = Object.keys(p.starts).filter((k) => p.starts[k] === t).join(', ');
+  el.innerHTML = `${what}${begins ? ` · <b>${begins} begin here</b>` : ''}<br><small>tile ${t} · ${Math.abs(la).toFixed(1)}°${la >= 0 ? 'N' : 'S'} ${Math.abs(lo).toFixed(1)}°${lo >= 0 ? 'E' : 'W'}</small>`;
   el.classList.remove('hidden');
 }
 
@@ -377,6 +431,7 @@ function changed(): void {
   $('stats').innerHTML = `<b>${MAP_SCRIPTS[map].name} · ${MAP_SIZES[size].name}</b> <small>${tileCount(MAP_SIZES[size].n).toLocaleString()} tiles${file[size] ? '' : ' · not painted yet (resampled)'}</small>
     <div>Land ${pct(land, N)} of tiles <small>(random maps 35–40%)</small></div>
     <div>Hills ${pct(hills, land)} · mountains ${pct(mountains, land)} of land <small>(12–18%, 5–9%)</small></div>
+    <div>Starting places ${Object.keys(p.starts).length} of ${CIVS.length} civs</div>
     <div>Volcanoes painted ${p.volcanoes.length} <small>(the game adds a few of its own)</small></div>
     <div>Lakes ${lakes} · rivers drawn ${p.rivers.length}${p.rivers.length ? '' : ' <small>(none: the game makes its own)</small>'}</div>
     ${seas.length > 1 ? warn(`${seas.length - 1} sea${seas.length > 2 ? 's' : ''} cut off from the ocean: a channel will be cut to ${seas.length > 2 ? 'them' : 'it'} (or paint them as lakes)`) : ''}
@@ -398,6 +453,7 @@ function switchSize(s: MapSizeKey): void {
   build(globeFor(s));
   recolor();
   drawRivers();
+  drawStarts();
   changed();
 }
 
@@ -423,6 +479,7 @@ $<HTMLSelectElement>('map').addEventListener('change', (e) => {
 });
 $<HTMLSelectElement>('size').innerHTML = SIZES.map((s) => `<option value="${s}">${MAP_SIZES[s].name} (${tileCount(MAP_SIZES[s].n).toLocaleString()} tiles)</option>`).join('');
 $<HTMLSelectElement>('size').addEventListener('change', (e) => { switchSize((e.target as HTMLSelectElement).value as MapSizeKey); (e.target as HTMLElement).blur(); });
+$<HTMLSelectElement>('startCiv').innerHTML = CIVS.map((x) => `<option value="${x.name}">${x.name}</option>`).join('');
 $<HTMLSelectElement>('copyFrom').innerHTML = SIZES.map((s) => `<option value="${s}">${MAP_SIZES[s].name}</option>`).join('');
 $('copy').addEventListener('click', () => {
   const from = $<HTMLSelectElement>('copyFrom').value as MapSizeKey;
@@ -435,8 +492,8 @@ $('copy').addEventListener('click', () => {
 $('clear').addEventListener('click', () => {
   record();
   const p = painting(size);
-  p.terrain.fill(SEA); p.relief.fill(FLAT); p.biome.fill(null); p.rivers = []; p.volcanoes = []; drawing = null;
-  dirty.add(size); recolor(); drawRivers(); changed();
+  p.terrain.fill(SEA); p.relief.fill(FLAT); p.biome.fill(null); p.rivers = []; p.volcanoes = []; p.starts = {}; drawing = null;
+  dirty.add(size); recolor(); drawRivers(); drawStarts(); changed();
 });
 $('save').addEventListener('click', () => { void save(); });
 const brushEl = $<HTMLInputElement>('brush');

@@ -22,13 +22,15 @@ export interface Painting {
   rivers: number[][];
   // Mountains that are volcanoes, by tile (the map has these, and what others the game adds).
   volcanoes: number[];
+  // Where civs begin when the game is played with true starting places (game.ts GameOptions.trueStarts): a tile each, by the civ's name.
+  starts: Record<string, number>;
 }
 
 // ---------- the stored form ----------
 
 // Each layer is one character per tile, run-length coded ("120.3#": 120
 // tiles of '.', then 3 of '#').
-export interface StoredPainting { terrain: string; relief: string; biome: string; rivers?: number[][]; volcanoes?: number[] }
+export interface StoredPainting { terrain: string; relief: string; biome: string; rivers?: number[][]; volcanoes?: number[]; starts?: Record<string, number> }
 export type PaintFile = Partial<Record<MapSizeKey, StoredPainting>>;
 
 const TERRAIN_CH = '.#o';
@@ -63,6 +65,7 @@ export function store(p: Painting): StoredPainting {
     biome: encodeRuns(p.biome.map((b) => BIOME_CH[b ? PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1 : 0]!).join('')),
     ...(p.rivers.length ? { rivers: p.rivers.map((r) => [...r]) } : {}),
     ...(p.volcanoes.length ? { volcanoes: [...p.volcanoes] } : {}),
+    ...(Object.keys(p.starts).length ? { starts: { ...p.starts } } : {}),
   };
 }
 export function load(s: StoredPainting, n: number): Painting {
@@ -74,10 +77,11 @@ export function load(s: StoredPainting, n: number): Painting {
     biome: Array.from(b, (i) => (i ? PAINTABLE_BIOMES[i - 1]! : null)),
     rivers: (s.rivers ?? []).map((r) => [...r]),
     volcanoes: [...(s.volcanoes ?? [])],
+    starts: { ...(s.starts ?? {}) },
   };
 }
 
-export const blank = (n: number): Painting => ({ terrain: new Uint8Array(n), relief: new Uint8Array(n), biome: new Array<BiomeKey | null>(n).fill(null), rivers: [], volcanoes: [] });
+export const blank = (n: number): Painting => ({ terrain: new Uint8Array(n), relief: new Uint8Array(n), biome: new Array<BiomeKey | null>(n).fill(null), rivers: [], volcanoes: [], starts: {} });
 
 // ---------- between sizes ----------
 
@@ -109,3 +113,9 @@ export function paintingFor(file: PaintFile, size: MapSizeKey): Painting {
 // The painted map scripts' files (rules.ts MAP_SCRIPTS).
 export const PAINTED = { earth: EARTH as PaintFile };
 export type PaintedScript = keyof typeof PAINTED;
+
+// The civs' true starting places painted for a map script at a size (none: {}); only a size painted itself has them.
+export const trueStartsOf = (script: string, size: MapSizeKey): Record<string, number> => {
+  const file = (PAINTED as Record<string, PaintFile>)[script];
+  return file?.[size]?.starts ?? {};
+};

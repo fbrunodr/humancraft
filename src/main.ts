@@ -9,6 +9,7 @@ import { TRAIT_KEYS } from './identity.ts';
 import { LEVELS, DEFAULT_LEVEL } from './aiPolicy.ts';
 import { saveGame, loadGame, saveInfo } from './save.ts';
 import { VERSION } from './version.ts';
+import { trueStartsOf } from './mapPaint.ts';
 import { putSave, getSave, downloadSave, pickSave, AUTOSAVE } from './saveStore.ts';
 import { GlobeRenderer, RESOLUTIONS, type DebugView, type Selection, type TileMark } from './render.ts';
 import { UI, assertNever, attackInput, modeOf, wonderPicked, tip, type Action, type Placing, type NextStep } from './ui.ts';
@@ -42,7 +43,7 @@ function showStartScreen(): void {
   const params = new URLSearchParams(location.search);
   const TITLE = '<div class="title"><h1>Human craft</h1></div>';
   // (What is chosen is kept while going back and forth.)
-  let size: MapSizeKey = 'small', script: MapScriptKey = 'continents', speed: GameSpeedKey = DEFAULT_SPEED, level = DEFAULT_LEVEL, civ: ArchCiv | 'random' = 'random', seedText = params.get('seed') ?? String(Math.floor(Math.random() * 1e6));
+  let size: MapSizeKey = 'small', script: MapScriptKey = 'continents', speed: GameSpeedKey = DEFAULT_SPEED, level = DEFAULT_LEVEL, trueStarts = true, civ: ArchCiv | 'random' = 'random', seedText = params.get('seed') ?? String(Math.floor(Math.random() * 1e6));
   const pLevel = Number(params.get('level') ?? NaN);
   if (Number.isInteger(pLevel) && pLevel >= 0 && pLevel < LEVELS.length) level = pLevel;
   const pSize = params.get('size'), pMap = params.get('map'), pCiv = params.get('civ');
@@ -111,6 +112,8 @@ function showStartScreen(): void {
       <div class="scripts">${scripts}</div>` : ''}
       <span class="label">Speed</span>
       <div class="scripts">${(Object.keys(GAME_SPEEDS) as GameSpeedKey[]).map((k) => `<button data-speed="${k}">${GAME_SPEEDS[k].name}</button>`).join('')}</div>
+      <span class="label" data-true>Starting places</span>
+      <div class="scripts" data-true><button data-starts="true">True locations</button><button data-starts="fair">Balanced</button></div>
       <span class="label">Rivals</span>
       <div class="scripts">${LEVELS.map((l, i) => `<button data-level="${i}">${l.name}</button>`).join('')}</div>
       <span class="label">Seed <small>· the same seed makes the same world</small></span>
@@ -121,6 +124,12 @@ function showStartScreen(): void {
     const only = (): MapSizeKey | undefined => (MAP_SCRIPTS[script] as { only?: MapSizeKey }).only;
     const mark = () => {
       if (only()) size = only()!;
+      // (True starting places, where the map has them painted for this size; then only the civs that have one can be played.)
+      const places = trueStartsOf(script, size), hasTrue = Object.keys(places).length >= 2;
+      menu.querySelectorAll<HTMLElement>('[data-true]').forEach((el) => { el.hidden = !hasTrue; });
+      menu.querySelectorAll<HTMLElement>('[data-starts]').forEach((b) => b.classList.toggle('active', (b.dataset['starts'] === 'true') === trueStarts));
+      if (hasTrue && trueStarts && civ !== 'random' && places[civ] === undefined) civ = 'random';
+      menu.querySelectorAll<HTMLButtonElement>('[data-civ]').forEach((b) => { b.disabled = hasTrue && trueStarts && b.dataset['civ'] !== 'random' && places[b.dataset['civ'] ?? ''] === undefined; });
       menu.querySelectorAll<HTMLButtonElement>('[data-size]').forEach((b) => { b.disabled = only() !== undefined && b.dataset['size'] !== only(); });
       menu.querySelectorAll<HTMLElement>('[data-civ]').forEach((b) => b.classList.toggle('active', b.dataset['civ'] === civ));
       menu.querySelectorAll<HTMLElement>('[data-size]').forEach((b) => b.classList.toggle('active', b.dataset['size'] === size));
@@ -134,6 +143,7 @@ function showStartScreen(): void {
     on('[data-go="home"]', home);
     on('[data-civ]', (b) => { const c = b.dataset['civ'] ?? ''; civ = isCiv(c) ? c : 'random'; mark(); });
     on('[data-level]', (b) => { level = Number(b.dataset['level']); mark(); });
+    on('[data-starts]', (b) => { trueStarts = b.dataset['starts'] === 'true'; mark(); });
     on('[data-speed]', (b) => { const s = b.dataset['speed'] ?? ''; if (s in GAME_SPEEDS) { speed = s as GameSpeedKey; mark(); } });
     on('[data-script]', (b) => { const s = b.dataset['script'] ?? ''; if (isMapScript(s)) { script = s; mark(); } });
     on('[data-size]', (b) => { const s = b.dataset['size'] ?? ''; if (isMapSize(s)) { size = s; mark(); } });
@@ -141,10 +151,12 @@ function showStartScreen(): void {
     on('#go', () => {
       const seed = Number(seedBox.value) || 1;
       // (Random: any civ, drawn here, not by the seed: the same seed makes the same world whoever plays it.)
-      const as = civ === 'random' ? CIVS[Math.floor(Math.random() * CIVS.length)]!.name : civ;
+      const places = trueStartsOf(script, size), real = trueStarts && Object.keys(places).length >= 2;
+      const pool = real ? CIVS.filter((c) => places[c.name] !== undefined) : CIVS;
+      const as = civ === 'random' ? pool[Math.floor(Math.random() * pool.length)]!.name : civ;
       // (The world takes a moment to make: said so first, then made.)
       menu.innerHTML = '<div class="loading">Shaping the world…</div>';
-      setTimeout(() => { startGame(new Game({ size, seed, script, level, civ: as, speed })); menu.remove(); }, 40);
+      setTimeout(() => { startGame(new Game({ size, seed, script, level, civ: as, speed, ...(real ? { trueStarts: true } : {}) })); menu.remove(); }, 40);
     });
   }
   // (Esc: back to the first screen.)
@@ -419,7 +431,8 @@ function startGame(game: Game): void {
       case 'found':
         if (unit) {
           const city = game.foundCity(unit);
-          if (city) selectNextUnit();
+          // (A city founded: its panel opens, for what it builds first is the player's to choose.)
+          if (city) selectCity(city);
         }
         break;
       case 'improve':

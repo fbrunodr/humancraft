@@ -4,7 +4,8 @@ import type { ArchCiv } from './architecture.ts';
 import type { Globe, Tile } from './goldberg.ts';
 import type { MapData } from './mapgen.ts';
 import { generateWorld, type World } from './world.ts';
-import { tileYieldOf } from './mapRules.ts';
+import { isWaterKey, tileYieldOf } from './mapRules.ts';
+import { trueStartsOf } from './mapPaint.ts';
 import { mulberry32, type SeededRng } from './rng.ts';
 import {
   unitDef, buildDef, isUnitKey, isWonder, UNITS, BUILDINGS, CIVS, growthCost, UPGRADES, domainOf,
@@ -345,6 +346,9 @@ export interface GameOptions {
   script?: MapScriptKey;
   // Who the human plays as (the first player): that civ, the others following in their order (CIVS); the first of them unless given.
   civ?: ArchCiv;
+  // Each civ where it really began (a painted map that says where: mapPaint.ts starts; the Earth). The civs playing are
+  // the human's and others drawn by the seed from those that have a place; without it, starts are placed fairly.
+  trueStarts?: boolean;
   // Every civ a player (the City Lab): those past the map's starts begin with no units.
   everyCiv?: boolean;
   // How each computer civ decides (aiPolicy.ts), by player id; or one
@@ -428,13 +432,23 @@ export class Game {
   readonly dealOffers: Deal[] = [];             // trades the computer offered the human, for this turn (sides[0]: the offerer)
   readonly events: GameEvent[] = [];            // everything every player did (gameLog.ts)
 
-  constructor({ size, seed, script = 'continents', everyCiv = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs }: GameOptions) {
-    this.options = { size, seed, script, everyCiv, level, speed, ...(policies ? { policies } : {}), ...(turnLimit !== undefined ? { turnLimit } : {}), ...(playAs ? { civ: playAs } : {}) };
+  constructor({ size, seed, script = 'continents', everyCiv = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs, trueStarts = false }: GameOptions) {
+    this.options = { size, seed, script, everyCiv, level, speed, ...(policies ? { policies } : {}), ...(turnLimit !== undefined ? { turnLimit } : {}), ...(playAs ? { civ: playAs } : {}), ...(trueStarts ? { trueStarts } : {}) };
     this.seed = seed;
     this.speed = speed;
     this.pace = GAME_SPEEDS[speed].pace;
     this.turnLimit = turnLimit ?? Math.round(TURN_LIMIT * this.pace);
     this.world = generateWorld(size, seed, script);
+    // (True starting places: the civs that have one, the human's first, the rest in an order the seed draws; as many as the map holds.)
+    const places = trueStarts ? trueStartsOf(script, size) : {};
+    const placed = (name: string) => { const t = places[name]; return t !== undefined && t >= 0 && t < this.world.globe.tiles.length && !isWaterKey(this.world.map.biome[t]!); };
+    let trueCivs: typeof CIVS[number][] | null = null;
+    if (CIVS.filter((c) => placed(c.name)).length >= 2) {
+      const draw = mulberry32(seed ^ 0x51ed270b), rest = CIVS.filter((c) => placed(c.name) && c.name !== playAs).map((c) => ({ c, k: draw() })).sort((a, b) => a.k - b.k).map((x) => x.c);
+      const first = CIVS.filter((c) => c.name === playAs && placed(c.name));
+      trueCivs = [...first, ...rest].slice(0, this.world.starts.length);
+      this.world = { ...this.world, starts: trueCivs.map((c) => places[c.name]!) };
+    }
     this.globe = this.world.globe;
     this.tiles = this.globe.tiles;
     this.N = this.tiles.length;
@@ -459,7 +473,7 @@ export class Game {
     this.explored = new Uint8Array(this.N);
     this.visible = new Uint8Array(this.N);
 
-    const civs = playAs ? [...CIVS.filter((c) => c.name === playAs), ...CIVS.filter((c) => c.name !== playAs)] : CIVS;
+    const civs = trueCivs ?? (playAs ? [...CIVS.filter((c) => c.name === playAs), ...CIVS.filter((c) => c.name !== playAs)] : CIVS);
     this.players = (everyCiv ? civs : civs.slice(0, this.world.starts.length)).map((civ, id) => ({
       id, name: civ.name, color: civ.color, cityNames: civ.cities,
       isHuman: id === HUMAN, alive: true, gold: 0, science: 0, culture: 0, cohesion: 0, faith: 0, era: 0, citiesFounded: 0, offensive: false,
@@ -1204,7 +1218,7 @@ export class Game {
     const name = p.cityNames[p.citiesFounded] ?? `${p.name} ${p.citiesFounded + 1}`;
     p.citiesFounded++;
     const city: City = { id: this.nextId++, name, owner: u.owner, tile: u.tile, pop: 1, food: 0, prod: 0,
-      building: p.isHuman ? 'warrior' : null, buildings: new Set(), founded: this.turn, focus: 'balanced', growth: 0, specialists: noSpecialists(), wonderTile: null, bought: 0,
+      building: null, buildings: new Set(), founded: this.turn, focus: 'balanced', growth: 0, specialists: noSpecialists(), wonderTile: null, bought: 0,
       hp: CITY_HP, founder: u.owner, razing: false, religion: null, devout: 0, blessed: false, culture: 0, ring: START_REACH };
     this.cities.push(city);
     this.cityById.set(city.id, city);
@@ -1325,7 +1339,8 @@ export class Game {
     this.useVersion++;
     city.food = 0;
     city.prod = 0;
-    city.building = p.isHuman ? 'warrior' : null;
+    // (Nothing chosen for the player: what a new city builds is theirs to say, and they are asked.)
+    city.building = null;
     if (newOwner === HUMAN || old.id === HUMAN || this.explored[city.tile]) {
       this.log(`${p.name} captured ${city.name} from ${old.name}!`);
     }
@@ -1985,8 +2000,8 @@ export class Game {
             city.blessed = false;
             this.record('built', city.owner, { city: city.name, item: key });
             if (key === 'settler') this.removeCitizen(city);
-            // (Another of the same only if it still can: no second settlers from a city of one.)
-            if (!p.isHuman || this.unitBlock(city, key) !== null) city.building = null;
+            // (Done: what it builds next is chosen anew, the player asked as the computer asks itself.)
+            city.building = null;
             if (p.isHuman) this.log(`${city.name} completed ${item.name}.`);
           } else if (isWonder(key)) {
             // On its tile, or another if that one was lost (a mountain top); else it waits.
