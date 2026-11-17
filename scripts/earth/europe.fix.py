@@ -4,12 +4,13 @@
 # then: python3 scripts/earth/europe.fix.py; npx tsx scripts/earth.ts --data <dir>
 import os
 D=os.path.dirname(os.path.abspath(__file__))+'/'
-T=[list(l) for l in open(D+'europe.draft.txt').read().split('\n') if l]
-B=[list(l) for l in open(D+'europe.draft.biomes.txt').read().split('\n') if l]
+T=[list(l) for l in open(D+'europe.draft.txt').read().split('\n') if l.strip('\n')!='' or True][:92]
+B=[list(l) for l in open(D+'europe.draft.biomes.txt').read().split('\n')][:92]
 H,W=len(T),len(T[0])
 def clear(c0,c1,r0,r1):
     for r in range(max(0,r0),min(H,r1+1)):
-        for c in range(max(0,c0),min(W,c1+1)): T[r][c]='.'; B[r][c]='.'
+        for c in range(max(0,c0),min(W,c1+1)):
+            if T[r][c]!=' ': T[r][c]='.'; B[r][c]='.'
 def fill(c0,c1,r0,r1,ch='#',b='m'):
     for r in range(r0,r1+1):
         for c in range(c0,c1+1): T[r][c]=ch; B[r][c]=b
@@ -18,7 +19,7 @@ def move(c0,c1,r0,r1,dc,dr):
     clear(c0,c1,r0,r1)
     for i,r in enumerate(range(r0,r1+1)):
         for j,c in enumerate(range(c0,c1+1)):
-            if t[i][j]!='.' and 0<=r+dr<H and 0<=c+dc<W: T[r+dr][c+dc]=t[i][j]; B[r+dr][c+dc]=b[i][j]
+            if t[i][j] not in '. ' and 0<=r+dr<H and 0<=c+dc<W: T[r+dr][c+dc]=t[i][j]; B[r+dr][c+dc]=b[i][j]
 def blob(rows,ch='#',b='m'):   # rows: {row: (c0,c1)}
     for r,(a,z) in rows.items(): fill(a,z,r,r,ch,b)
 
@@ -84,6 +85,11 @@ def ridge(cells):
 ridge([(38,41,51),(39,44,50),(41,47,49),(44,50,48),(47,51,47)])          # the Alps
 ridge([(22,30,55),(23,29,56)])                                            # the Pyrenees
 ridge([(86,99,49),(88,99,50),(91,99,51)])                                 # the Caucasus
+
+# 15. The Black Sea ends short of the picture's edge: land from the Kuban down to Armenia, between it and the Caspian (Asia's).
+for r in range(38,60):
+    for c in range(93,100):
+        if T[r][c]=='.': T[r][c]='h'; B[r][c]='s'
 
 # 14. What is not Europe's to draw is left blank for the regions laid after it: the sea's south-east corner (the Levant's
 #     and Egypt's shores: Asia's and Africa's) and everything south of Crete.

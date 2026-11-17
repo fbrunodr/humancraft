@@ -62,7 +62,7 @@ const PIECES: readonly Piece[] = [
   { name: 'russia', at: [58, 75], reach: 26, by: 0.85, from: ['europe', [56, 50]] },
   { name: 'india', at: [21, 79], reach: 13, by: 1.25, from: ['nearEast', [28, 62]] },
   { name: 'china', at: [32, 108], reach: 20, by: 1.05, from: ['india', [27, 92]] },
-  { name: 'siberia', at: [62, 135], reach: 24, by: 0.8, from: ['china', [50, 120]] },
+  { name: 'siberia', at: [62, 135], reach: 24, by: 1.05, from: ['china', [50, 120]] },
   { name: 'japan', at: [37, 138], reach: 7, by: 1.7, from: ['china', [34.5, 129.5]] },
   { name: 'indies', at: [0, 117], reach: 20, by: 1.25, from: ['china', [6, 101]] },
   { name: 'africa', at: [3, 20], reach: 38, by: 0.9, from: ['europe', [36.8, 10]] },
@@ -86,7 +86,7 @@ const go = (p: THREE.Vector3, far: number, b: number): THREE.Vector3 => {
   const { e, n } = frame(p), dir = n.multiplyScalar(Math.cos(b)).addScaledVector(e, Math.sin(b));
   return p.clone().multiplyScalar(Math.cos(far * RAD)).addScaledVector(dir, Math.sin(far * RAD)).normalize();
 };
-interface Set { readonly real: THREE.Vector3; readonly game: THREE.Vector3; readonly by: number; readonly reach: number }
+interface Set { readonly name: string; readonly real: THREE.Vector3; readonly game: THREE.Vector3; readonly by: number; readonly reach: number }
 const SETS = (() => {
   const out = new Map<string, Set>();
   // (A real place as one piece draws it.)
@@ -102,15 +102,15 @@ const SETS = (() => {
       const shared = vec(p.from![1]), q = draw(parent, shared);
       game = go(q, (shared.angleTo(real) / RAD) * p.by, bearing(shared, real));
     }
-    out.set(p.name, { real, game, by: p.by, reach: p.reach });
+    out.set(p.name, { name: p.name, real, game, by: p.by, reach: p.reach });
   }
   return [...out.values()];
 })();
 // The game's globe to the real one: each piece's own answer, weighed by how near its middle the point is (within its reach, all but its own).
 const EASE = 4;
-const toRealV = (p: THREE.Vector3): THREE.Vector3 => {
+const toRealV = (p: THREE.Vector3, sets: readonly Set[] = SETS): THREE.Vector3 => {
   const sum = new THREE.Vector3();
-  for (const s of SETS) {
+  for (const s of sets) {
     const d = s.game.angleTo(p) / RAD, w = (s.reach * s.by / Math.max(d, 0.5)) ** EASE;
     sum.addScaledVector(go(s.real, d / s.by, bearing(s.game, p)), w);
   }
@@ -118,13 +118,13 @@ const toRealV = (p: THREE.Vector3): THREE.Vector3 => {
 };
 const toReal = (game: THREE.Vector3): LL => latLon(toRealV(game)) as unknown as LL;
 // And the real one to the game's: the nearest piece's answer, then corrected until it comes back to the place asked for.
-const toGame = (real: LL): THREE.Vector3 => {
+const toGame = (real: LL, sets: readonly Set[] = SETS): THREE.Vector3 => {
   const x = vec(real);
-  let best = SETS[0]!, bw = -1;
-  for (const s of SETS) { const w = s.reach / Math.max(s.real.angleTo(x) / RAD, 0.5); if (w > bw) { bw = w; best = s; } }
+  let best = sets[0]!, bw = -1;
+  for (const s of sets) { const w = s.reach / Math.max(s.real.angleTo(x) / RAD, 0.5); if (w > bw) { bw = w; best = s; } }
   let p = go(best.game, (best.real.angleTo(x) / RAD) * best.by, bearing(best.real, x));
   for (let i = 0; i < 30; i++) {
-    const back = toRealV(p), off = back.angleTo(x) / RAD;
+    const back = toRealV(p, sets), off = back.angleTo(x) / RAD;
     if (off < 0.01) break;
     // (As far the other way as it fell short, at this piece's size.)
     p = go(p, off * best.by * 0.8, bearing(back, x));
@@ -359,14 +359,15 @@ interface Patch { readonly name: string; readonly to: THREE.Vector3; readonly ce
 interface Region {
   readonly name: string; readonly at: LL; readonly to: () => THREE.Vector3; readonly by: number; readonly middle: LL;
   readonly cols: number; readonly rows: number; readonly cell: number; readonly keep: (real: LL) => boolean;
-  readonly eased?: boolean; // traced through the pieces above (its size easing into its neighbours'), not at one size about `at`
+  readonly eased?: readonly string[]; // traced through these of the pieces above (its size easing into its neighbours'), not at one size about `at`
 }
 const far = (a: LL, b: LL): number => vec(a).angleTo(vec(b)) / RAD;
 const REGIONS: readonly Region[] = [
   { name: 'europe', at: [48, 14], to: () => vec([40, 15]), by: 2.2, middle: [48, 14], cols: 100, rows: 92, cell: 1,
     keep: (r) => far(r, [48, 14]) <= 31 && r[0] >= 29.5 },
   // (Asia, traced through the pieces: all that lies east of the Red Sea, the Levant and Europe's drawing.)
-  { name: 'asia', at: [35, 95], to: () => toGame([35, 95]), by: 1, middle: [35, 95], cols: 180, rows: 120, cell: 1, eased: true,
+  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], cols: 180, rows: 120, cell: 1,
+    eased: ['europe', 'nearEast', 'russia', 'india', 'china', 'siberia', 'japan', 'indies'],
     keep: (r) => {
       const [lat, lon] = r;
       if (lon < 0 ? lon > -168 : lon < 26) return false;           // (as far east as the Bering Strait)
@@ -381,8 +382,9 @@ const REGIONS: readonly Region[] = [
 const regionOf = (name: string): Region => { const r = REGIONS.find((x) => x.name === name); if (!r) throw new Error(`no region ${name}`); return r; };
 // A region's own laying of the real world on the game's, and back; the middle of its picture on the game's globe.
 const layOf = (r: Region): { real: THREE.Vector3; game: THREE.Vector3; by: number } => ({ real: vec(r.at), game: r.to(), by: r.by });
-const laid = (r: Region, real: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toGame(latLon(real) as unknown as LL); const l = layOf(r); return go(l.game, (l.real.angleTo(real) / RAD) * l.by, bearing(l.real, real)); };
-const unlaid = (r: Region, game: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toRealV(game); const l = layOf(r); return go(l.real, l.game.angleTo(game) / RAD / l.by, bearing(l.game, game)); };
+const setsOf = (r: Region): Set[] => SETS.filter((s) => r.eased!.includes(s.name));
+const laid = (r: Region, real: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toGame(latLon(real) as unknown as LL, setsOf(r)); const l = layOf(r); return go(l.game, (l.real.angleTo(real) / RAD) * l.by, bearing(l.real, real)); };
+const unlaid = (r: Region, game: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toRealV(game, setsOf(r)); const l = layOf(r); return go(l.real, l.game.angleTo(game) / RAD / l.by, bearing(l.game, game)); };
 const middleOf = (r: Region): THREE.Vector3 => laid(r, vec(r.middle));
 // The point of the game's globe under a cell of a region's picture.
 function cellGame(name: string, col: number, row: number): THREE.Vector3 {
@@ -573,6 +575,28 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     }
     console.log(lines.join('\n')); console.log('--- with the places marked ---'); console.log(marked.join('\n'));
   }
+  // --show <region>: the world as painted (this size's tiles), seen through a region's picture: to find what the regions make together.
+  if (arg('show', '') && size === arg('showSize', 'medium')) {
+    const reg = regionOf(arg('show', ''));
+    for (let r = 0; r < reg.rows; r++) {
+      let line = '';
+      for (let q = 0; q < reg.cols; q++) { const t = nearestTile(globe, cellGame(reg.name, q, r)); line += paint.terrain[t] === SEA ? '.' : paint.terrain[t] === LAKE ? 'o' : paint.relief[t] === MOUNTAINS ? '^' : paint.relief[t] === HILLS ? 'h' : '#'; }
+      console.log(line);
+    }
+  }
+  // --where <tile,tile...>: where tiles of the medium globe fall in each region's picture, and what is drawn there.
+  if (arg('where', '') && size === 'medium') {
+    for (const id of arg('where', '').split(',').map(Number)) {
+      const t = globe.tiles[id]!, out: string[] = [];
+      for (const patch of PATCHES) {
+        const cols = Math.max(...patch.rows.map((x) => x.length)), at = cellOf(patch.to, t.center, cols, patch.rows.length, patch.cell);
+        if (at) out.push(`${patch.name} (${Math.floor(at[0])},${Math.floor(at[1])}) '${patch.rows[Math.floor(at[1])]?.[Math.floor(at[0])] ?? ''}'`);
+      }
+      console.log(`  tile ${id}: ${['sea', 'land', 'lake'][paint.terrain[id]!]}; ${out.join('; ')}; next to ${t.neighbors.map((x) => `${x}${paint.terrain[x] === SEA ? '~' : ''}`).join(' ')}`);
+    }
+  }
+  // --tileAt <region>,<col>,<row>: the medium globe's tile under a cell of a region's picture.
+  if (arg('tileAt', '') && size === 'medium') { const [n, c, r] = arg('tileAt', '').split(','); console.log(`  tileAt ${nearestTile(globe, cellGame(n!, Number(c), Number(r)))}`); }
   if (process.env['PROBE']) for (const [name, lat, lon] of JSON.parse(process.env['PROBE']) as [string, number, number][]) {
     const t = tileAt([lat, lon]), back = toReal(globe.tiles[t]!.center), at = latLon(globe.tiles[t]!.center);
     console.log(`  ${name} [${lat}, ${lon}]: tile ${t} at game ${at[0].toFixed(1)}, ${at[1].toFixed(1)}; its middle is really ${back[0].toFixed(1)}, ${back[1].toFixed(1)}; share ${share[t]!.toFixed(2)} lake ${lake[t]!.toFixed(2)} terrain ${paint.terrain[t]}`);
@@ -619,12 +643,14 @@ if (arg('draft', '')) {
     let a = '', b = '';
     for (let q = 0; q < cols; q++) {
       const v = unlaid(reg, cellGame(reg.name, q, r)), real = latLon(v) as unknown as LL;
-      const on = reg.keep(real) && within(COAST, real) && !within(LAKES, real);
+      const kept = reg.keep(real), lake = kept && within(LAKES, real), on = kept && within(COAST, real) && !lake;
       let t = nearestTile(trueScale.globe, v);
       if (on && trueScale.paint.terrain[t] !== LAND) t = trueScale.globe.tiles[t]!.neighbors.find((n) => trueScale.paint.terrain[n] === LAND) ?? t;
       const relief = trueScale.paint.terrain[t] === LAND ? trueScale.paint.relief[t] : FLAT, biome = trueScale.paint.terrain[t] === LAND ? trueScale.paint.biome[t] : null;
-      a += !on ? '.' : relief === MOUNTAINS ? '^' : relief === HILLS ? 'h' : '#';
-      b += !on ? '.' : '-ItTcspFRmdvMJ'[biome ? PAINTABLE_BIOMES.indexOf(biome as typeof PAINTABLE_BIOMES[number]) + 1 : 7]!;
+      // (What is not the region's is left blank: another region's to draw.)
+      // (A lake is a lake: left as sea, an inland sea is joined to the ocean by the game.)
+      a += !kept && !reg.eased ? ' ' : lake ? 'o' : !on ? '.' : relief === MOUNTAINS ? '^' : relief === HILLS ? 'h' : '#';
+      b += !kept && !reg.eased ? ' ' : !on ? '.' : '-ItTcspFRmdvMJ'[biome ? PAINTABLE_BIOMES.indexOf(biome as typeof PAINTABLE_BIOMES[number]) + 1 : 7]!;
     }
     land.push(a); kinds.push(b);
   }

@@ -49,10 +49,10 @@
 ...........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTFTTTTTpsss....sssss..pppppFFFFFFFFF
 ...........................FFFFFFFFFFFFFFFFFTTTTTTTFFFFTTmmmmTTFFFFTTppppp.....sssp......FFFFFFFFFFF
 ...........................FFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp......s...........FFFFFFFF
-..........................mmFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp....................FFFFFF
-.............mmmmm........mmFFFFFFFFmmmFFFFFTTT....FFFFFmmmmmmFFFFFFppppp......................FFFFF
-..............mmmmmm......mmFFFFFFmmmmmmFFFFFTTT.....FFFmmmmmmFFFFFFppppp......................FFFFF
-.............mmmmmmmmmmm.mmmFFFFFFmmmmmmmFFFFFT......FFmmmmmmFFFFFFFFpppp.....................pFFFFF
+..........................mmFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp...................sFFFFFF
+.............mmmmm........mmFFFFFFFFmmmFFFFFTTT....FFFFFmmmmmmFFFFFFppppp....................ssFFFFF
+..............mmmmmm......mmFFFFFFmmmmmmFFFFFTTT.....FFFmmmmmmFFFFFFppppp....................ssFFFFF
+.............mmmmmmmmmmm.mmmFFFFFFmmmmmmmFFFFFT......FFmmmmmmFFFFFFFFpppp....................spFFFFF
 .............mmmmmmmmmmmmmmFFFFFFFmmmmmmm...mmmm......mmmmmFFFFFFFFFFFFp...................FpppppFFp
 .............mmmmmmmmmmmFFFFFFFFF...mm......mmmmm.....mmmmmFFFFFFFFFFFFp.........mmmmm.mmmmppppppppp
 .............mmmmmmmmmmmFFFFFFFm.............mmmmm.....mmmmFFFFFFFFFFFFp........mmmmmmmmmmmppppppppp
