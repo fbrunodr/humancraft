@@ -1,0 +1,137 @@
+; asia: what was changed by hand in the map editor (scripts/earth.ts --absorb), over asia.txt. Blank: as the drawing has it.
+                                                                                                                                               #
+                                                                                                                                              ###
+                                                                                                                                              ###
+                                                                                                                                               ##
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                        ###
+                                                                                                                                        ###
+                                                                                                                                         ##
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                ###
+                                                                                                                               ####
+                                                                            ###                                       hhh       ###
+                                                                            ###                                       hhhh
+                                                                             ##                                       hhh
+
+                                                                                   hhh
+                                                                                   hhhh
+                                                                                    hh    hh
+                                                                                         hhh
+                                                                                         hhh
+
+
+
+
+
+                                                                                        hh                       hhh
+                                                                                       hhh                       hhh
+                                                                                       hhh                       hhh
+                                                                                        h                        hhh
+
+
+
+
+
+                                                                              h
+                                                                             hhh
+                                                                             hhh
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                   ###
+                                                                                          hh      ####
+                                                                                         hhhh      ###
+                                                                                         hhhh                  ##
+                                                                                          hh                   ###
+                                                                                                               ###
+                                                                                                               ###
+
+                                                                                   hhh
+                                                                                   hhh
+                                                                                   hhh
+                                                                                   hhh
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                    hhh
+                                                                                                                                                   hhhh
+                                                                                                                                                   hhhh
+                                                                                                                                                    hhh
+                                                                                                                                                    hhhh
+                                                                                                                                                    hhhh

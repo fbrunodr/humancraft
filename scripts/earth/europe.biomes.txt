@@ -1,0 +1,93 @@
+; Europe's biomes, cell for cell with europe.txt, in mapPaint.ts's letters (t tundra, T taiga, F temperate forest, p prairie, s steppe, m mediterranean, d hot desert...).
+.................TTTTTTTT.........................ttttttttTTtttTTTTTTTTTT.TTTTTTTTTTTTTTTttttttTTTTT
+.................TTTTTTT..........................t.tttttTTTTTTTTTTTTTTTT.TTTTTTTTTTTTTTTtttttttTTTT
+.................TTTTTTTT..........................tttttTTTTTTTTTT...T....TTTTTTTTTTTTTTTTttttttttTT
+.................TTTTTTT..........................ttttttTTTTTTTTTTTT.....TTTTTTTTTTTTTTTTTTTtttttttT
+..................TTT.............................tttttttTTTTTTTTTTTT.....TTTTTTTTTTTTTTTTTTTttttttT
+.................................................ttttttttTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTttttttt
+.................................................ttttttttt..TTTTTTTTTT...TTTTTTTTTTTTTTTTTTTTttttttt
+................................................ttttttttt....TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttttttt
+................................................ttttttttt...tTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttttt
+...............................................tttttttttt...tTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttt
+..............................................ttttttttttt..ttTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttt
+..............................................tttttttttt..ttTTTTTTTTTT.TTTTTTTTTTTTTTTTTTTTTTTTTTttt
+............................................ttttttttttt...tTTT.T.TTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTttt
+..........................FFF.............tttttttttttt...ttTTTTT.TTTTTTTTTTTTTTTTTTTTTTTTTpTTTTTpppt
+.........................FFFFF...........ttttttttttttt....tTTTTT..T..TTTTTTTTTTTTTppppTTpppppTpppppp
+........................FFFFFF...........ttttttttttttt....tTTTTT.TT...TTTTTTTTTTTppppppppppppppppppp
+........................FFFFFFF..........tttttttttttt.....TTTTTTTTTT..TTTTTTTTTTTppppppppppppppppppp
+.........................FFFFFF.........tttttttTTtttT.....TTTTT....TTTTTTTTTTTTTTppppppppppppp.ppppp
+.........................FFFFFF.........ttttttTTTTTTTT.....TTT....TTTTTTTTTTTTTTTppppppppppppppppppp
+.........................FFFFF...........tttttTTTTTTTTT........T.TTTTTTTTTTTTTTTTFpppppppppp.ppppppp
+.........................FFFFF..........ttttttTTTTTTTTT......TTTTTTTFFTTTFFFFTTFFFFFpppppppp.ppppppp
+.........................FFFFF..........tttttt.TTTTTTTT......FFFFTFFFFFFFFFFFFFFFFFFpppppppp.ppppppp
+................FFFF.....FFFFFF..........ttt...TTTFFF......T.FFFFFFFFFFFFFFFFFFFFFFFFpppppppp.pppppp
+...............FFFFF.....FFFFFF.................TFFFF......T..FFFFFFFFFFFFFFFFFFFFFFFppppppppppppppp
+..............FFFFFF.....FFFFFF.................TFFFF..T...TF.FFFFFFFFFFFFFFFFFFFFFFFppppppppppppppp
+..............FFFFFF....FFFFFFF.................TFFFF..T...TFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppppppppp
+..............FFFFFF...FFFFFFFFF...........FFF...FFFF......FFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppppppppppp
+..............FFFFF....FFFFFFFFFF.........FFFF...FFFF......FFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppppppppppp
+..............FFFF.....FFFFFFFFFF.........FFFF...F.........FFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppppppppppp
+...............FF.......FFFFFFFFF.........FFFF...F.........FFFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppFppppp
+.........................FFFFFFFF.........FFFF............FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppFFFFppF
+.......................FFFFFFFFFF.........FFFF.......FFF.FFFFFFFFFFpppFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+.....................FFFFFFFFFFF..........FFFF...F..FFFFFFFFFFFFFpppppppFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+.....................FFFFFFFFFF..........F.FFFFFFFFFFFFFFFFFFFFFFFppppppFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+.......................FFFFF..........FFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+.....................................FFFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppFFFFFFFFFFFFFFFFFFFpFFFFFppF
+....................................FFFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppppFFFFpppFFFppppFFpppppFFpppp
+.....................................FFFFFFFFFFFFFFFFFFFFFTTTFFppppppppppppppppppppppppppppppppppppp
+...................................FFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppppppppppppppppppppp
+.................................FFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppppppppppppppppppppp
+..............................FFFFFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppppppppppppppppppppp
+.......................FFF..FFFFFFFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppsppppppppppppFFpppp
+.......................FFFFFFFFFFFFFFFFFFFFFFTFFFFTFFFFTTTTTTTTTpppTTTpppssssppsssspp..pppppFFFFFppF
+........................FFFFFFFFFFFFFFFFFFFTTTTFTTTTTTTTTTTTTTTTTTTTTTTTssssssssssss.ppppppFFFFFFFFF
+..........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTssssssssss....pppppFFFFFFFFF
+..........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTssssssssss....pppppFFFFFFFFF
+..........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTsss..ss.ss....pppppFFFFFFFFF
+...........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTFTTTTTpsss....sssss..pppppFFFFFFFFF
+...........................FFFFFFFFFFFFFFFFFTTTTTTTFFFFTTmmmmTTFFFFTTppppp.....sssp......FFFFFFFFFFF
+...........................FFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp......s...........FFFFFFFF
+..........................mmFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp...................sFFFFFF
+.............mmmmm........mmFFFFFFFFmmmFFFFFTTT....FFFFFmmmmmmFFFFFFppppp....................ssFFFFF
+..............mmmmmm......mmFFFFFFmmmmmmFFFFFTTT.....FFFmmmmmmFFFFFFppppp....................ssFFFFF
+.............mmmmmmmmmmm.mmmFFFFFFmmmmmmmFFFFFT......FFmmmmmmFFFFFFFFpppp....................spFFFFF
+.............mmmmmmmmmmmmmmFFFFFFFmmmmmmm...mmmm......mmmmmFFFFFFFFFFFFp...................FpppppFFp
+.............mmmmmmmmmmmFFFFFFFFF...mm......mmmmm.....mmmmmFFFFFFFFFFFFp.........mmmmm.mmmmppppppppp
+.............mmmmmmmmmmmFFFFFFFm.............mmmmm.....mmmmFFFFFFFFFFFFp........mmmmmmmmmmmppppppppp
+............mmmmmmmmmmmmFFFFFFmm.............mmmmm.......mmFFFFFFFFFFFFp.......mmmmmmmmmmmmppppppppp
+...........mmmmmmmmmmmmmFFFFFFmm......mmm.....mmmmm.......mFFFFFFFFFFFFp....ppmmmmmmmmmmmmmppppppppp
+...........mmmmmmmmmmmmmmFFFF.........mmmm.....mmmmm.......FFFFFFFFFFFFF....pFFmmmmmFmmmmmmppppppppp
+..........mmmmmmmmmmmmmmmmFF..........mmmm.....mmmmm.......FFFFFFFF.........FFFFmmFFFFFmmpppppppssss
+...........mmmmmmmmmmmmmmmp............mmm.....mmmmmm......FFFFFFF..........FFFFFFFFFFFFpppppppsssss
+...........mpmmmmmmmmmmmmm....mmm.....mmmm.....mmmmmmm.....FFFFF............FFFFFFFFFFFFpppppppsssss
+..........ppppmmmmmmmmmmmm....mmmm....mmmm.....mmmmmmmmmm...FFFFF.......FFFFFFFFFFFFFFFFppppppssssss
+...........ppppmmppppmmmmm.....mmm....mmmm.........mmmmmmm...mFFF.F.....FFFFFFFFFFFFFFFFppppppssssss
+..............ppppppppmmp..............mm..........mmmm.mm...mmmmmp....FFFFFFFFFFFFFFFFp.pppppmsssss
+..............ppppppppp...........................mmmmm......mmmmmp......FFFFFFFFFFFFp..            
+................................................mmmmmm.......mmmmm.p.p...FFFFFF..FFFp...            
+...............................................mmmmm..........mmm............FF.........            
+..............................................mmmm......................................            
+                                     .............................................mmmm..            
+                                     ............................................mmmmmm.            
+                                     ..............................mmmmmm.........mmmm..            
+                                     ......mmmmmmm................mmmmmmmm..............            
+                                     .....mmmmmmmm..................mmmmm...............            
+                                     ......mmmmmm.......................................            
+                                     .......mmm.........................................            
+                                     ...................................................            
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    

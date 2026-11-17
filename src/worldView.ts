@@ -49,6 +49,8 @@ game.cities.length = 0;
 game.explored.fill(1);
 game.visible.fill(1);
 const view = new GlobeRenderer($<HTMLCanvasElement>('c'), game);
+// (For looking at a place from a script: scripts/earth.ts's previews.)
+(window as unknown as { __view: GlobeRenderer }).__view = view;
 view.syncWorld(null);
 $('hint').textContent = `${MAP_SIZES[size].name} · ${MAP_SCRIPTS[script].name} · seed ${seed}`;
 if (import.meta.env.DEV) Object.assign(window, { __globe: { game, view } });

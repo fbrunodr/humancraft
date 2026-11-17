@@ -1,0 +1,92 @@
+.................TTTTTTTT.........................ttttttttTTtttTTTTTTTTTT.TTTTTTTTTTTTTTTttttttTTTTT
+.................TTTTTTT..........................t.tttttTTTTTTTTTTTTTTTT.TTTTTTTTTTTTTTTtttttttTTTT
+.................TTTTTTTT..........................tttttTTTTTTTTTT...T....TTTTTTTTTTTTTTTTttttttttTT
+.................TTTTTTT..........................ttttttTTTTTTTTTTTT.....TTTTTTTTTTTTTTTTTTTtttttttT
+..................TTT.............................tttttttTTTTTTTTTTTT.....TTTTTTTTTTTTTTTTTTTttttttT
+.................................................ttttttttTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTttttttt
+.................................................ttttttttt..TTTTTTTTTT...TTTTTTTTTTTTTTTTTTTTttttttt
+................................................ttttttttt....TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttttttt
+................................................ttttttttt...tTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttttt
+...............................................tttttttttt...tTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttt
+..............................................ttttttttttt..ttTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTttt
+............................F.................tttttttttt..ttTTTTTTTTTT.TTTTTTTTTTTTTTTTTTTTTTTTTTttt
+............................................ttttttttttt...tTTT.T.TTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTttt
+..........................................tttttttttttt...ttTTTTT.TTTTTTTTTTTTTTTTTTTTTTTTTpTTTTTpppt
+.........................................ttttttttttttt....tTTTTT..T..TTTTTTTTTTTTTppppTTpppppTpppppp
+.........................................ttttttttttttt....tTTTTT.TT...TTTTTTTTTTTppppppppppppppppppp
+.........................................tttttttttttt.....TTTTTTTTTT..TTTTTTTTTTTppppppppppppppppppp
+........................................tttttttTTtttT.....TTTTT....TTTTTTTTTTTTTTppppppppppppp.ppppp
+........................................ttttttTTTTTTTT.....TTT....TTTTTTTTTTTTTTTppppppppppppppppppp
+..............................T..........tttttTTTTTTTTT........T.TTTTTTTTTTTTTTTTFpppppppppp.ppppppp
+............................TT..........ttttttTTTTTTTTT......TTTTTTTFFTTTFFFFTTFFFFFpppppppp.ppppppp
+...........................TT...........tttttt.TTTTTTTT......FFFFTFFFFFFFFFFFFFFFFFFpppppppp.ppppppp
+........................T.TTTpp..........ttt...TTTFFF......T.FFFFFFFFFFFFFFFFFFFFFFFFpppppppp.pppppp
+..........................TTppp...........t....TTFFFF......T..FFFFFFFFFFFFFFFFFFFFFFFppppppppppppppp
+..........................TTpp.................TTFFFF..T...TF.FFFFFFFFFFFFFFFFFFFFFFFppppppppppppppp
+..........................Tppp...............TT.TFFFF..T...TFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppppppppp
+......................FF...Fpp.............TTT..TFFFF......FFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppppppppppp
+....................F.FFF.FFFpp............FTT..FFFFF......FFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppppppppppp
+...................FFFFFF...FFF............FF..FFF.........FFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppppppppppp
+...................FFFFF....FFF............FFFFF.F.........FFFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppFppppp
+...................FFFFF....FFFF...........FF..F..........FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFpppFFFFppF
+..................FFFFFF....FFFF............F........FFF.FFFFFFFFFFpppFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+..................FFFFF...FFFFFF...........FFF.FFF..FFFFFFFFFFFFFpppppppFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+..........................FFFFFF.........F.FFFFFFFFFFFFFFFFFFFFFFFppppppFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+........................FFFFFFFFFF....FFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+..........................F.FFFFF....FFFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppFFFFFFFFFFFFFFFFFFFpFFFFFppF
+.........................FFFFFFF....FFFFFFFFFFFFFFFFFFFFFFFFFFFFFppppppppFFFFpppFFFppppFFpppppFFpppp
+.......................FFF.FFFFFF....FFFFFFFFFFFFFFFFFFFFFTTTFFppppppppppppppppppppppppppppppppppppp
+.................................FFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppppppppppppppppppppp
+.................................FFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppppppppppppppppppppp
+..............................FFFFFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppppppppppppppppppppp
+.......................FFF..FFFFFFFFFFFFFFFFFFFFFFFFFFFFTTTTTTpppppppppppppppppppsppppppppppppFFpppp
+.......................FFFFFFFFFFFFFFFFFFFFFFTFFFFTFFFFTTTTTTTTTpppTTTpppssssppsssspp..pppppFFFFFppF
+........................FFFFFFFFFFFFFFFFFFFTTTTFTTTTTTTTTTTTTTTTTTTTTTTTssssssssssss.ppppppFFFFFFFFF
+..........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTssssssssss....pppppFFFFFFFFF
+..........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTssssssssss....pppppFFFFFFFFF
+..........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTsss..ss.ss....pppppFFFFFFFFF
+...........................FFFFFFFFFFFFFFFFTTTTTTTTTTTTTTTTTTTTTTFTTTTTpsss....sssss..pppppFFFFFFFFF
+...........................FFFFFFFFFFFFFFFFFTTTTTTTFFFFTTmmmmTTFFFFTTppppp.....sssp......FFFFFFFFFFF
+...........................FFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp......s...........FFFFFFFF
+..........................mmFFFFFFFFFFFFFFFFTTTTTTFFFFFFmmmmmmFFFFFFpppppp....................FFFFFF
+.............mmmmm........mmFFFFFFFFmmmFFFFFTTT..TFFFFFFmmmmmmFFFFFFppppp......................FFFFF
+..............mmmmmm......mmFFFFFFmmmmmmFFFFFTTT...FFFFFmmmmmmFFFFFFppppp......................FFFFF
+.............mmmmmmmmmmm.mmmFFFFFFmmmmmmmFFFFFT.....FFFmmmmmmFFFFFFFFpppp.....................pFFFFF
+.............mmmmmmmmmmmmmmFFFFFFFmmmmmmm...FFFF....FmmmmmmFFFFFFFFFFFFp...................FpppppFFp
+.............mmmmmmmmmmmFFFFFFFFF...mmm.....FFFFF....mmmmmmFFFFFFFFFFFFp.........mmmmm.mmmmppppppppp
+.............mmmmmmmmmmmFFFFFFFm............FFFFFF.....mmmmFFFFFFFFFFFFp........mmmmmmmmmmmppppppppp
+............mmmmmmmmmmmmFFFFFFmm..........F..FmFFF.......mmFFFFFFFFFFFFpp......mmmmmmmmmmmmppppppppp
+...........mmmmmmmmmmmmmFFFFFFmm.........mm...mmFFF.......mFFFFFFFFFFFFpppppppmmmmmmmmmmmmmppppppppp
+...........mmmmmmmmmmmmmmFFFF............m.....mmFpppp.....FFFFFFFFFFFFFp...pFFmmmmmFmmmmmmppppppppp
+..........mmmmmmmmmmmmmmmmFF....................mppppp.....FFFFFFFF...FF...FFFFFmmFFFFFmmpppppppssss
+...........mmmmmmmmmmmmmmmp.............mmm.......pppppF...FFFFFFF.....FFFFFFFFFFFFFFFFFpppppppsssss
+...........mpmmmmmmmmmmmmm.....p.........mp.........pppFF..FFFFF.......FFFFFFFFFFFFFFFFFpppppppsssss
+..........ppppmmmmmmmmmmmm.....p.........pp..........p......FFFFF.......FFFFFFFFFFFFFFFFppppppssssss
+...........ppppmmppppmmmmm..............ppp..........pm......mFFF.F.....FFFFFFFFFFFFFFFFppppppssssss
+..............ppppppppmmp.............................m.......mFFFp....FFFFFFFFFFFFFFFFp.pppppmsssss
+..............ppppppppp..............................m.......mmm.pp......FFFFFFFFFFFFp...pppmmmmssss
+..............pp...ppp..............................mm.........mpp.p.p...FFFFFF..FFFp....ppmmmmmmmss
+...............p...............................mmmmm...........mp............FF..........ppmmmmmmmss
+..............pp..............pppp..p.....d......mmm...........mpp...................p...ppmmmmmmmss
+.............pppp........pppppppppppppppppd.d......m...............................Fp.....pmmmmmmmss
+............ppppppppp.ppppppppppppppppppppdd.............................................pmmmmmmmmss
+..........mppppppppppppppppppppppcccppppppdd.......................p.pp..................mmmmmmmmmms
+........mmmppppppppppppppppppppccccccpppddddd............................................mmmmmmmmmmm
+.......mmmmmpppppppppppppppppppcccccccdddddd.............................................mmmmmmmmmmm
+......dmmmmmmppmmmpppppppppppppcccccccdddddd.............................................mmmmmmmmmmm
+.....ddmmmmmmmmmmmmmppmmmppppppcccccccddddd..............................................mmmmmmmmmmm
+.....dmmmmmmmmmmmmmmmmmmmmpppsssccccccdddddd.............................................mmmmmmmmmmm
+.....dmmmmmmmmmmmmmmmmmmmmmsssssscccssdddddds...................mm......................mmmmdddmmmmd
+  ..dddmmmmmmmmmmmmmmmmmmmmsssssssssssssdddsssssss............ddmmm..............mmmmmmmmmdddddddd  
+     ddddmmdddmmmmmmmmmmmmmsssssssssssssssssssssssss.........dddmmmmmmm.m.......mmmmmmmmmmddddd     
+         ddddddmmmdddmmmmmmssssssssssssssssssssssssss........dddmmmmmmmmmmmmmmmmmmmmmmmmmmd         
+             dddddddddmmmmdssssssssssssssssssssssssss.........dddmmmmddmmmmmmmmmmmmmm.m             
+                  ddddddddddsssssdssssssssssssssssssssddd....dddddddddddmmddddmmmm                  
+                       ddddddddddddssssddsssssssssssssddddd.ddddddddddddddddd                       
+                              ddddddddddddssssddssssssdddddddddddddddd                              
+                                          dsdddddsssdddddd                                          
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    

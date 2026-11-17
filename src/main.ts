@@ -89,8 +89,7 @@ function showStartScreen(): void {
       const s = MAP_SIZES[k];
       return `<button data-size="${k}"><b>${s.name}</b><span>${tileCount(s.n).toLocaleString()} tiles · ${s.players} civs</span></button>`;
     }).join('');
-    // (The lands on offer: the Earth is not, until it is drawn well enough to be played on; ?map=earth still plays it, and the dev pages show it.)
-    const offered: readonly MapScriptKey[] = ['continents'];
+    const offered = Object.keys(MAP_SCRIPTS) as MapScriptKey[];
     const scripts = offered.map((k) => `<button data-script="${k}">${MAP_SCRIPTS[k].name}</button>`).join('');
     menu.innerHTML = `<div>${TITLE}<div class="card">
       <div class="cardhead">${BACK}<h2>New game</h2></div>
@@ -108,7 +107,11 @@ function showStartScreen(): void {
       <div class="seedrow"><input id="seed" type="text" inputmode="numeric" value="${seedText.replace(/[^0-9]/g, '')}"><button id="dice">Another</button></div>
       <button id="go" class="primary">Begin</button>
     </div></div>`;
+    // (A map made for one size of world is played on that size: the Earth on the large one.)
+    const only = (): MapSizeKey | undefined => (MAP_SCRIPTS[script] as { only?: MapSizeKey }).only;
     const mark = () => {
+      if (only()) size = only()!;
+      menu.querySelectorAll<HTMLButtonElement>('[data-size]').forEach((b) => { b.disabled = only() !== undefined && b.dataset['size'] !== only(); });
       menu.querySelectorAll<HTMLElement>('[data-civ]').forEach((b) => b.classList.toggle('active', b.dataset['civ'] === civ));
       menu.querySelectorAll<HTMLElement>('[data-size]').forEach((b) => b.classList.toggle('active', b.dataset['size'] === size));
       menu.querySelectorAll<HTMLElement>('[data-script]').forEach((b) => b.classList.toggle('active', b.dataset['script'] === script));

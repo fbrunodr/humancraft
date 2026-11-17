@@ -335,7 +335,9 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
     if (mains >= limits.rivers.min && network.rivers.filter(longEnough).length >= limits.longRivers) break;
     network = generateRivers(globe, biome, elevation, rainfall, { ...RIVER_DEFAULTS, flowQuantile: q });
   }
-  const { rivers, cornerElevation } = network;
+  const { cornerElevation } = network;
+  // (A painted map with rivers drawn has those, and no others: each as wide as a generated river of its rank, swelling to its mouth.)
+  const rivers = paint && paint.rivers.length ? drawnRivers(globe, paint.rivers, network.rivers) : network.rivers;
   const riverTile = new Uint8Array(N);
   const riverFlowAt = new Float32Array(N);
   for (const r of rivers) {
@@ -364,7 +366,8 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
   // Volcanoes: an exact count, far apart, favoring coastal ranges (F1).
   const volcanoSites = shuffle(rand, mountains.filter((t) => allowed('volcano', t)))
     .sort((a, b) => (coastDist[a] <= 3 ? 0 : 1) - (coastDist[b] <= 3 ? 0 : 1));
-  if (!pickSpaced(globe, volcanoSites, randInt(rand, limits.volcanoes), limits.volcanoSpacing, (t) => { feature[t] = 'volcano'; })) return null;
+  // (A painted map takes what features fit it: a small land may have no room for them all.)
+  if (!pickSpaced(globe, volcanoSites, randInt(rand, limits.volcanoes), limits.volcanoSpacing, (t) => { feature[t] = 'volcano'; }) && !paint) return null;
 
   // Floodplains and riverside wetlands follow the bigger rivers; coastal
   // marshes and swamps form in wet lowlands by the water.
@@ -392,12 +395,12 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
 
   // Oases: an exact count in deserts, spread out (F4).
   const oasisSites = shuffle(rand, tiles.map((t) => t.id).filter((t) => allowed('oasis', t)));
-  if (!pickSpaced(globe, oasisSites, randInt(rand, limits.oases), limits.oasisSpacing, (t) => { feature[t] = 'oasis'; })) return null;
+  if (!pickSpaced(globe, oasisSites, randInt(rand, limits.oases), limits.oasisSpacing, (t) => { feature[t] = 'oasis'; }) && !paint) return null;
 
   // Reef systems in warm shallows, kelp forests in cool ones (F2, F3).
   const shallowFree = (t: number) => biome[t] === 'shallowSea' && feature[t] === null;
-  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 21, randInt(rand, limits.reefSystems), limits.clusterTiles, (t) => { feature[t] = 'reef'; })) return null;
-  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 4 && seaLevelTemp[t] < 16, randInt(rand, limits.kelpSystems), limits.clusterTiles, (t) => { feature[t] = 'kelp'; })) return null;
+  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 21, randInt(rand, limits.reefSystems), limits.clusterTiles, (t) => { feature[t] = 'reef'; }) && !paint) return null;
+  if (!growClusters(globe, rand, (t) => shallowFree(t) && seaLevelTemp[t] > 4 && seaLevelTemp[t] < 16, randInt(rand, limits.kelpSystems), limits.clusterTiles, (t) => { feature[t] = 'kelp'; }) && !paint) return null;
 
   return { biome, relief, feature, elevation, temperature, rainfall, flow, rivers, riverTile, cornerElevation };
 }
@@ -781,4 +784,24 @@ class MinHeap {
     [this.tilesQ[a], this.tilesQ[b]] = [this.tilesQ[b], this.tilesQ[a]];
     [this.idsQ[a], this.idsQ[b]] = [this.idsQ[b], this.idsQ[a]];
   }
+}
+
+// The rivers drawn on a painted map (mapPaint.ts), as the game's: runs of corners each joined to the next by a tile
+// border (anything else is dropped), a tributary if it ends on a river drawn before it. The water each carries is
+// set from the generated rivers' own range (which nothing else of theirs is kept of), so they are drawn as wide.
+function drawnRivers(globe: Globe, drawn: readonly (readonly number[])[], like: readonly River[]): River[] {
+  const top = Math.max(1, ...like.flatMap((r) => r.flow)), out: River[] = [], on = new Set<number>();
+  for (const path of drawn) {
+    const corners: number[] = [];
+    for (const c of path) {
+      if (c < 0 || c >= globe.tris.length) break;
+      if (corners.length && (c === corners[corners.length - 1] || !borderBetween(globe, corners[corners.length - 1]!, c))) break;
+      corners.push(c);
+    }
+    if (corners.length < 2) continue;
+    const tributary = on.has(corners[corners.length - 1]!), lo = tributary ? 0.12 : 0.25, hi = tributary ? 0.45 : 1;
+    out.push({ corners, flow: corners.map((_, i) => top * (lo + ((hi - lo) * i) / (corners.length - 1))), tributary });
+    for (const c of corners) on.add(c);
+  }
+  return out;
 }

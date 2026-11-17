@@ -1,0 +1,105 @@
+; africa: what was changed by hand in the map editor (scripts/earth.ts --absorb), over africa.txt. Blank: as the drawing has it.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                 ##
+                                         hhh    ###                                         ###
+                                         hhh    ###                                         ###
+                                         hhh    ###                                          ##
+                                          h
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                  ^^
+                                                                                                                 ^^^^
+                                                                                                                 ^^^^
+                                                                                                                  ^^
+
+
+                                                                                                                    ^^^
+                                                                                                                    ^^^
+                                                                                                                    ^^^
+                                                                                                                     ^
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

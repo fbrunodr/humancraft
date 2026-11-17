@@ -17,6 +17,7 @@ import {
 } from './mapPaint.ts';
 import { MAP_SCRIPTS, MAP_SIZES, tileCount, type MapSizeKey } from './rules.ts';
 import { terrainName } from './terrain.ts';
+import { cornerGraph } from './rivers.ts';
 import type { BiomeKey } from './terrain.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -138,8 +139,9 @@ function recolor(list?: Iterable<number>): void {
 
 // ---------- tools ----------
 
-type Tool = { kind: 'terrain'; v: number } | { kind: 'relief'; v: number } | { kind: 'biome'; v: BiomeKey | null };
+type Tool = { kind: 'terrain'; v: number } | { kind: 'relief'; v: number } | { kind: 'biome'; v: BiomeKey | null } | { kind: 'river'; v: 'draw' | 'erase' };
 let tool: Tool = { kind: 'terrain', v: LAND };
+let drawing: number[] | null = null; // the river being drawn (one of the painting's own): see rivers, below
 const toolButtons: [HTMLButtonElement, Tool][] = [];
 function addTool(row: string, label: string, color: string, t: Tool): void {
   const b = document.createElement('button');
@@ -149,7 +151,12 @@ function addTool(row: string, label: string, color: string, t: Tool): void {
   toolButtons.push([b, t]);
 }
 const sameTool = (a: Tool, b: Tool) => a.kind === b.kind && a.v === b.v;
-const markTool = () => { for (const [b, t] of toolButtons) b.classList.toggle('on', sameTool(t, tool)); };
+const markTool = () => {
+  for (const [b, t] of toolButtons) b.classList.toggle('on', sameTool(t, tool));
+  const hint = document.getElementById('riverHint');
+  if (hint) hint.textContent = tool.kind !== 'river' ? '' : tool.v === 'draw' ? 'Click from the source toward the mouth: each click runs the river on along the tile borders to the corner nearest it. Enter or Esc ends it; the next click starts another. End on a river already drawn to make a tributary.' : 'Click a river to remove it.';
+  if (tool.kind !== 'river' || tool.v !== 'draw') drawing = null;
+};
 addTool('terrainTools', 'Sea', `#${SEA_COLOR.getHexString()}`, { kind: 'terrain', v: SEA });
 addTool('terrainTools', 'Land', `#${LAND_COLOR.getHexString()}`, { kind: 'terrain', v: LAND });
 addTool('terrainTools', 'Lake', `#${LAKE_COLOR.getHexString()}`, { kind: 'terrain', v: LAKE });
@@ -158,6 +165,8 @@ addTool('reliefTools', 'Hills', `#${LAND_COLOR.clone().lerp(HILL_TINT, 0.35).get
 addTool('reliefTools', 'Mountains', `#${LAND_COLOR.clone().lerp(MOUNTAIN_TINT, 0.7).getHexString()}`, { kind: 'relief', v: MOUNTAINS });
 addTool('biomeTools', 'Auto (climate)', `#${LAND_COLOR.getHexString()}`, { kind: 'biome', v: null });
 for (const b of PAINTABLE_BIOMES) addTool('biomeTools', terrainName({ biome: b, relief: 'flat', feature: null }), BIOME_COLOR[b], { kind: 'biome', v: b });
+addTool('riverTools', 'Draw river', '#3aa0ff', { kind: 'river', v: 'draw' });
+addTool('riverTools', 'Erase river', '#7a2a2a', { kind: 'river', v: 'erase' });
 markTool();
 
 function apply(p: Painting, t: number): void {
@@ -168,13 +177,14 @@ function apply(p: Painting, t: number): void {
       break;
     case 'relief': p.terrain[t] = LAND; p.relief[t] = tool.v; break;
     case 'biome': p.terrain[t] = LAND; p.biome[t] = tool.v; break;
+    case 'river': break; // (rivers are drawn corner by corner: riverClick)
   }
 }
 
 // ---------- undo ----------
 
-interface Snapshot { size: MapSizeKey; terrain: Uint8Array; relief: Uint8Array; biome: (BiomeKey | null)[] }
-const snap = (s: MapSizeKey): Snapshot => { const p = painting(s); return { size: s, terrain: p.terrain.slice(), relief: p.relief.slice(), biome: p.biome.slice() }; };
+interface Snapshot { size: MapSizeKey; terrain: Uint8Array; relief: Uint8Array; biome: (BiomeKey | null)[]; rivers: number[][] }
+const snap = (s: MapSizeKey): Snapshot => { const p = painting(s); return { size: s, terrain: p.terrain.slice(), relief: p.relief.slice(), biome: p.biome.slice(), rivers: p.rivers.map((r) => [...r]) }; };
 const undos: Snapshot[] = [], redos: Snapshot[] = [];
 function restore(from: Snapshot[], to: Snapshot[]): void {
   const s = from.pop();
@@ -182,8 +192,10 @@ function restore(from: Snapshot[], to: Snapshot[]): void {
   to.push(snap(s.size));
   const p = painting(s.size);
   p.terrain.set(s.terrain); p.relief.set(s.relief); s.biome.forEach((b, i) => { p.biome[i] = b; });
+  p.rivers = s.rivers.map((r) => [...r]);
+  drawing = null;
   dirty.add(s.size);
-  if (s.size !== size) switchSize(s.size); else { recolor(); changed(); }
+  if (s.size !== size) switchSize(s.size); else { recolor(); drawRivers(); changed(); }
 }
 const record = () => { undos.push(snap(size)); if (undos.length > 200) undos.shift(); redos.length = 0; };
 
@@ -196,6 +208,7 @@ function tileUnder(e: PointerEvent | MouseEvent): number {
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const hit = ray.intersectObject(tiles, false)[0];
+  if (hit) hitPoint.copy(hit.point).normalize();
   return hit?.faceIndex != null ? faceTile[hit.faceIndex]! : -1;
 }
 let brush = 1, stroking = false, last = -1;
@@ -222,6 +235,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   const t = tileUnder(e);
   if (t < 0) return;
+  if (tool.kind === 'river') { riverClick(t); return; }
   if (e.altKey) { pick(t); return; }
   record();
   stroking = true;
@@ -238,6 +252,79 @@ const endStroke = () => { if (!stroking) return; stroking = false; dirty.add(siz
 canvas.addEventListener('pointerup', endStroke);
 canvas.addEventListener('pointercancel', endStroke);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---------- rivers ----------
+
+// A river runs along tile borders, from corner to corner (rivers.ts). Drawing one: each click carries it on, by the
+// shortest way along the borders, to the corner of the clicked tile nearest the pointer.
+let hitPoint = new THREE.Vector3();
+const riverMat = new THREE.LineBasicMaterial({ color: '#3aa0ff' }), riverTipMat = new THREE.PointsMaterial({ color: '#ffffff', size: 6, sizeAttenuation: false });
+let riverLines: THREE.LineSegments | null = null, riverTip: THREE.Points | null = null;
+function drawRivers(): void {
+  if (riverLines) { scene.remove(riverLines); riverLines.geometry.dispose(); }
+  if (riverTip) { scene.remove(riverTip); riverTip.geometry.dispose(); riverTip = null; }
+  const globe = globeFor(size), pos: number[] = [];
+  for (const r of painting(size).rivers) for (let i = 0; i + 1 < r.length; i++) {
+    const a = globe.triCenters[r[i]!]!, b = globe.triCenters[r[i + 1]!]!;
+    pos.push(a.x * 1.002, a.y * 1.002, a.z * 1.002, b.x * 1.002, b.y * 1.002, b.z * 1.002);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  riverLines = new THREE.LineSegments(g, riverMat);
+  scene.add(riverLines);
+  // (The end of the river being drawn: where the next click carries on from.)
+  if (drawing?.length) {
+    const p = globe.triCenters[drawing[drawing.length - 1]!]!, tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.Float32BufferAttribute([p.x * 1.003, p.y * 1.003, p.z * 1.003], 3));
+    riverTip = new THREE.Points(tg, riverTipMat);
+    scene.add(riverTip);
+  }
+}
+// The shortest way along tile borders from corner a to corner b (both ends included), or null.
+function borderWay(globe: Globe, a: number, b: number): number[] | null {
+  const g = cornerGraph(globe), came = new Int32Array(globe.tris.length).fill(-1), queue = [a];
+  came[a] = a;
+  for (let i = 0; i < queue.length; i++) {
+    const x = queue[i]!;
+    if (x === b) { const path = [b]; for (let y = b; y !== a;) { y = came[y]!; path.push(y); } return path.reverse(); }
+    for (let k = 0; k < 3; k++) { const y = g.neighbors[x * 3 + k]!; if (y >= 0 && came[y]! < 0) { came[y] = x; queue.push(y); } }
+  }
+  return null;
+}
+function riverClick(t: number): void {
+  const globe = globeFor(size), p = painting(size);
+  const corner = globe.tiles[t]!.corners.reduce((a, b) => (globe.triCenters[b]!.distanceToSquared(hitPoint) < globe.triCenters[a]!.distanceToSquared(hitPoint) ? b : a));
+  if (tool.kind !== 'river') return;
+  if (tool.v === 'erase') {
+    // (The river passing nearest the click, if one passes within a tile of it.)
+    let best = -1, bestD = (globe.avgEdgeAngle * 1.2) ** 2;
+    p.rivers.forEach((r, i) => { for (const c of r) { const d = globe.triCenters[c]!.distanceToSquared(hitPoint); if (d < bestD) { bestD = d; best = i; } } });
+    if (best < 0) return;
+    record();
+    p.rivers.splice(best, 1);
+  } else if (!drawing) {
+    record();
+    drawing = [corner];
+    p.rivers.push(drawing);
+  } else {
+    const way = borderWay(globe, drawing[drawing.length - 1]!, corner);
+    if (!way || way.length < 2) return;
+    record();
+    // (record() copied the rivers: the one being drawn is still the painting's own.)
+    for (const c of way.slice(1)) drawing.push(c);
+  }
+  dirty.add(size);
+  drawRivers();
+  changed();
+}
+function endRiver(): void {
+  if (!drawing) return;
+  // (A river of one corner is no river.)
+  if (drawing.length < 2) { const p = painting(size); p.rivers.splice(p.rivers.indexOf(drawing), 1); }
+  drawing = null;
+  drawRivers();
+  changed();
+}
 
 // Alt+click: the tile's paint becomes the tool (biome, else relief, else terrain).
 function pick(t: number): void {
@@ -279,7 +366,7 @@ function changed(): void {
   $('stats').innerHTML = `<b>${MAP_SCRIPTS[map].name} · ${MAP_SIZES[size].name}</b> <small>${tileCount(MAP_SIZES[size].n).toLocaleString()} tiles${file[size] ? '' : ' · not painted yet (resampled)'}</small>
     <div>Land ${pct(land, N)} of tiles <small>(random maps 35–40%)</small></div>
     <div>Hills ${pct(hills, land)} · mountains ${pct(mountains, land)} of land <small>(12–18%, 5–9%)</small></div>
-    <div>Lakes ${lakes}</div>
+    <div>Lakes ${lakes} · rivers drawn ${p.rivers.length}${p.rivers.length ? '' : ' <small>(none: the game makes its own)</small>'}</div>
     ${seas.length > 1 ? warn(`${seas.length - 1} sea${seas.length > 2 ? 's' : ''} cut off from the ocean: a channel will be cut to ${seas.length > 2 ? 'them' : 'it'} (or paint them as lakes)`) : ''}
     ${lone ? warn(`${lone} lone mountain${lone > 1 ? 's' : ''} (ranges read better)`) : ''}`;
   $('save').classList.toggle('dirty', dirty.size > 0);
@@ -295,8 +382,10 @@ function switchSize(s: MapSizeKey): void {
   url.searchParams.set('size', s);
   history.replaceState(null, '', url);
   $<HTMLAnchorElement>('preview').href = `/world_view.html?size=${s}&map=${map}&seed=1`;
+  drawing = null;
   build(globeFor(s));
   recolor();
+  drawRivers();
   changed();
 }
 
@@ -334,8 +423,8 @@ $('copy').addEventListener('click', () => {
 $('clear').addEventListener('click', () => {
   record();
   const p = painting(size);
-  p.terrain.fill(SEA); p.relief.fill(FLAT); p.biome.fill(null);
-  dirty.add(size); recolor(); changed();
+  p.terrain.fill(SEA); p.relief.fill(FLAT); p.biome.fill(null); p.rivers = []; drawing = null;
+  dirty.add(size); recolor(); drawRivers(); changed();
 });
 $('save').addEventListener('click', () => { void save(); });
 const brushEl = $<HTMLInputElement>('brush');
@@ -360,6 +449,7 @@ addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void save(); }
   else if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) restore(redos, undos); else restore(undos, redos); }
   else if (!mod && 'wasd'.includes(e.key.toLowerCase())) held.add(e.key.toLowerCase());
+  else if (e.key === 'Enter' || e.key === 'Escape') endRiver();
   else if (e.key === '[') setBrush(brush - 1);
   else if (e.key === ']') setBrush(brush + 1);
 });

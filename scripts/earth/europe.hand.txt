@@ -1,0 +1,93 @@
+; europe: what was changed by hand in the map editor (scripts/earth.ts --absorb), over europe.txt. Blank: as the drawing has it.
+                                                                                               hhh
+                                                                                               hhh
+                                                                   ###oooo                     hhh
+                                                                  ####oooo                      h
+                                                                  ####oooo
+                                                                    #   o
+                                                          ooo                               ###
+                                                          ooo                               ###
+                                                          ooo                               ###
+                                                          hoo                                #
+                                                        hhhh
+                                                         hhh
+                                                         hhh                                ##
+                                                                                            ###
+                                                                                            ###
+                                                                                            ###
+
+                                              ##
+                                             ###                                 ####
+                                             ###                                 ####
+                                          h  ..                                  ####
+                                          hh...            ###
+                                          hhh....          ###
+                                               ..          ###
+                                               ...
+
+
+                                                                                              #
+                                                                                             ###
+                                                                                             ###
+                                                      ###                                     ##
+                                                      ###
+                                                       #
+                                     #                                                     #
+                                    ###                                                   ###
+                                   ####                   hh                              ###
+                                    #                    hhh                               ##
+                                                         hhh
+                               ###                        h
+                       ###     ####
+                       ######   ##
+                       ######                   hhhhhh
+                          ###                  hhhhhhh
+                                                hh hhh
+
+                         ##             ^^^  ^
+                        ####            ^^^^^^^                                               ^^ ^
+                        ####           ^^^^^^^^   hhh        h                               ^^^^^^
+                         ###          ^^^^hh^^h   hhh       hhh                              ^^^^^^
+                         ####         ^^^hhhhhhh...hh       hhh                               ^^^^^
+                         ####          ^^h                   h
+                       #####           hhh
+           ###         ####         #  hhh                                                 #
+           ####        ###         ###..hh                                               ####   hhh
+           ###       ^^^#         ####...                                                ####   hhh
+                     ^^^    hhh    ##....                                                ###    hhh
+                     ^^^    hhh       ..                                                         h
+                            hhh                                            ####
+                             h                                             ####hh
+                                                                           ####hhh
+                                                                              hhhh
+            hh                                                           hhh   hh
+           hhhh    h                                         hh          hhh          hhh
+           hhh    hhh                                        hhh###      hhh          hhhh
+             ##   hhh                                        hhh###                   hhh
+             #####hhh                                        h  ###                 hhhh
+            ##########                                           ...                hhh
+             ##########                                          ...                hhh
+                 # ###                                           ...
+                    #
+
+                                                                                   ...
+                                                                                   ...
+                                                                                   ...
+
+
+
+
+                                            ...
+
+
+
+
+
+
+
+
+
+
+
+
+

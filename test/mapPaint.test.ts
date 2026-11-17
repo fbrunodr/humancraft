@@ -3,9 +3,8 @@ import { generateWorld } from '../src/world.ts';
 import { globeFor } from '../src/globes.ts';
 import { HILLS, LAKE, LAND, MOUNTAINS, PAINTED, decodeRuns, encodeRuns, load, paintingFor, resample, store } from '../src/mapPaint.ts';
 import { isWaterKey } from '../src/mapRules.ts';
-import { MAP_SIZES, type MapSizeKey } from '../src/rules.ts';
+import { MAP_SIZES } from '../src/rules.ts';
 
-const SIZES = Object.keys(MAP_SIZES) as MapSizeKey[];
 
 describe('P1: paintings store and load', () => {
   it('runs round-trip', () => {
@@ -24,7 +23,8 @@ describe('P1: paintings store and load', () => {
 });
 
 describe('P2: a painted map is what was painted', () => {
-  for (const size of SIZES) {
+  // (The Earth is painted for the large map alone: rules.ts MAP_SCRIPTS.)
+  for (const size of ['large'] as const) {
     it(`${size}: lakes, relief and biomes as painted, first attempt`, () => {
       const w = generateWorld(size, 1, 'earth'), p = paintingFor(PAINTED.earth, size), m = w.map;
       expect(w.attempts).toBe(1);
