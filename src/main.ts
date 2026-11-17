@@ -89,15 +89,17 @@ function showStartScreen(): void {
       const s = MAP_SIZES[k];
       return `<button data-size="${k}"><b>${s.name}</b><span>${tileCount(s.n).toLocaleString()} tiles · ${s.players} civs</span></button>`;
     }).join('');
-    const scripts = (Object.keys(MAP_SCRIPTS) as MapScriptKey[]).map((k) => `<button data-script="${k}">${MAP_SCRIPTS[k].name}</button>`).join('');
+    // (The lands on offer: the Earth is not, until it is drawn well enough to be played on; ?map=earth still plays it, and the dev pages show it.)
+    const offered: readonly MapScriptKey[] = ['continents'];
+    const scripts = offered.map((k) => `<button data-script="${k}">${MAP_SCRIPTS[k].name}</button>`).join('');
     menu.innerHTML = `<div>${TITLE}<div class="card">
       <div class="cardhead">${BACK}<h2>New game</h2></div>
       <span class="label">Play as</span>
       <div class="civs"><button data-civ="random"><i class="any">?</i>Random</button>${CIVS.map((c) => `<button data-civ="${c.name}"><i style="background:${c.color}"></i>${c.name}</button>`).join('')}</div>
       <span class="label">World</span>
       <div class="sizes">${sizes}</div>
-      <span class="label">Lands</span>
-      <div class="scripts">${scripts}</div>
+      ${offered.length > 1 ? `<span class="label">Lands</span>
+      <div class="scripts">${scripts}</div>` : ''}
       <span class="label">Speed</span>
       <div class="scripts">${(Object.keys(GAME_SPEEDS) as GameSpeedKey[]).map((k) => `<button data-speed="${k}">${GAME_SPEEDS[k].name}</button>`).join('')}</div>
       <span class="label">Rivals</span>
