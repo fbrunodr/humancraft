@@ -393,7 +393,7 @@ function switchSize(s: MapSizeKey): void {
   const url = new URL(location.href);
   url.searchParams.set('size', s);
   history.replaceState(null, '', url);
-  $<HTMLAnchorElement>('preview').href = `/world_view.html?size=${s}&map=${map}&seed=1`;
+  $<HTMLAnchorElement>('preview').href = `world_view.html?size=${s}&map=${map}&seed=1`;
   drawing = null;
   build(globeFor(s));
   recolor();

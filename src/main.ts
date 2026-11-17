@@ -23,16 +23,16 @@ const isMapSize = (s: string): s is MapSizeKey => s in MAP_SIZES;
 
 // The dev tools (each its own page), and what each is for.
 const DEV_TOOLS: readonly { href: string; name: string; what: string }[] = [
-  { href: '/gallery.html', name: 'Gallery', what: 'Every prop, plant and animal' },
-  { href: '/buildings.html', name: 'Buildings', what: 'Houses and city buildings, civ by civ' },
-  { href: '/units.html', name: 'Units', what: 'Every unit, its animations, and battles' },
-  { href: '/wonders.html', name: 'Wonders', what: 'The wonders, side by side' },
-  { href: '/city_lab.html', name: 'City lab', what: 'Cities of every civ on a globe' },
-  { href: '/city_lab.html?stress', name: 'Stress test', what: 'The heaviest scene, for the frame rate' },
-  { href: '/city_samples.html', name: 'City samples', what: 'Painted cities, one beside another' },
-  { href: '/world_view.html', name: 'World view', what: 'A generated world, with no game on it' },
-  { href: '/map_editor.html', name: 'Map editor', what: 'Draw a map by hand' },
-  { href: '/icons.html', name: 'Icons', what: 'Every pictogram, and what it stands for' },
+  { href: 'gallery.html', name: 'Gallery', what: 'Every prop, plant and animal' },
+  { href: 'buildings.html', name: 'Buildings', what: 'Houses and city buildings, civ by civ' },
+  { href: 'units.html', name: 'Units', what: 'Every unit, its animations, and battles' },
+  { href: 'wonders.html', name: 'Wonders', what: 'The wonders, side by side' },
+  { href: 'city_lab.html', name: 'City lab', what: 'Cities of every civ on a globe' },
+  { href: 'city_lab.html?stress', name: 'Stress test', what: 'The heaviest scene, for the frame rate' },
+  { href: 'city_samples.html', name: 'City samples', what: 'Painted cities, one beside another' },
+  { href: 'world_view.html', name: 'World view', what: 'A generated world, with no game on it' },
+  { href: 'map_editor.html', name: 'Map editor', what: 'Draw a map by hand' },
+  { href: 'icons.html', name: 'Icons', what: 'Every pictogram, and what it stands for' },
 ];
 const isCiv = (s: string): s is ArchCiv => CIVS.some((c) => c.name === s);
 
@@ -63,7 +63,17 @@ function showStartScreen(): void {
       const info = saveInfo(text), note = document.getElementById('loadNote');
       const say = (m: string) => { if (note) { note.textContent = m; note.hidden = false; } };
       if (!info) { say('That is not a saved game.'); return; }
-      if (!info.current) { say(`That game was saved with ${info.made}; this is ${VERSION}. It plays under v${info.version} of the game only.`); return; }
+      if (!info.current) {
+        // (Where the game is served by version (…/humancraft/v0.3/), the save's own version is a step away: ../?rules=N.)
+        say(`That game was saved with ${info.made}; this is ${VERSION}. It plays under v${info.version} of the game only.`);
+        if (note && /\/v\d+\.\d+\/$/.test(location.pathname)) {
+          const a = document.createElement('a');
+          a.href = `../?rules=${info.version}`;
+          a.textContent = ` Open v${info.version} of the game, and load it there.`;
+          note.append(a);
+        }
+        return;
+      }
       menu.innerHTML = '<div class="loading">Shaping the world…</div>';
       setTimeout(() => { startGame(loadGame(text)); menu.remove(); }, 40);
     };
