@@ -50,7 +50,7 @@ const BIOME_COLOR: Record<(typeof PAINTABLE_BIOMES)[number], string> = {
   savanna: '#c9b45a', monsoonForest: '#5f9a2f', jungle: '#1f7a2a',
 };
 const SEA_COLOR = new THREE.Color('#1d3f73'), LAKE_COLOR = new THREE.Color('#5aa0d8'), LAND_COLOR = new THREE.Color('#87a86a');
-const HILL_TINT = new THREE.Color('#7a6648'), MOUNTAIN_TINT = new THREE.Color('#5d5955'), PEAK = new THREE.Color('#e9e6e1');
+const HILL_TINT = new THREE.Color('#7a6648'), MOUNTAIN_TINT = new THREE.Color('#5d5955'), PEAK = new THREE.Color('#e9e6e1'), LAVA = new THREE.Color('#ff5a1f');
 function tileColor(p: Painting, t: number, out: THREE.Color): THREE.Color {
   if (p.terrain[t] === SEA) return out.copy(SEA_COLOR);
   if (p.terrain[t] === LAKE) return out.copy(LAKE_COLOR);
@@ -130,7 +130,7 @@ function recolor(list?: Iterable<number>): void {
     const [a, b] = tileVerts[t]!;
     // (Mountains: a pale peak at the center.)
     for (let v = a; v < b; v++) {
-      const c = p.terrain[t] === LAND && p.relief[t] === MOUNTAINS && (v - a) % 3 === 0 ? PEAK : col;
+      const c = p.terrain[t] === LAND && p.relief[t] === MOUNTAINS && (v - a) % 3 === 0 ? (p.volcanoes.includes(t) ? LAVA : PEAK) : col;
       attr.setXYZ(v, c.r, c.g, c.b);
     }
   }
@@ -139,7 +139,7 @@ function recolor(list?: Iterable<number>): void {
 
 // ---------- tools ----------
 
-type Tool = { kind: 'terrain'; v: number } | { kind: 'relief'; v: number } | { kind: 'biome'; v: BiomeKey | null } | { kind: 'river'; v: 'draw' | 'erase' };
+type Tool = { kind: 'terrain'; v: number } | { kind: 'relief'; v: number } | { kind: 'volcano' } | { kind: 'biome'; v: BiomeKey | null } | { kind: 'river'; v: 'draw' | 'erase' };
 let tool: Tool = { kind: 'terrain', v: LAND };
 let drawing: number[] | null = null; // the river being drawn (one of the painting's own): see rivers, below
 const toolButtons: [HTMLButtonElement, Tool][] = [];
@@ -150,7 +150,7 @@ function addTool(row: string, label: string, color: string, t: Tool): void {
   $(row).append(b);
   toolButtons.push([b, t]);
 }
-const sameTool = (a: Tool, b: Tool) => a.kind === b.kind && a.v === b.v;
+const sameTool = (a: Tool, b: Tool) => a.kind === b.kind && (a as { v?: unknown }).v === (b as { v?: unknown }).v;
 const markTool = () => {
   for (const [b, t] of toolButtons) b.classList.toggle('on', sameTool(t, tool));
   const hint = document.getElementById('riverHint');
@@ -164,6 +164,7 @@ addTool('terrainTools', 'Lake', `#${LAKE_COLOR.getHexString()}`, { kind: 'terrai
 addTool('reliefTools', 'Flat', `#${LAND_COLOR.getHexString()}`, { kind: 'relief', v: FLAT });
 addTool('reliefTools', 'Hills', `#${LAND_COLOR.clone().lerp(HILL_TINT, 0.35).getHexString()}`, { kind: 'relief', v: HILLS });
 addTool('reliefTools', 'Mountains', `#${LAND_COLOR.clone().lerp(MOUNTAIN_TINT, 0.7).getHexString()}`, { kind: 'relief', v: MOUNTAINS });
+addTool('reliefTools', 'Volcano', '#ff6a2a', { kind: 'volcano' });
 addTool('biomeTools', 'Auto (climate)', `#${LAND_COLOR.getHexString()}`, { kind: 'biome', v: null });
 for (const b of PAINTABLE_BIOMES) addTool('biomeTools', terrainName({ biome: b, relief: 'flat', feature: null }), BIOME_COLOR[b], { kind: 'biome', v: b });
 addTool('riverTools', 'Draw river', '#3aa0ff', { kind: 'river', v: 'draw' });
@@ -171,6 +172,9 @@ addTool('riverTools', 'Erase river', '#7a2a2a', { kind: 'river', v: 'erase' });
 markTool();
 
 function apply(p: Painting, t: number): void {
+  // (A volcano is a mountain: painted as anything else, it is one no more.)
+  const at = p.volcanoes.indexOf(t);
+  if (at >= 0 && tool.kind !== 'biome' && tool.kind !== 'river') p.volcanoes.splice(at, 1);
   switch (tool.kind) {
     case 'terrain':
       p.terrain[t] = tool.v;
@@ -178,14 +182,15 @@ function apply(p: Painting, t: number): void {
       break;
     case 'relief': p.terrain[t] = LAND; p.relief[t] = tool.v; break;
     case 'biome': p.terrain[t] = LAND; p.biome[t] = tool.v; break;
+    case 'volcano': p.terrain[t] = LAND; p.relief[t] = MOUNTAINS; p.volcanoes.push(t); break;
     case 'river': break; // (rivers are drawn corner by corner: riverClick)
   }
 }
 
 // ---------- undo ----------
 
-interface Snapshot { size: MapSizeKey; terrain: Uint8Array; relief: Uint8Array; biome: (BiomeKey | null)[]; rivers: number[][] }
-const snap = (s: MapSizeKey): Snapshot => { const p = painting(s); return { size: s, terrain: p.terrain.slice(), relief: p.relief.slice(), biome: p.biome.slice(), rivers: p.rivers.map((r) => [...r]) }; };
+interface Snapshot { size: MapSizeKey; terrain: Uint8Array; relief: Uint8Array; biome: (BiomeKey | null)[]; rivers: number[][]; volcanoes: number[] }
+const snap = (s: MapSizeKey): Snapshot => { const p = painting(s); return { size: s, terrain: p.terrain.slice(), relief: p.relief.slice(), biome: p.biome.slice(), rivers: p.rivers.map((r) => [...r]), volcanoes: [...p.volcanoes] }; };
 const undos: Snapshot[] = [], redos: Snapshot[] = [];
 function restore(from: Snapshot[], to: Snapshot[]): void {
   const s = from.pop();
@@ -194,6 +199,7 @@ function restore(from: Snapshot[], to: Snapshot[]): void {
   const p = painting(s.size);
   p.terrain.set(s.terrain); p.relief.set(s.relief); s.biome.forEach((b, i) => { p.biome[i] = b; });
   p.rivers = s.rivers.map((r) => [...r]);
+  p.volcanoes = [...s.volcanoes];
   drawing = null;
   dirty.add(s.size);
   if (s.size !== size) switchSize(s.size); else { recolor(); drawRivers(); changed(); }
@@ -345,7 +351,7 @@ function hover(t: number): void {
   if (t < 0) { el.classList.add('hidden'); return; }
   const p = painting(size), [la, lo] = latLon(globeFor(size).tiles[t]!.center);
   const what = p.terrain[t] === SEA ? 'Sea' : p.terrain[t] === LAKE ? 'Lake'
-    : `${['Flat', 'Hills', 'Mountains'][p.relief[t]!]} · ${p.biome[t] ? terrainName({ biome: p.biome[t]!, relief: 'flat', feature: null }) : 'biome by climate'}`;
+    : `${p.volcanoes.includes(t) ? 'Volcano' : ['Flat', 'Hills', 'Mountains'][p.relief[t]!]} · ${p.biome[t] ? terrainName({ biome: p.biome[t]!, relief: 'flat', feature: null }) : 'biome by climate'}`;
   el.innerHTML = `${what}<br><small>tile ${t} · ${Math.abs(la).toFixed(1)}°${la >= 0 ? 'N' : 'S'} ${Math.abs(lo).toFixed(1)}°${lo >= 0 ? 'E' : 'W'}</small>`;
   el.classList.remove('hidden');
 }
@@ -371,6 +377,7 @@ function changed(): void {
   $('stats').innerHTML = `<b>${MAP_SCRIPTS[map].name} · ${MAP_SIZES[size].name}</b> <small>${tileCount(MAP_SIZES[size].n).toLocaleString()} tiles${file[size] ? '' : ' · not painted yet (resampled)'}</small>
     <div>Land ${pct(land, N)} of tiles <small>(random maps 35–40%)</small></div>
     <div>Hills ${pct(hills, land)} · mountains ${pct(mountains, land)} of land <small>(12–18%, 5–9%)</small></div>
+    <div>Volcanoes painted ${p.volcanoes.length} <small>(the game adds a few of its own)</small></div>
     <div>Lakes ${lakes} · rivers drawn ${p.rivers.length}${p.rivers.length ? '' : ' <small>(none: the game makes its own)</small>'}</div>
     ${seas.length > 1 ? warn(`${seas.length - 1} sea${seas.length > 2 ? 's' : ''} cut off from the ocean: a channel will be cut to ${seas.length > 2 ? 'them' : 'it'} (or paint them as lakes)`) : ''}
     ${lone ? warn(`${lone} lone mountain${lone > 1 ? 's' : ''} (ranges read better)`) : ''}`;
@@ -428,7 +435,7 @@ $('copy').addEventListener('click', () => {
 $('clear').addEventListener('click', () => {
   record();
   const p = painting(size);
-  p.terrain.fill(SEA); p.relief.fill(FLAT); p.biome.fill(null); p.rivers = []; drawing = null;
+  p.terrain.fill(SEA); p.relief.fill(FLAT); p.biome.fill(null); p.rivers = []; p.volcanoes = []; drawing = null;
   dirty.add(size); recolor(); drawRivers(); changed();
 });
 $('save').addEventListener('click', () => { void save(); });

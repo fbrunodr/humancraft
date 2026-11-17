@@ -636,6 +636,13 @@ const VOLCANOES: readonly (readonly [string, string, number, number])[] = [
   ['Mauna Loa, Hawaii', 'americas', 13, 77],
 ];
 
+// The volcanoes as places on the game's globe: those kept (scripts/earth/volcanoes.json, which --absorb writes from the
+// map: painted or unpainted in the map editor), or failing that the ones named above.
+const volcanoPlaces = (): LL[] => {
+  try { return (JSON.parse(readFileSync(new URL('./earth/volcanoes.json', import.meta.url), 'utf8')) as { volcanoes: LL[] }).volcanoes; }
+  catch { return VOLCANOES.map(([, region, q, r]) => latLon(cellGame(region, q, r)) as unknown as LL); }
+};
+
 // ---------- painting a size ----------
 
 // (Its biomes as the game makes them of it, the climate's where none was
@@ -841,8 +848,8 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
     for (const t of globe.tiles) if (paint.terrain[t.id] === LAKE && t.neighbors.some((x) => paint.terrain[x] === SEA)) { paint.terrain[t.id] = SEA; again = true; }
   }
   // The volcanoes set by name: each a mountain.
-  for (const [, region, q, r] of VOLCANOES) {
-    const t = nearestTile(globe, cellGame(region, q, r));
+  for (const place of volcanoPlaces()) {
+    const t = nearestTile(globe, vec(place));
     if (paint.terrain[t] !== LAND) continue;
     paint.relief[t] = MOUNTAINS;
     paint.volcanoes.push(t);
@@ -1062,6 +1069,8 @@ if (process.argv.includes('--absorb')) {
   // (And its rivers, as the places they run through: all of them, as they now stand.)
   writeFileSync(new URL('./earth/rivers.json', import.meta.url), JSON.stringify({ note: 'The rivers of the Earth map as places on the game\'s globe (latitude, longitude), source to mouth; written by scripts/earth.ts --absorb from the medium map.', rivers: edited.rivers.map((r) => r.map((c) => latLon(globe.triCenters[c]!).map((x) => Math.round(x * 100) / 100))) }).replace(/\]\],\[\[/g, ']],\n[[') + '\n');
   console.log(`${edited.rivers.length} rivers kept`);
+  writeFileSync(new URL('./earth/volcanoes.json', import.meta.url), JSON.stringify({ note: 'The volcanoes of the Earth map as places on the game\'s globe (latitude, longitude); written by scripts/earth.ts --absorb from the map.', volcanoes: edited.volcanoes.map((t) => latLon(globe.tiles[t]!.center).map((x) => Math.round(x * 100) / 100)) }) + '\n');
+  console.log(`${edited.volcanoes.length} volcanoes kept`);
   console.log(`${changed.size} tiles differ; ${[...changed].filter((t) => !owner.has(t)).length} lie under no drawing. Run again without --absorb to paint every size from the drawings.`);
   process.exit(0);
 }
