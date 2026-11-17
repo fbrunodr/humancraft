@@ -20,13 +20,15 @@ export interface Painting {
   // Rivers drawn by hand, each the corners it runs through from source to mouth (rivers.ts: a corner is a
   // triangle of the grid, a river runs along tile borders). If there are any, the map has these and no others.
   rivers: number[][];
+  // Mountains that are volcanoes, by tile (the map has these, and what others the game adds).
+  volcanoes: number[];
 }
 
 // ---------- the stored form ----------
 
 // Each layer is one character per tile, run-length coded ("120.3#": 120
 // tiles of '.', then 3 of '#').
-export interface StoredPainting { terrain: string; relief: string; biome: string; rivers?: number[][] }
+export interface StoredPainting { terrain: string; relief: string; biome: string; rivers?: number[][]; volcanoes?: number[] }
 export type PaintFile = Partial<Record<MapSizeKey, StoredPainting>>;
 
 const TERRAIN_CH = '.#o';
@@ -60,6 +62,7 @@ export function store(p: Painting): StoredPainting {
     relief: encodeRuns(Array.from(p.relief, (v) => RELIEF_CH[v]!).join('')),
     biome: encodeRuns(p.biome.map((b) => BIOME_CH[b ? PAINTABLE_BIOMES.indexOf(b as typeof PAINTABLE_BIOMES[number]) + 1 : 0]!).join('')),
     ...(p.rivers.length ? { rivers: p.rivers.map((r) => [...r]) } : {}),
+    ...(p.volcanoes.length ? { volcanoes: [...p.volcanoes] } : {}),
   };
 }
 export function load(s: StoredPainting, n: number): Painting {
@@ -70,10 +73,11 @@ export function load(s: StoredPainting, n: number): Painting {
     relief: code(s.relief, RELIEF_CH),
     biome: Array.from(b, (i) => (i ? PAINTABLE_BIOMES[i - 1]! : null)),
     rivers: (s.rivers ?? []).map((r) => [...r]),
+    volcanoes: [...(s.volcanoes ?? [])],
   };
 }
 
-export const blank = (n: number): Painting => ({ terrain: new Uint8Array(n), relief: new Uint8Array(n), biome: new Array<BiomeKey | null>(n).fill(null), rivers: [] });
+export const blank = (n: number): Painting => ({ terrain: new Uint8Array(n), relief: new Uint8Array(n), biome: new Array<BiomeKey | null>(n).fill(null), rivers: [], volcanoes: [] });
 
 // ---------- between sizes ----------
 

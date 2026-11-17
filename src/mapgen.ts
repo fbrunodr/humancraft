@@ -367,6 +367,8 @@ export function generateMap(globe: Globe, seed: number, size: MapSizeKey, script
   // Volcanoes: an exact count, far apart, favoring coastal ranges (F1).
   const volcanoSites = shuffle(rand, mountains.filter((t) => allowed('volcano', t)))
     .sort((a, b) => (coastDist[a] <= 3 ? 0 : 1) - (coastDist[b] <= 3 ? 0 : 1));
+  // (A painted map's own volcanoes first.)
+  if (paint) for (const t of paint.volcanoes) if (relief[t] === 'mountains' && allowed('volcano', t)) feature[t] = 'volcano';
   // (A painted map takes what features fit it: a small land may have no room for them all.)
   if (!pickSpaced(globe, volcanoSites, randInt(rand, limits.volcanoes), limits.volcanoSpacing, (t) => { feature[t] = 'volcano'; }) && !paint) return null;
 

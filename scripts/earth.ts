@@ -631,6 +631,11 @@ if (arg('dropRivers', '')) {
   process.exit(0);
 }
 
+// Volcanoes set by name: a cell of a region's picture each.
+const VOLCANOES: readonly (readonly [string, string, number, number])[] = [
+  ['Mauna Loa, Hawaii', 'americas', 13, 77],
+];
+
 // ---------- painting a size ----------
 
 // (Its biomes as the game makes them of it, the climate's where none was
@@ -834,6 +839,13 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
   for (let again = true; again;) {
     again = false;
     for (const t of globe.tiles) if (paint.terrain[t.id] === LAKE && t.neighbors.some((x) => paint.terrain[x] === SEA)) { paint.terrain[t.id] = SEA; again = true; }
+  }
+  // The volcanoes set by name: each a mountain.
+  for (const [, region, q, r] of VOLCANOES) {
+    const t = nearestTile(globe, cellGame(region, q, r));
+    if (paint.terrain[t] !== LAND) continue;
+    paint.relief[t] = MOUNTAINS;
+    paint.volcanoes.push(t);
   }
   // The rivers.
   const fromFile = riversKept();
