@@ -3,7 +3,7 @@
 #   npx tsx scripts/earth.ts --data <dir> --draft asia
 # then: python3 scripts/earth/asia.fix.py; npx tsx scripts/earth.ts --data <dir>
 # Everything is placed by the marks (where real places fall in the tracing), so it follows the tracing if it is laid anew.
-from draw import Picture
+from draw import Picture, inland
 p = Picture('asia'); T, B, M, at = p.T, p.B, p.M, p.at
 
 # 1. Cyprus is Europe's (drawn there): not twice.
@@ -93,6 +93,11 @@ for r in range(M['Iskenderun'][1] + 3, p.H):
     edge = min(land) - 3 if land else COLS
     for c in range(0, max(0, edge)):
         if T[r][c] in '. ': T[r][c] = ' '; B[r][c] = ' '
+
+# 11. The Strait of Hormuz kept open (Musandam's point and Persia's coast are less than a tile apart), and every sea shut
+#     in by land a lake (the Aral, what is left of the Caspian's bays).
+p.channel([at('Musandam', -3, -1), at('Musandam', 1, 0), at('Musandam', 5, 2)], 1.6)
+inland(p)
 
 p.save("; Asia, drawn by hand over a tracing of the real coastlines (scripts/earth.ts REGIONS): '.' sea, '#' land, 'h' hills, '^' mountains, 'o' lake.\n; A tile is three characters: every strait is three wide at least. Where Europe's drawing lies, Europe's is kept.\n",
        "; Asia's biomes, cell for cell with asia.txt, in mapPaint.ts's letters.\n")

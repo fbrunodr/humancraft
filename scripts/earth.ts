@@ -74,12 +74,16 @@ const PIECES: readonly Piece[] = [
   // (The Horn and the Red Sea's southern shore at the Near East's size: they face Arabia across a sea that must stay narrow.
   // Egypt is the Near East's already, by nearness.)
   { name: 'nileHorn', at: [16, 40], reach: 12, by: 1.5, from: ['nearEast', [20, 39]] },
-  { name: 'australia', at: [-26, 135], reach: 22, by: 0.95, from: ['indies', [-10, 135]] },
-  { name: 'newZealand', at: [-41, 173], reach: 7, by: 1.5, from: ['australia', [-36, 156]] },
-  { name: 'northAmerica', at: [45, -100], reach: 32, by: 0.95, to: [44, -110] },
+  // (Oceania set down by hand: the Old World, hung from a Europe drawn large and high, has sprawled south, and Java lies
+  // where the Tropic of Capricorn should. So New Guinea goes east of Celebes, Australia under it at seven tenths of life
+  // (its south coast would else be in the ice), New Zealand off its south-east.)
+  { name: 'newGuinea', at: [-5.5, 141], reach: 8, by: 0.95, to: [-23, 160] },
+  { name: 'australia', at: [-26, 135], reach: 20, by: 0.7, to: [-41, 150] },
+  { name: 'newZealand', at: [-41, 173], reach: 7, by: 1.3, to: [-50, -176] },
+  { name: 'northAmerica', at: [45, -100], reach: 32, by: 0.92, to: [46, -112] },
   { name: 'caribbean', at: [17, -82], reach: 13, by: 1.45, from: ['northAmerica', [27, -103]] },
   { name: 'southAmerica', at: [-15, -60], reach: 30, by: 0.85, from: ['caribbean', [8, -77]] },
-  { name: 'greenland', at: [72, -40], reach: 14, by: 0.55, to: [78, -70] },
+  { name: 'greenland', at: [72, -40], reach: 14, by: 0.5, to: [78, -62] },
   { name: 'antarctica', at: [-85, 0], reach: 25, by: 0.5, to: [-87, 0] },
 ];
 // The point `far` degrees from p on the compass bearing `bearing` (radians, clockwise from north).
@@ -385,7 +389,9 @@ function africaLaid(real: LL, inland: boolean): THREE.Vector3 {
   const c = vec(AFRICA.centre), { cols, rows } = AFRICA;
   const cell = (p: THREE.Vector3): [number, number] => { const d = c.angleTo(p) / RAD, b = bearing(c, p); return [cols / 2 + (d * Math.sin(b)) / CELL, rows / 2 - (d * Math.cos(b)) / CELL]; };
   const own = SETS.find((q) => q.name === 'africa')!, europe = regionOf('europe'), asia = regionOf('asia');
-  const asiaCell = (r: LL) => cell(arabia(toGame(r, setsOf(asia))));
+  // (The Horn set a tile and a half further down than Arabia's laying puts it: the Gulf of Aden and Bab-el-Mandeb are
+  // narrower than a tile, and laid as Arabia is the Horn came against it.)
+  const asiaCell = (r: LL): [number, number] => { const at = cell(arabia(toGame(r, setsOf(asia)))); return [at[0], at[1] + 4.5 * ease((15 - r[0]) / 2.5)]; };
   const shoreAt = (lon: number) => cell(laid(europe, vec([33, lon])))[1];
   // (How far down the Horn's latitude and the Cape fall: where Asia sets Djibouti, and CAPE.)
   if (!africaRows) {
@@ -435,6 +441,15 @@ const REGIONS: readonly Region[] = [
       if (lat >= 12.4) return lon < 32.6 + 0.62 * (30 - lat);
       return true;
     } },
+  // (The Americas, with Greenland: North America a little under life size, the Caribbean and Central America half as
+  // large again, South America less; set across an Atlantic narrower than life, Alaska near Asia's last cape.)
+  { name: 'americas', at: [15, -85], to: () => vec([0, 0]), by: 1, middle: [12, -88], cols: 170, rows: 196, cell: CELL,
+    eased: ['northAmerica', 'caribbean', 'southAmerica', 'greenland'],
+    keep: ([lat, lon]) => (lon >= -170 && lon <= -34 && lat > -57) || (lat >= 59 && lon > -75 && lon < -10 && !(lon > -27 && lat < 68)) },
+  // (Australia with New Guinea, and New Zealand half as large again.)
+  { name: 'oceania', at: [-25, 140], to: () => vec([0, 0]), by: 1, middle: [-24, 146], cols: 110, rows: 84, cell: CELL,
+    eased: ['newGuinea', 'australia', 'newZealand'],
+    keep: ([lat, lon]) => lon > 110 && lat < 1.5 && lat > -50 && (lon > 130.8 || lat < -10.5) },
 ];
 const regionOf = (name: string): Region => { const r = REGIONS.find((x) => x.name === name); if (!r) throw new Error(`no region ${name}`); return r; };
 // A region's own laying of the real world on the game's, and back; the middle of its picture on the game's globe.
@@ -459,7 +474,8 @@ function arabia(p: THREE.Vector3): THREE.Vector3 {
   return go(c, Math.hypot(x, y), Math.atan2(x, y));
 }
 // The regions drawn so far for the large map (the others are being drawn again against Europe's new size).
-const DRAWN: readonly string[] = ['europe', 'asia', 'africa'];
+const DRAWN: readonly string[] = ['europe', 'asia', 'africa', 'americas', 'oceania'];
+const OVER_SEA: readonly string[] = ['americas', 'oceania'];
 const PATCHES: Patch[] = [];
 for (const r of REGIONS) {
   if (!DRAWN.includes(r.name)) continue;
@@ -515,11 +531,27 @@ const RIVERS: readonly (readonly [string, ...LL[]])[] = [
   ['Amur', [53.3, 121.5], [50.3, 127.5], [48.5, 135.1], [50.5, 137], [53.1, 140.8]],
   ['Ob', [51.95, 85.9], [55, 82.9], [58.3, 82.9], [61, 69], [66.5, 66.6], [66.9, 69.5]],
   ['Yenisei', [51.7, 94.4], [53.7, 91.4], [56, 92.9], [58.45, 92.2], [61.6, 90.1], [66, 87], [69.4, 86.2], [71.9, 82.6]],
+  ['Mississippi', [47.2, -95.2], [44.9, -93.1], [41.5, -90.6], [38.6, -90.2], [35.1, -90], [32.3, -91], [30, -90.1], [29.2, -89.3]],
+  ['Missouri', [45.9, -111.5], [47.5, -111.3], [48, -106], [46.8, -100.8], [42.5, -96.4], [39.1, -94.6], [38.6, -90.2]],
+  ['Ohio', [40.4, -80], [38.3, -85.7], [37, -89.1]],
+  ['St Lawrence', [44.2, -76.5], [45.5, -73.6], [46.8, -71.2], [48.5, -68.5]],
+  ['Rio Grande', [37.7, -107], [35.1, -106.6], [31.8, -106.4], [29.3, -103], [27.5, -99.5], [25.9, -97.2]],
+  ['Colorado', [40.2, -105.8], [38.5, -109.6], [36.9, -111.5], [36.1, -114.7], [32.7, -114.7], [31.8, -114.8]],
+  ['Columbia', [50.2, -116], [47.9, -118.3], [46.2, -119.1], [45.7, -121.5], [46.2, -123.9]],
+  ['Mackenzie', [61.2, -117], [62.8, -123], [65.3, -126.8], [67.4, -133.7], [69, -135]],
+  ['Yukon', [60.7, -135], [64.1, -139.4], [66.5, -145.3], [64.7, -156], [62.6, -164.5]],
+  ['Amazon', [-4.5, -73.5], [-3.7, -73.2], [-3.3, -67.9], [-3.1, -60], [-2.4, -54.7], [-1.5, -52], [-0.5, -50.5]],
+  ['Madeira', [-10.4, -65.4], [-8.7, -63.9], [-5.8, -61.3], [-3.4, -58.8]],
+  ['Orinoco', [3, -65.9], [6.2, -67.5], [7.9, -65], [8.1, -63.5], [8.6, -62.2], [9, -61]],
+  ['Paraná', [-20, -51], [-24, -54.3], [-27.4, -55.9], [-27.5, -58.8], [-32.9, -60.7], [-34, -58.5]],
+  ['São Francisco', [-20.2, -46.4], [-17.3, -44.9], [-12.2, -43.2], [-9.4, -40.5], [-10.4, -36.4]],
+  ['Murray', [-36.8, 148.2], [-36.1, 146.9], [-34.2, 142.2], [-34.2, 140.7], [-35.4, 139.3]],
   ['Lena', [53.9, 108], [57.8, 108.1], [60.7, 114.9], [62, 129.7], [66.8, 123.4], [72.5, 127]],
 ];
 // A real place on the game's globe, by whichever region draws it.
 const layAny = (real: LL): THREE.Vector3 => {
   const africa = regionOf('africa'), europe = regionOf('europe');
+  for (const name of ['americas', 'oceania']) { const reg = regionOf(name); if (reg.keep(real)) return laid(reg, vec(real)); }
   if (africa.keep(real)) return africaLaid(real, false);
   if (europe.keep(real)) { const p = laid(europe, vec(real)), at = cellOf(middleOf(europe), p, europe.cols, europe.rows, europe.cell); if (at && at[0] >= 0 && at[0] < europe.cols - 6 && at[1] >= 0 && at[1] < europe.rows) return p; }
   return arabia(laid(regionOf('asia'), vec(real)));
@@ -639,8 +671,11 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
       }
       let total = 0, land = 0, best = '', bestN = 0;
       for (const [ch, k] of count) { total += k; if (ch !== '.' && ch !== 'o') land += k; if (k > bestN) { bestN = k; best = ch; } }
-      if (total * 2 <= pts.length || drawn[t.id]) continue; // (mostly outside the picture or left blank; or an earlier region's)
+      if (total * 2 <= pts.length) continue; // (mostly outside the picture or left blank)
       const wet = (count.get('o') ?? 0) * 2 > total;
+      // (An earlier region's tile is kept; but the New World's land is laid over the open sea of the Old World's pictures,
+      // whose edges reach out over where it lies.)
+      if (drawn[t.id] && !(OVER_SEA.includes(patch.name) && drawn[t.id] === 4 && land * 2 >= total && !wet)) continue;
       paint.terrain[t.id] = wet ? LAKE : land * 2 >= total ? LAND : SEA;
       drawn[t.id] = land * 2 >= total && !wet ? ((count.get('^') ?? 0) * 3 >= total ? 3 : ((count.get('h') ?? 0) + (count.get('^') ?? 0)) * 3 >= total ? 2 : 1) : 4;
       void best;
@@ -842,6 +877,16 @@ const MARKS: readonly (readonly [string, number, number])[] = [
   ['Khartoum', 15.6, 32.5], ['Massawa', 15.6, 39.5], ['Djibouti', 11.6, 43.1], ['Guardafui', 11.8, 51.2], ['Mogadishu', 2, 45.3], ['Mombasa', -4, 39.7], ['Dar', -6.8, 39.3], ['Maputo', -26, 32.6],
   ['Durban', -29.9, 31], ['CapeTown', -33.9, 18.4], ['Luanda', -8.8, 13.2], ['Douala', 4, 9.7], ['Lagos', 6.5, 3.4], ['Accra', 5.6, -0.2], ['Dakar', 14.7, -17.4], ['Casablanca', 33.6, -7.6],
   ['Antananarivo', -18.9, 47.5], ['Kinshasa', -4.3, 15.3], ['Victoria', -1, 33], ['Addis', 9, 38.7],
+  ['Anchorage', 61.2, -149.9], ['Nome', 64.5, -165.4], ['Vancouver', 49.3, -123.1], ['Victoria BC', 49.6, -125.5], ['SanFrancisco', 37.8, -122.4], ['LosAngeles', 34, -118.2], ['CaboSanLucas', 22.9, -109.9],
+  ['Mazatlan', 23.2, -106.4], ['MexicoCity', 19.4, -99.1], ['Veracruz', 19.2, -96.1], ['Merida', 21, -89.6], ['Cancun', 21.2, -86.8], ['Guatemala', 14.6, -90.5], ['Managua', 12.1, -86.3],
+  ['Panama', 9, -79.5], ['Houston', 29.8, -95.4], ['NewOrleans', 30, -90.1], ['Miami', 25.8, -80.2], ['Jacksonville', 30.3, -81.7], ['NewYork', 40.7, -74], ['Boston', 42.4, -71.1], ['Halifax', 44.6, -63.6],
+  ['StJohns', 47.6, -52.7], ['Quebec', 46.8, -71.2], ['Chicago', 41.9, -87.6], ['Winnipeg', 49.9, -97.1], ['Churchill', 58.8, -94.2], ['Iqaluit', 63.7, -68.5], ['Nuuk', 64.2, -51.7], ['Denver', 39.7, -105],
+  ['Havana', 23.1, -82.4], ['Santiago de Cuba', 20, -75.8], ['Kingston', 18, -76.8], ['PortAuPrince', 18.6, -72.3], ['SantoDomingo', 18.5, -69.9], ['SanJuan', 18.4, -66.1], ['Nassau', 25.1, -77.3],
+  ['Cartagena', 10.4, -75.5], ['Caracas', 10.5, -66.9], ['Trinidad', 10.5, -61.3], ['Bogota', 4.7, -74.1], ['Quito', -0.2, -78.5], ['Lima', -12, -77], ['LaPaz', -16.5, -68.1], ['Santiago', -33.5, -70.7],
+  ['PuntaArenas', -53.2, -70.9], ['BuenosAires', -34.6, -58.4], ['Rio', -22.9, -43.2], ['Salvador', -13, -38.5], ['Recife', -8.1, -34.9], ['Belem', -1.4, -48.5], ['Manaus', -3.1, -60], ['Cayenne', 4.9, -52.3],
+  ['Darwin', -12.5, 130.8], ['CapeYork', -10.7, 142.5], ['Cairns', -16.9, 145.8], ['Brisbane', -27.5, 153], ['Sydney', -33.9, 151.2], ['Melbourne', -37.8, 145], ['Hobart', -42.9, 147.3], ['Adelaide', -34.9, 138.6],
+  ['Perth', -32, 115.9], ['Broome', -18, 122.2], ['AliceSprings', -23.7, 133.9], ['PortMoresby', -9.5, 147.2], ['Jayapura', -2.5, 140.7], ['Sorong', -0.9, 131.3], ['Merauke', -8.5, 140.4],
+  ['Auckland', -36.8, 174.8], ['Wellington', -41.3, 174.8], ['Christchurch', -43.5, 172.6], ['Invercargill', -46.4, 168.4],
 ];
 
 // ---------- a draft to draw over ----------

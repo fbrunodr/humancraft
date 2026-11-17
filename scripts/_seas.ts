@@ -5,6 +5,7 @@ import { latLon } from '../src/geo.ts';
 import { SEA, load, type PaintFile } from '../src/mapPaint.ts';
 const f = JSON.parse(readFileSync(new URL('../src/maps/earth.json', import.meta.url), 'utf8')) as PaintFile;
 for (const size of ['small', 'medium', 'large'] as const) {
+  if (!f[size]) continue;
   const g = globeFor(size), p = load(f[size]!, g.tiles.length), seen = new Int32Array(g.tiles.length).fill(-1), comps: number[][] = [];
   for (const t of g.tiles) {
     if (p.terrain[t.id] !== SEA || seen[t.id]! >= 0) continue;

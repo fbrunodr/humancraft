@@ -84,3 +84,21 @@ def moat(p, radius=3.2, joins=()):
         if not p.inside(c, r) or p.T[r][c] in '. ': continue
         if any((c - jc) ** 2 + (r - jr) ** 2 <= jw * jw for jc, jr, jw in joins): continue
         p.sea(c, r)
+
+def inland(p, largest=10**9):
+    # Seas of the picture shut in by its own land (not reaching its edge nor a blank) become lakes, up to `largest`
+    # cells: left as sea, the game cuts a channel from each to the ocean.
+    seen = [[False] * p.W for _ in range(p.H)]
+    for r0 in range(p.H):
+        for c0 in range(p.W):
+            if seen[r0][c0] or p.T[r0][c0] != '.': continue
+            comp, open_, stack = [], False, [(c0, r0)]
+            seen[r0][c0] = True
+            while stack:
+                c, r = stack.pop(); comp.append((c, r))
+                for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    cc, rr = c + dc, r + dr
+                    if not p.inside(cc, rr) or p.T[rr][cc] == ' ': open_ = True; continue
+                    if p.T[rr][cc] == '.' and not seen[rr][cc]: seen[rr][cc] = True; stack.append((cc, rr))
+            if not open_ and len(comp) <= largest:
+                for c, r in comp: p.T[r][c] = 'o'
