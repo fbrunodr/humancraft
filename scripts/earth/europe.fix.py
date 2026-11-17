@@ -92,10 +92,10 @@ for r in range(38,60):
         if T[r][c]=='.': T[r][c]='h'; B[r][c]='s'
 
 # 14. What is not Europe's to draw is left blank for the regions laid after it: the sea's south-east corner (the Levant's
-#     and Egypt's shores: Asia's and Africa's) and everything south of Crete.
+#     and Egypt's shores: Asia's and Africa's), everything south of Crete, and the Barbary coast below the Strait of Gibraltar.
 for r in range(H):
     for c in range(W):
-        if (c>=88 and r>=66) or r>=78: T[r][c]=' '; B[r][c]=' '
+        if (c>=88 and r>=66) or r>=78 or (c<=36 and r>=70): T[r][c]=' '; B[r][c]=' '
 
 head="; Europe and the Mediterranean's northern shores, drawn by hand over a tracing of the real coastlines at 2.2 times life size\n; (scripts/earth.ts PATCHES): '.' sea, '#' land, 'h' hills, '^' mountains. A tile is three characters: every strait is three wide at least.\n"
 open(D+'europe.txt','w').write(head+'\n'.join(''.join(r) for r in T)+'\n')

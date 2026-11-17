@@ -65,7 +65,10 @@ const PIECES: readonly Piece[] = [
   { name: 'siberia', at: [62, 135], reach: 24, by: 1.05, from: ['china', [50, 120]] },
   { name: 'japan', at: [37, 138], reach: 7, by: 1.7, from: ['china', [34.5, 129.5]] },
   { name: 'indies', at: [0, 117], reach: 20, by: 1.25, from: ['china', [6, 101]] },
-  { name: 'africa', at: [3, 20], reach: 38, by: 0.9, from: ['europe', [36.8, 10]] },
+  { name: 'africa', at: [0, 18], reach: 34, by: 0.8, from: ['europe', [36.8, 10]] },
+  // (The Horn and the Red Sea's southern shore at the Near East's size: they face Arabia across a sea that must stay narrow.
+  // Egypt is the Near East's already, by nearness.)
+  { name: 'nileHorn', at: [16, 40], reach: 12, by: 1.5, from: ['nearEast', [20, 39]] },
   { name: 'australia', at: [-26, 135], reach: 22, by: 0.95, from: ['indies', [-10, 135]] },
   { name: 'newZealand', at: [-41, 173], reach: 7, by: 1.5, from: ['australia', [-36, 156]] },
   { name: 'northAmerica', at: [45, -100], reach: 32, by: 0.95, to: [44, -110] },
@@ -359,6 +362,8 @@ interface Patch { readonly name: string; readonly to: THREE.Vector3; readonly ce
 interface Region {
   readonly name: string; readonly at: LL; readonly to: () => THREE.Vector3; readonly by: number; readonly middle: LL;
   readonly cols: number; readonly rows: number; readonly cell: number; readonly keep: (real: LL) => boolean;
+  readonly centre?: LL; // where its picture's middle lies on the game's globe, once it is drawn: fixed, whatever the pieces become
+  readonly forward?: (real: LL) => THREE.Vector3; // its own laying of the real world on the game's (traced by going through the real world, not the picture)
   readonly eased?: readonly string[]; // traced through these of the pieces above (its size easing into its neighbours'), not at one size about `at`
 }
 const far = (a: LL, b: LL): number => vec(a).angleTo(vec(b)) / RAD;
@@ -366,7 +371,7 @@ const REGIONS: readonly Region[] = [
   { name: 'europe', at: [48, 14], to: () => vec([40, 15]), by: 2.2, middle: [48, 14], cols: 100, rows: 92, cell: 1,
     keep: (r) => far(r, [48, 14]) <= 31 && r[0] >= 29.5 },
   // (Asia, traced through the pieces: all that lies east of the Red Sea, the Levant and Europe's drawing.)
-  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], cols: 180, rows: 120, cell: 1,
+  { name: 'asia', at: [35, 95], to: () => vec([0, 0]), by: 1, middle: [35, 95], centre: [12.5612, 125.4194], cols: 180, rows: 120, cell: 1,
     eased: ['europe', 'nearEast', 'russia', 'india', 'china', 'siberia', 'japan', 'indies'],
     keep: (r) => {
       const [lat, lon] = r;
@@ -378,6 +383,40 @@ const REGIONS: readonly Region[] = [
       if (lat < 1.5 && lon > 130.8) return false;                  // (New Guinea goes with Australia)
       return true;
     } },
+  // (Africa, with Madagascar. Three layings eased into one another by where a place really is: its northern shore as
+  // Europe's drawing lays it (2.2 times life: it faces Europe across the sea and must run the sea's whole length), the
+  // rest at three quarters of life hung from Tunis, and the Red Sea's shore and the Horn as the Near East is laid (half as
+  // large again), so they face Arabia across a narrow sea. West of the Red Sea; Sicily, Crete, Cyprus and Spain are Europe's.)
+  { name: 'africa', at: [0, 18], to: () => vec([0, 0]), by: 1, middle: [3, 18], centre: [-9.9, 14.2], cols: 136, rows: 124, cell: 1,
+    forward: (real) => {
+      const [lat] = real, x = vec(real), ease = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
+      const set = (n: string) => SETS.find((q) => q.name === n)!, lay = (q: Set) => go(q.game, (q.real.angleTo(x) / RAD) * q.by, bearing(q.real, x));
+      // (How near the Red Sea and the Gulf of Aden: all the Horn's laying within 4 degrees of their middle line, none of it 14 away.)
+      const line: LL[] = [[30, 32.5], [27.5, 34], [20, 38.5], [15, 41.5], [12.5, 43.5], [12, 47], [12.3, 51.5]];
+      let near = 99;
+      for (let i = 0; i + 1 < line.length; i++) for (let f = 0; f <= 1; f += 0.1) near = Math.min(near, far(real, [line[i]![0] + (line[i + 1]![0] - line[i]![0]) * f, line[i]![1] + (line[i + 1]![1] - line[i]![1]) * f]));
+      // (Eased in the picture, across and down apart. Across: Europe's size gives way only little by little down to the
+      // Equator, so the continent narrows evenly from the sea's whole length to its own waist. Down: Europe's size on the
+      // shore itself; from there to the Horn's latitude nearly life size (Arabia, drawn half as large again, reaches that
+      // far south beside it, and the Red Sea must stay a sea between two shores); below that seven tenths, which keeps
+      // the Cape out of the cold.)
+      const c = vec([-9.9, 14.2]), cols = 136, rows = 124;
+      const cell = (p: THREE.Vector3): [number, number] => { const d = c.angleTo(p) / RAD, b = bearing(c, p); return [cols / 2 + d * Math.sin(b), rows / 2 - d * Math.cos(b)]; };
+      const europe = regionOf('europe'), e = cell(laid(europe, x)), a = cell(lay(set('africa')));
+      const shore = cell(laid(europe, vec([33, real[1]])))[1], below = shore + (lat > 12 ? (33 - lat) * 0.95 : 21 * 0.95 + (12 - lat) * 0.72);
+      const h = cell(toGame(real, setsOf(regionOf('asia'))));
+      const horn = 1 - ease((near - 4) / 10), across = ease((35 - lat) / 38), down = ease((35 - lat) / 4);
+      const col = horn * h[0] + (1 - horn) * (e[0] + (a[0] - e[0]) * across), row = horn * h[1] + (1 - horn) * (e[1] + (below - e[1]) * down);
+      const px = col - cols / 2, py = rows / 2 - row;
+      return go(c, Math.hypot(px, py), Math.atan2(px, py));
+    },
+    keep: (r) => {
+      const [lat, lon] = r;
+      if (lon < -26 || lon > 52 || lat < -36) return false;
+      if (lat >= 30) return lon < 34.2 && lat < (lon < -1.9 ? 35.95 : lon < 11.5 ? 37.4 : 33.5);
+      if (lat >= 12.4) return lon < 32.6 + 0.62 * (30 - lat);
+      return true;
+    } },
 ];
 const regionOf = (name: string): Region => { const r = REGIONS.find((x) => x.name === name); if (!r) throw new Error(`no region ${name}`); return r; };
 // A region's own laying of the real world on the game's, and back; the middle of its picture on the game's globe.
@@ -385,7 +424,8 @@ const layOf = (r: Region): { real: THREE.Vector3; game: THREE.Vector3; by: numbe
 const setsOf = (r: Region): Set[] => SETS.filter((s) => r.eased!.includes(s.name));
 const laid = (r: Region, real: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toGame(latLon(real) as unknown as LL, setsOf(r)); const l = layOf(r); return go(l.game, (l.real.angleTo(real) / RAD) * l.by, bearing(l.real, real)); };
 const unlaid = (r: Region, game: THREE.Vector3): THREE.Vector3 => { if (r.eased) return toRealV(game, setsOf(r)); const l = layOf(r); return go(l.real, l.game.angleTo(game) / RAD / l.by, bearing(l.game, game)); };
-const middleOf = (r: Region): THREE.Vector3 => laid(r, vec(r.middle));
+const middleOf = (r: Region): THREE.Vector3 => (r.centre ? vec(r.centre) : laid(r, vec(r.middle)));
+if (process.argv.includes('--centres')) for (const r of REGIONS) console.log(`${r.name}: its picture's middle is at ${latLon(laid(r, vec(r.middle))).map((x) => x.toFixed(4)).join(', ')} on the game's globe`);
 // The point of the game's globe under a cell of a region's picture.
 function cellGame(name: string, col: number, row: number): THREE.Vector3 {
   const r = regionOf(name), x = (col + 0.5 - r.cols / 2) * r.cell, y = (r.rows / 2 - row - 0.5) * r.cell;
@@ -642,7 +682,25 @@ const VIEWS: readonly (readonly [string, LL, number])[] = [
 if (arg('draft', '')) {
   const reg = regionOf(arg('draft', '')), { cols, rows, cell } = reg;
   const c = middleOf(reg), land: string[] = [], kinds: string[] = [];
-  for (let r = 0; r < rows; r++) {
+  if (reg.forward) {
+    // (Traced by going through the real world, every eighth of a degree, and marking where each place falls in the picture.)
+    const grid = Array.from({ length: rows }, () => new Array<string>(cols).fill('.')), kind = Array.from({ length: rows }, () => new Array<string>(cols).fill('.'));
+    for (let lat = -60; lat <= 80; lat += 0.125) for (let lon = -180; lon < 180; lon += 0.125) {
+      const real: LL = [lat, lon];
+      if (!reg.keep(real) || !within(COAST, real)) continue;
+      const at = cellOf(c, reg.forward(real), cols, rows, cell);
+      if (!at || at[0] < 0 || at[1] < 0 || at[0] >= cols || at[1] >= rows) continue;
+      const q = Math.floor(at[0]), r = Math.floor(at[1]), v = vec(real);
+      if (within(LAKES, real)) { grid[r]![q] = 'o'; kind[r]![q] = '.'; continue; }
+      if (grid[r]![q] !== '.') continue;
+      let t = nearestTile(trueScale.globe, v);
+      if (trueScale.paint.terrain[t] !== LAND) t = trueScale.globe.tiles[t]!.neighbors.find((n) => trueScale.paint.terrain[n] === LAND) ?? t;
+      const relief = trueScale.paint.terrain[t] === LAND ? trueScale.paint.relief[t] : FLAT, biome = trueScale.paint.terrain[t] === LAND ? trueScale.paint.biome[t] : null;
+      grid[r]![q] = relief === MOUNTAINS ? '^' : relief === HILLS ? 'h' : '#';
+      kind[r]![q] = '-ItTcspFRmdvMJ'[biome ? PAINTABLE_BIOMES.indexOf(biome as typeof PAINTABLE_BIOMES[number]) + 1 : 7]!;
+    }
+    for (let r = 0; r < rows; r++) { land.push(grid[r]!.join('')); kinds.push(kind[r]!.join('')); }
+  } else for (let r = 0; r < rows; r++) {
     let a = '', b = '';
     for (let q = 0; q < cols; q++) {
       const v = unlaid(reg, cellGame(reg.name, q, r)), real = latLon(v) as unknown as LL;
@@ -659,7 +717,7 @@ if (arg('draft', '')) {
   }
   // (Where real places fall in it, to find one's way: --marks '[["name",lat,lon],...]')
   for (const [label, lat, lon] of JSON.parse(arg('marks', '[]')) as [string, number, number][]) {
-    const g = laid(reg, vec([lat, lon])), d = c.angleTo(g) / RAD, b = bearing(c, g);
+    const g = reg.forward ? reg.forward([lat, lon]) : laid(reg, vec([lat, lon])), d = c.angleTo(g) / RAD, b = bearing(c, g);
     console.log(`${label}: column ${Math.floor(cols / 2 + (d * Math.sin(b)) / cell)}, row ${Math.floor(rows / 2 - (d * Math.cos(b)) / cell)}`);
   }
   // (And where the regions drawn before it lie in it: '+' on the sea where an earlier drawing has land.)
