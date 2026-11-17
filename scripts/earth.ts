@@ -522,7 +522,6 @@ const RIVERS: readonly (readonly [string, ...LL[]])[] = [
   ['Euphrates', [39.7, 40.3], [36.9, 38], [35.9, 39], [34.4, 40.9], [32.5, 44.4], [31, 47.4]],
   ['Indus', [32.5, 80], [34.1, 77.5], [35.7, 74.6], [33.9, 72.2], [30, 70.8], [27.7, 68.8], [24, 67.5]],
   ['Ganges', [30.9, 79], [29.9, 78.2], [27.5, 80], [25.4, 81.9], [25.6, 85.1], [24.8, 87.9], [23.7, 90.4], [22.3, 91]],
-  ['Brahmaputra', [30.3, 82], [29.3, 88.9], [29.6, 94.9], [28.1, 95.3], [26.2, 91.7], [24.9, 89.6], [23.7, 90.4]],
   ['Amu Darya', [37.1, 71.5], [37.2, 67.3], [41.5, 60.6], [43.7, 59.2]],
   ['Yangtze', [33.4, 91], [31.5, 97.3], [26.5, 100.2], [28.8, 104.6], [29.6, 106.6], [30.7, 111.3], [30.6, 114.3], [32.05, 118.8], [31.4, 121.9]],
   ['Yellow River', [34.9, 96.3], [36, 103.8], [40.6, 108], [40.2, 111.2], [34.8, 110.3], [34.9, 113.6], [37.8, 119]],
@@ -823,7 +822,7 @@ function paintSize(size: MapSizeKey): { paint: Painting; globe: Globe; notes: st
   const taken = new Set<number>();
   for (const way of riverWays()) {
     const r = riverOn(globe, paint, way, taken, !fromFile);
-    if (r.length < 3) continue;
+    if (r.length < 4) continue; // (shorter than a tile's side or two: not a river worth the name)
     paint.rivers.push(r);
     for (const c of r) taken.add(c);
   }
