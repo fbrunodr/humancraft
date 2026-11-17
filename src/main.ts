@@ -8,6 +8,7 @@ import { POLITICS_KEYS } from './politics.ts';
 import { TRAIT_KEYS } from './identity.ts';
 import { LEVELS, DEFAULT_LEVEL } from './aiPolicy.ts';
 import { saveGame, loadGame, saveInfo } from './save.ts';
+import { VERSION } from './version.ts';
 import { putSave, getSave, downloadSave, pickSave, AUTOSAVE } from './saveStore.ts';
 import { GlobeRenderer, RESOLUTIONS, type DebugView, type Selection, type TileMark } from './render.ts';
 import { UI, assertNever, attackInput, modeOf, wonderPicked, tip, type Action, type Placing, type NextStep } from './ui.ts';
@@ -54,7 +55,7 @@ function showStartScreen(): void {
   const BACK = '<button class="back" data-go="home">‹ Back</button>';
 
   function home(): void {
-    menu.innerHTML = `<div>${TITLE}<div class="home"><button class="primary" data-go="play">Play</button><button data-go="continue" hidden></button><button data-go="load">Load a saved game</button><button data-go="tools">Dev tools</button><p class="note" id="loadNote" hidden></p></div></div>`;
+    menu.innerHTML = `<div>${TITLE}<div class="home"><button class="primary" data-go="play">Play</button><button data-go="continue" hidden></button><button data-go="load">Load a saved game</button><button data-go="tools">Dev tools</button><p class="note" id="loadNote" hidden></p><p class="note">${VERSION}</p></div></div>`;
     on('[data-go="play"]', setup);
     on('[data-go="tools"]', tools);
     // (A saved game, loaded: the world made again from its seed, its state put back.)
@@ -62,7 +63,7 @@ function showStartScreen(): void {
       const info = saveInfo(text), note = document.getElementById('loadNote');
       const say = (m: string) => { if (note) { note.textContent = m; note.hidden = false; } };
       if (!info) { say('That is not a saved game.'); return; }
-      if (!info.current) { say(`That game was saved under version ${info.version} of the rules, and this is another: it cannot be loaded.`); return; }
+      if (!info.current) { say(`That game was saved with ${info.made}; this is ${VERSION}. It plays under v${info.version} of the game only.`); return; }
       menu.innerHTML = '<div class="loading">Shaping the world…</div>';
       setTimeout(() => { startGame(loadGame(text)); menu.remove(); }, 40);
     };
@@ -230,7 +231,7 @@ function startGame(game: Game): void {
   const openMenu = (on: boolean) => {
     menuBox.classList.toggle('hidden', !on);
     if (!on) return;
-    menuBox.innerHTML = `<div class="card"><h2>Human craft</h2>
+    menuBox.innerHTML = `<div class="card"><h2>Human craft <small>${VERSION}</small></h2>
       <span class="label">Graphics</span>
       <div class="opts">
         <label class="opt">Shadows <input type="checkbox" data-set="shadows" ${settings.shadows ? 'checked' : ''}></label>

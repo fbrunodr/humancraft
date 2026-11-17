@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { Game } from '../src/game.ts';
 import { saveGame, loadGame, saveInfo, digest, SAVE_VERSION } from '../src/save.ts';
+import { RELEASE, VERSION } from '../src/version.ts';
 
 const played = (seed: number, turns: number, speed: 'quick' | 'standard' = 'quick'): Game => {
   const g = new Game({ size: 'small', seed, speed });
@@ -29,7 +30,7 @@ describe('SV1: saved and loaded', () => {
   }
   it('a save says what it is; one of another version is refused, said so', () => {
     const g = played(5, 3, 'standard'), text = saveGame(g);
-    expect(saveInfo(text)).toEqual({ version: SAVE_VERSION, turn: g.turn, civ: g.players[0]!.name, current: true });
+    expect(saveInfo(text)).toEqual({ version: SAVE_VERSION, release: RELEASE, made: VERSION, turn: g.turn, civ: g.players[0]!.name, current: true });
     expect(loadGame(text).pace).toBe(1.5);
     const old = text.replace(`"version":${SAVE_VERSION}`, `"version":${SAVE_VERSION + 1}`);
     expect(saveInfo(old)?.current).toBe(false);

@@ -121,14 +121,31 @@ roads join cities. City guarantees live in `test/cities.test.ts`,
 
 Debug URL params: `?turns=N` lets the AI play your first N turns (to look at a grown empire); `?reveal` shows the whole map; `?look=jungle` (any biome, relief or feature key; combine with `+`, e.g. `?look=coldDesert+hills`) flies the camera to the first match.
 
-## Saves and versions
+## Versions and saves
 
-A saved game carries the version of the rules it was made under
-(`SAVE_VERSION` in `src/save.ts`) and loads only under that version. The
-version must be raised whenever the map, the rules or the state's shape
-change. `test/golden.test.ts` holds this: a saved game kept in
+The game's version is `vX.Y` (`src/version.ts`); a release is the git tag
+of that name.
+
+- **X, the rules' version.** Raised when the map, the rules or the shape of
+  the state change, so that an older save would play differently. A save
+  loads under its own X only.
+- **Y, the release.** Raised with every release that keeps X: looks, the
+  interface, how the computer plays, fixes. Any release of an X loads every
+  save of that X. Back to 0 when X is raised.
+
+A saved game is one JSON object. Its first fields say what it needs,
+without reading the rest:
+
+```json
+{ "app": "human-craft", "version": 0, "release": 0, "turn": 42, "civ": "English", ... }
+```
+
+`version` is X and `release` is the Y it was made with. To play a save,
+serve the latest tag `v<version>.*`.
+
+`test/golden.test.ts` holds X to its word: a saved game kept in
 `test/saves/` must still play out to the same state. When it fails, raise
-`SAVE_VERSION` and run `npx tsx scripts/golden.ts`.
+`RULES_VERSION`, set `RELEASE` to 0, and run `npx tsx scripts/golden.ts`.
 
 ## License
 

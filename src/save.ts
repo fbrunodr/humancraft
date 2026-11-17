@@ -13,13 +13,15 @@
 
 import { Game, type GameOptions } from './game.ts';
 import { militaryMemory, setMilitaryMemory } from './aiMilitary.ts';
+import { RELEASE, RULES_VERSION } from './version.ts';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = RULES_VERSION;
 const APP = 'human-craft';
 
 export interface SaveFile {
   readonly app: typeof APP;
-  readonly version: number;
+  readonly version: number;           // the rules' version it was made under, and loads under (version.ts: X of vX.Y)
+  readonly release: number;           // the release it was made with (Y): any release of its X loads it
   readonly turn: number;              // (for showing a save without loading it)
   readonly civ: string;
   readonly options: GameOptions;
@@ -100,7 +102,7 @@ const MADE = new Set(['seed', 'globe', 'tiles', 'N', 'map', 'flora', 'world', 'r
 export function saveGame(g: Game): string {
   const state: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(g)) if (!MADE.has(k)) state[k] = v;
-  const file: SaveFile = { app: APP, version: SAVE_VERSION, turn: g.turn, civ: g.players[0]?.name ?? '', options: g.options, rng: g.rng.getState(), state: pack(state), ai: pack(militaryMemory(g)) };
+  const file: SaveFile = { app: APP, version: SAVE_VERSION, release: RELEASE, turn: g.turn, civ: g.players[0]?.name ?? '', options: g.options, rng: g.rng.getState(), state: pack(state), ai: pack(militaryMemory(g)) };
   return JSON.stringify(file);
 }
 
@@ -115,11 +117,12 @@ export function digest(g: Game): string {
 }
 
 // What a save says of itself without being loaded (null: not a save of this game at all).
-export function saveInfo(text: string): { version: number; turn: number; civ: string; current: boolean } | null {
+export function saveInfo(text: string): { version: number; release: number; made: string; turn: number; civ: string; current: boolean } | null {
   try {
     const f = JSON.parse(text) as Partial<SaveFile>;
     if (f.app !== APP || typeof f.version !== 'number') return null;
-    return { version: f.version, turn: f.turn ?? 0, civ: f.civ ?? '', current: f.version === SAVE_VERSION };
+    const release = typeof f.release === 'number' ? f.release : 0;
+    return { version: f.version, release, made: `v${f.version}.${release}`, turn: f.turn ?? 0, civ: f.civ ?? '', current: f.version === SAVE_VERSION };
   } catch { return null; }
 }
 
@@ -141,7 +144,7 @@ export function loadGame(text: string): Game {
   let f: SaveFile;
   try { f = JSON.parse(text) as SaveFile; } catch { throw new Error('This is not a saved game.'); }
   if (f.app !== APP) throw new Error('This is not a saved game.');
-  if (f.version !== SAVE_VERSION) throw new Error(`This game was saved under version ${f.version} of the rules; this is version ${SAVE_VERSION}. It cannot be loaded.`);
+  if (f.version !== SAVE_VERSION) throw new Error(`This game was saved under version ${f.version} of the rules (v${f.version}.${f.release ?? 0}); this is version ${SAVE_VERSION}. It loads under v${f.version} of the game only.`);
   const g = new Game(f.options);
   const state = unpack(f.state) as Record<string, unknown>, own = g as unknown as Record<string, unknown>;
   for (const [k, v] of Object.entries(state)) restore(own, k, v);
