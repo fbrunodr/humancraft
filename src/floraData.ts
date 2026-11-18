@@ -99,13 +99,11 @@ export const BIOME_FLORA: Record<BiomeKey, FloraSet> = {
     v('Eucalypt', A, 105, [['eucalyptus', 45], ['treeFern', 8], ['shrub', 15], ['grassTuft', 20], ['fallenLog', 7], ['boulder', 5]]),
   ] },
   temperateRainforest: { variants: [
-    v('Cascadian', N, 180, [['giantCedar', 15], ['fir', 20], ['spruce', 15], ['beechMaple', 10, MOSS], ['fernClump', 22], ['moss', 8], ['fallenLog', 6], ['snag', 2], ['boulder', 2]], { warm: -0.3 }),
-    v('Colchic', N, 155, [['fir', 5], ['beechMaple', 45, MOSS], ['shrub', 15, LAUREL], ['fernClump', 20], ['moss', 5], ['fallenLog', 6], ['snag', 2], ['boulder', 2]], { warm: 0.7 }),
-    v('Valdivian', A, 165, [['southernBeech', 35], ['araucaria', 10], ['treeFern', 10], ['bamboo', 15], ['fernClump', 18], ['moss', 4], ['fallenLog', 5], ['snag', 1], ['boulder', 2]], { warm: -0.3 }),
-    // Wet tropical hills are cool enough to count as temperate rainforest:
-    // montane cloud forest.
-    v('Cloud forest', 'any', 155, [['treeFern', 25], ['beechMaple', 35, MOSS], ['bamboo', 10], ['fernClump', 20], ['moss', 10]], { hills: true, maxLat: 28 }),
-    v('Tasman', A, 165, [['southernBeech', 25], ['kauri', 12], ['treeFern', 25], ['fernClump', 20], ['moss', 10], ['fallenLog', 5], ['snag', 1], ['boulder', 2]], { warm: 0.5 }),
+    // Three rainforests, on any continent, at any latitude (a generated map's temperate rainforest is tropical highland;
+    // a painted one's may lie anywhere): dense, next to a jungle's.
+    v('Valdivian', 'any', 190, [['southernBeech', 35], ['araucaria', 10], ['treeFern', 10], ['bamboo', 15], ['fernClump', 18], ['moss', 4], ['fallenLog', 5], ['snag', 1], ['boulder', 2]], { warm: -0.3 }),
+    v('Subtropical rainforest', 'any', 190, [['beechMaple', 34, MOSS], ['kauri', 8], ['treeFern', 16], ['bamboo', 8], ['shrub', 6, LAUREL], ['fernClump', 18], ['moss', 6], ['fallenLog', 3], ['boulder', 1]], { warm: 0.5 }),
+    v('Cloud forest', 'any', 185, [['treeFern', 25], ['beechMaple', 35, MOSS], ['bamboo', 10], ['fernClump', 20], ['moss', 10]], { wet: 0.5 }),
   ] },
   mediterranean: { variants: [
     v('Maquis', 'any', 105, [['olive', 15], ['cypress', 8], ['juniper', 5], ['shrub', 45, LAUREL], ['flowers', 7], ['grassTuft', 8], ['boulder', 10], ['tor', 2]], { wet: -0.3 }),
