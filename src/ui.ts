@@ -22,6 +22,7 @@ import {
 export type Action =
   | { type: 'found' }
   | { type: 'improve' }
+  | { type: 'stop' }
   | { type: 'road' }
   | { type: 'fort' }
   | { type: 'preach' }
@@ -62,7 +63,7 @@ const isBuildKey = (s: string): s is BuildKey => (BUILDABLE as string[]).include
 function parseAction(el: HTMLElement): Action | null {
   const type = el.dataset['act'];
   switch (type) {
-    case 'found': case 'improve': case 'road': case 'fort': case 'fortify': case 'wake': case 'skip': case 'disband': case 'endTurn': case 'next': case 'governorPlace': case 'pillage': case 'raze': case 'buyMode': case 'missionary': case 'preach': case 'rally': case 'deploy': case 'upgrade':
+    case 'found': case 'improve': case 'stop': case 'road': case 'fort': case 'fortify': case 'wake': case 'skip': case 'disband': case 'endTurn': case 'next': case 'governorPlace': case 'pillage': case 'raze': case 'buyMode': case 'missionary': case 'preach': case 'rally': case 'deploy': case 'upgrade':
       return { type };
     case 'buy': {
       const c = el.dataset['currency'];
@@ -332,6 +333,11 @@ export class UI {
         orders.push(order('rally', 'star', `Rally${can ? ` ${plural(can, 'unit')}` : ''}`, 'Take the units on its tile and beside it into its army', 'R', can ? null : army >= COMMANDER_CAPACITY ? 'The army is full' : 'No units of yours on its tile or the tiles next to it'));
         if (army) orders.push(order('deploy', 'out', 'Deploy', 'Its army steps out onto the tiles around it', 'U'));
       }
+      // (What it was told on an earlier turn can be taken back: its work left, its journey forgotten.)
+      if (u.work !== null) orders.push(order('stop', 'stop', 'Stop work', 'It leaves this work and asks for orders again; what is done of it stays, for whoever takes it up'));
+      else if (u.goal != null) orders.push(order('stop', 'stop', 'Stop', 'It forgets where it was going, and asks for orders again'));
+      // (A civilian with nothing to do sleeps: it asks for nothing until woken, or sent somewhere.)
+      if (T.civilian && u.work === null) orders.push(u.fortified ? order('wake', 'bell', 'Wake', 'Ask for orders again') : order('fortify', 'hourglass', 'Sleep', 'It asks for no orders until woken or sent somewhere', 'F'));
       if (!T.civilian) {
         orders.push(u.fortified ? order('wake', 'bell', 'Wake', 'Stand ready for orders again') : order('fortify', 'shield', 'Fortify', 'Hold this tile: stronger in defence, until woken', 'F'));
         const to = g.upgradeTarget(u);
@@ -342,7 +348,7 @@ export class UI {
     }
     const status = u.work !== null ? (u.job === 'road' ? `Laying a road: ${plural(g.roadTurns(u.work), 'turn')} left` : u.job === 'fort' ? `Building a fort: ${plural(g.fortLeft[u.work] || FORT_TURNS, 'turn')} left`
       : `${u.job === 'repair' ? 'Repairing' : 'Building'} ${(() => { const k = g.improvementAt(u.work, u.owner); return k ? `a ${IMPROVEMENTS[k].name.toLowerCase()}` : ''; })()}: ${plural(g.improveTurns(u.work, u.owner), 'turn')} left`)
-      : u.fortified ? 'Fortified' : u.goal != null ? 'On its way' : '';
+      : u.fortified ? (T.civilian ? 'Asleep' : 'Fortified') : u.goal != null ? 'On its way' : '';
     const armyUnits = u.type === 'commander' ? g.armyOf(u) : [];
     const army = u.type === 'commander'
       ? `<div class="desc"><b>Army ${armyUnits.length}/${COMMANDER_CAPACITY}</b>${armyUnits.length ? ` ${armyUnits.map((v) => `<span class="tag">${icon(unitIcon(v.type))}${esc(unitDef(v.type).name)} <small>${v.hp}</small></span>`).join(' ')}` : ' · rally units from its tile and the tiles next to it'}</div>`

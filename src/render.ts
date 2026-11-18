@@ -2662,8 +2662,8 @@ export class GlobeRenderer {
       this.yearTo = want;
       this.yearAt = first ? now - YEAR_EASE : now;
     }
-    const t = smoothstep(0, 1, (now - this.yearAt) / YEAR_EASE), round = ((this.yearTo - this.yearFrom + YEAR * 1.5) % YEAR) - YEAR / 2;
-    this.yearNow = this.yearFrom + round * t;
+    const t = smoothstep(0, 1, (now - this.yearAt) / YEAR_EASE), round = ((((this.yearTo - this.yearFrom) % YEAR) + YEAR * 1.5) % YEAR) - YEAR / 2; // (the short way round, however many years have turned)
+    this.yearNow = (((this.yearFrom + round * t) % YEAR) + YEAR) % YEAR;
     this.yearPhase.value = landPhase(this.yearNow);
   }
 

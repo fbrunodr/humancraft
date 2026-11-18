@@ -251,7 +251,7 @@ function startGame(game: Game): void {
     ['<kbd>N</kbd> <kbd>Tab</kbd>', 'next unit'], ['<kbd>C</kbd>', 'centre on the selection'],
     ['<kbd>B</kbd>', 'found a city'], ['<kbd>I</kbd> <kbd>L</kbd> <kbd>O</kbd>', 'a worker: improve the land · lay a road · build a fort'],
     ['<kbd>V</kbd>', 'a missionary: preach in the city it stands in or beside'],
-    ['<kbd>F</kbd>', 'fortify'], ['<kbd>Space</kbd>', 'skip the unit\'s turn'],
+    ['<kbd>F</kbd>', 'fortify (a civilian: sleep until woken)'], ['<kbd>Space</kbd>', 'skip the unit\'s turn'],
     ['<kbd>P</kbd>', 'pillage'], ['<kbd>R</kbd> <kbd>U</kbd>', 'a commander: rally · deploy'],
     ['<kbd>H</kbd> <kbd>Y</kbd> <kbd>M</kbd>', 'hex grid · yields · strategic view'],
     ['<kbd>Esc</kbd>', 'close, cancel, deselect; then this menu'], ['<kbd>J</kbd>', 'debug views of the land'],
@@ -451,10 +451,15 @@ function startGame(game: Game): void {
         break;
       }
       case 'fortify':
-        if (unit && !unitDef(unit.type).civilian) { unit.fortified = true; unit.goal = null; afterUnitAction(unit); }
+        // (A soldier fortifies; a civilian sleeps: neither asks for orders until woken. Not one at work.)
+        if (unit && unit.work === null) { unit.fortified = true; unit.goal = null; afterUnitAction(unit); }
         break;
       case 'wake':
         if (unit) unit.fortified = false;
+        break;
+      case 'stop':
+        // (What it was told before is taken back: the work left where it stands, the journey forgotten.)
+        if (unit) { unit.work = null; unit.job = null; unit.goal = null; unit.goalMode = null; }
         break;
       case 'skip':
         if (unit) { unit.skipped = true; afterUnitAction(unit); }
