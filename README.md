@@ -147,6 +147,11 @@ serve the latest tag `v<version>.*`.
 `test/saves/` must still play out to the same state. When it fails, raise
 `RULES_VERSION`, set `RELEASE` to 0, and run `npx tsx scripts/golden.ts`.
 
+## Support
+
+Human craft is free to play at [fbrunodr.com/humancraft](https://fbrunodr.com/humancraft), with no ads and no account.
+If you enjoy it and want to help it keep growing, you can [sponsor it on GitHub](https://github.com/sponsors/fbrunodr).
+
 ## License
 
 Human craft is licensed under
