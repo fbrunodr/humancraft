@@ -1,5 +1,5 @@
-import { HUMAN, DEAL_TURNS, TRUCE_TURNS, TRUCE_BREAK, VICTORIES, type Victory, type Game, type Player, type DealSide, type Deal } from './game.ts';
-import { TECH_KEYS, techDef, techPath, type TechKey, type TechDef } from './techs.ts';
+import { HUMAN, EMBARK_TECH, DEAL_TURNS, TRUCE_TURNS, TRUCE_BREAK, VICTORIES, type Victory, type Game, type Player, type DealSide, type Deal } from './game.ts';
+import { TECH_KEYS, STAGE_TECHS, techDef, techPath, type TechKey, type TechDef } from './techs.ts';
 import {
   POLITICS_KEYS, politicsDef, politicsPath, GOVERNMENT_KEYS, governmentDef, policyDef, fits, SLOT_KINDS, POLICY_KINDS, POLICY_KEYS,
   type PoliticsKey, type PoliticsDef, type GovernmentKey, type PolicyKey, type PolicySlot, type PolicyKind,
@@ -10,17 +10,19 @@ import {
 } from './identity.ts';
 import { RELIGION_KEYS, religionDef, FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, CONVERT_PER_POP, DEVOUT_TURNS } from './religion.ts';
 import { RESOURCE_KEYS, resourceDef, empireBonus, type ResourceKey } from './resources.ts';
-import { describe as describeEffect, describeAll, flat } from './effects.ts';
-import { ERAS, BUILDINGS, WONDERS, type EraIndex } from './cities.ts';
+import { describe as describeEffect, describeAll, flat, type Effect } from './effects.ts';
+import { ERAS, BUILDINGS, WONDERS, IMPROVEMENTS, OUTPUT_KEYS, type EraIndex, type ImprovementKey, type OutputKey } from './cities.ts';
 import { UNITS, unitDef } from './rules.ts';
 import { aiAcceptsDeal, resourceWorth, standing, attitude, ATTITUDES, RANKS, type Rank } from './ai.ts';
-import { outStr, bonusStr, tip } from './ui.ts';
-import { icon, unitIcon, resourceIcon, type IconKey } from './icons.ts';
+import { bonusStr, tip } from './ui.ts';
+import { icon, unitIcon, YIELD_ICON } from './icons.ts';
 
 // The empire's sheets: full-screen pages over the map, opened from the top
 // bar (data-sheet: the research, politics and identity tracks, and the
-// buttons) and closed with Esc.
-//   research    the tech tree: click a tech to research it (and what it needs first)
+// buttons; the science, cohesion, culture and faith yields open research,
+// politics, identity and religion) and closed with Esc.
+//   research    the tech tree: click a tech to research it (and what it needs first);
+//               a box to find what gives something ("camp", "embark")
 //   politics    the politics tree, likewise (governments and policies)
 //   identity    the civ's identity: its paths and traits (identity.ts), to adopt
 //   government  three tabs: the government in place and its policies, the
@@ -33,21 +35,37 @@ import { icon, unitIcon, resourceIcon, type IconKey } from './icons.ts';
 
 export type SheetKind = 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'log';
 const SHEETS: readonly SheetKind[] = ['research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'log'];
-const SHEET_NAME: Record<SheetKind, string> = { research: 'Research', politics: 'Politics', identity: 'Identity', government: 'Government', religion: 'Religion', diplomacy: 'Diplomacy', log: 'Log' };
-const SHEET_ICON: Record<SheetKind, IconKey> = { research: 'science', politics: 'politics', identity: 'identity', government: 'government', religion: 'religion', diplomacy: 'diplomacy', log: 'log' };
 const isSheet = (s: string): s is SheetKind => (SHEETS as readonly string[]).includes(s);
 type GovTab = 'mine' | 'policies' | 'governments';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const KIND_NAME: Record<PolicySlot, string> = { military: 'Military', economic: 'Economic', social: 'Social', wildcard: 'Wildcard' };
 const TIER_NAME = ['', 'I', 'II', 'III'] as const;
-// A tree's plates and the room between them (pixels).
-const NODE_W = 240, NODE_H = 88, GAP_X = 56, GAP_Y = 14, TREE_TOP = 46, TREE_PAD = 8;
+// A tree's plates and the room between them (pixels). A plate is as tall as
+// the tree's fullest needs: its name, then up to CHIP_ROWS rows of chips.
+const NODE_W = 280, GAP_X = 56, GAP_Y = 14, TREE_TOP = 46, TREE_PAD = 8;
+// A chip on a plate: what an item unlocks or gives, named. Their widths are
+// reckoned here (one face, every letter as wide: game.css .node .u), so a
+// plate knows its rows before it is drawn.
+interface Chip { readonly cls: string; readonly ic: string; readonly name: string; readonly sub: string }
+const CHIP_CH = 6.75, CHIP_PAD = 32, CHIP_GAP = 4, CHIP_ROWS = 2, CHIP_ROOM = NODE_W - 24, MORE_W = 38;
+const YIELD_CLS: Record<OutputKey, string> = { food: 'food', prod: 'prod', gold: 'gold', science: 'sci', culture: 'cul', faith: 'fai', cohesion: 'coh' };
+const IMPROVEMENT_KEYS = Object.keys(IMPROVEMENTS) as ImprovementKey[];
+const plural = (name: string) => (name.endsWith('s') ? name : name.endsWith('y') ? `${name.slice(0, -1)}ies` : `${name}s`);
+// The rows a run of chips takes, each as wide as given.
+const chipRows = (widths: readonly number[]): number => {
+  let rows = 0, left = 0;
+  for (const w of widths) {
+    if (rows === 0 || w + CHIP_GAP > left) { rows++; left = CHIP_ROOM - w; } else left -= w + CHIP_GAP;
+  }
+  return rows;
+};
 
 export class Sheets {
   private open: SheetKind | null = null;
   private shown: SheetKind | null = null;   // the sheet last drawn (a tree opens scrolled to where the civ has got to)
   private readonly el: HTMLElement;
   private govTab: GovTab = 'mine';
+  private find = '';                         // what the tree's box looks for
   private filter: PolicyKind | 'all' = 'all';
   private target: { slot: PolicySlot; i: number } | null = null;   // the slot a policy card will go to
   private notice = '';
@@ -57,7 +75,8 @@ export class Sheets {
   constructor(private readonly game: Game, private readonly changed: () => void, private readonly downloadLog: () => void) {
     this.el = document.getElementById('sheet')!;
     document.body.addEventListener('click', (e) => {
-      const t = e.target instanceof HTMLElement ? e.target : null;
+      // (An icon is a target too: an SVG element, not an HTML one.)
+      const t = e.target instanceof Element ? e.target : null;
       const btn = t?.closest<HTMLElement>('[data-sheet]');
       if (btn) { const k = btn.dataset['sheet'] ?? ''; if (isSheet(k)) { if (this.el.contains(btn)) this.show(k); else this.toggle(k); } return; }
       if (!t || !this.el.contains(t)) return;
@@ -77,12 +96,34 @@ export class Sheets {
       if (node?.dataset['node']) add(node.dataset['node']);
       this.el.querySelectorAll<SVGPathElement>('svg.links path').forEach((p) => p.classList.toggle('lit', lit.has(p.dataset['b'] ?? '') && lit.has(p.dataset['a'] ?? '')));
     });
+    // A tree's box: what is typed dims every item that does not give it.
+    this.el.addEventListener('input', (e) => {
+      if (!(e.target instanceof HTMLInputElement) || !e.target.matches('[data-find]')) return;
+      this.find = e.target.value;
+      this.applyFind(true);
+    });
+  }
+
+  // Dims a tree's items that neither are nor give what the box asks for, and
+  // marks the chips that do (`go`: brings the first such item into view).
+  private applyFind(go: boolean): void {
+    const q = this.find.trim().toLowerCase();
+    let n = 0, first: HTMLElement | null = null;
+    this.el.querySelectorAll<HTMLElement>('.node').forEach((node) => {
+      const hit = q !== '' && (node.dataset['find'] ?? '').includes(q);
+      node.classList.toggle('dim', q !== '' && !hit);
+      node.querySelectorAll<HTMLElement>('.u').forEach((u) => u.classList.toggle('hit', q !== '' && (u.dataset['f'] ?? '').includes(q)));
+      if (hit) { n++; first ??= node; }
+    });
+    const count = this.el.querySelector('.find small');
+    if (count) count.textContent = q ? (n ? `${n} found` : 'nothing') : '';
+    if (go && first) (first as HTMLElement).scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
   }
 
   get isOpen(): boolean { return this.open !== null; }
   private get me(): Player { return this.game.players[HUMAN]!; }
 
-  toggle(k: SheetKind): void { this.open = this.open === k ? null : k; this.notice = ''; this.render(); }
+  toggle(k: SheetKind): void { this.open = this.open === k ? null : k; this.notice = ''; this.find = ''; this.render(); }
   close(): void { this.open = null; this.render(); }
   // Opens a sheet (if it is not the one open).
   show(k: SheetKind): void { if (this.open !== k) this.toggle(k); }
@@ -97,16 +138,24 @@ export class Sheets {
       if (pending) b.insertAdjacentHTML('beforeend', '<span class="dot"></span>');
     });
     document.querySelectorAll<HTMLElement>('#trackers [data-sheet]').forEach((b) => b.classList.toggle('active', b.dataset['sheet'] === this.open));
+    // (The yields that open a sheet: lit by game.css from this.)
+    document.body.dataset['open'] = this.open ?? '';
     if (!this.open) { this.el.classList.add('hidden'); this.el.innerHTML = ''; this.shown = null; return; }
     this.el.classList.remove('hidden');
     const fresh = this.shown !== this.open;
     this.shown = this.open;
     const left = this.el.scrollLeft, top = this.el.scrollTop;
     const [title, sub, body] = this.page(this.open);
-    // (Its head: the sheets as tabs, to go from one to another; then this one's title.)
-    const tabs = SHEETS.map((k) => `<button data-sheet="${k}" class="${k === this.open ? 'active' : ''}">${icon(SHEET_ICON[k])}${SHEET_NAME[k]}</button>`).join('');
-    this.el.innerHTML = `<div class="head"><nav class="snav">${tabs}<button class="close" data-do="close">${icon('close')} Close <kbd>Esc</kbd></button></nav>
-      <div class="stitle"><h2>${title}</h2><span class="sub">${sub}</span></div></div><div class="body">${body}</div>`;
+    // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
+    const tree = this.open === 'research' || this.open === 'politics';
+    const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.matches('[data-find]');
+    const find = tree ? `<label class="find">${icon('eye')}<input data-find type="text" spellcheck="false" placeholder="Find what gives… ${this.open === 'research' ? 'camp, embark, iron' : 'a policy, a government'}" value="${esc(this.find)}"><small></small></label>` : '';
+    this.el.innerHTML = `<div class="head"><div class="stitle"><h2>${title}</h2><span class="sub">${sub}</span><span class="grow"></span>${find}
+      <button class="close" data-do="close">${icon('close')} Close <kbd>Esc</kbd></button></div></div><div class="body">${body}</div>`;
+    if (tree) {
+      this.applyFind(false);
+      if (typing) { const box = this.el.querySelector<HTMLInputElement>('[data-find]'); box?.focus(); box?.setSelectionRange(box.value.length, box.value.length); }
+    }
     // (As it was scrolled; a tree just opened: at the first items still to come.)
     const start = Number(this.el.querySelector<HTMLElement>('.tree')?.dataset['start'] ?? 0);
     this.el.scrollLeft = fresh ? start : left;
@@ -200,18 +249,49 @@ export class Sheets {
     return `${on ? `On ${esc(on)}` : 'Nothing chosen'} · ${rate} ${k === 'tech' ? 'science' : 'cohesion'} a turn · click any item to work toward it`;
   }
 
-  // What a tech or politics item unlocks, as round chips (each named when pointed at).
-  private unlockChips(kind: 'tech' | 'politics', k: string): string[] {
+  // What a tech or politics item unlocks and gives, each a named chip: a
+  // unit, a building, a wonder, a government, a policy by their own signs;
+  // an open padlock for everything else it makes possible (an improvement
+  // to build, a resource to see, land units at sea); a yield's sign for
+  // what it adds.
+  private unlockChips(kind: 'tech' | 'politics', k: string): Chip[] {
     const d: TechDef | PoliticsDef = kind === 'tech' ? techDef(k as TechKey) : politicsDef(k as PoliticsKey);
-    const chip = (cls: string, ic: string, name: string, sub: string) => `<span class="u ${cls}" ${tip(esc(name), esc(sub))}>${ic}</span>`;
+    const fx: readonly Effect[] = 'effects' in d ? d.effects ?? [] : [];
+    // (The improvements this is the first tech of: it lets them be built.)
+    const builds = kind === 'tech' ? IMPROVEMENT_KEYS.filter((i) => STAGE_TECHS(i)[0] === k) : [];
+    const lock = (name: string, sub: string): Chip => ({ cls: 'l', ic: icon('unlock'), name, sub });
     return [
-      ...(d.units ?? []).map((u) => chip('', icon(unitIcon(u)), UNITS[u].name, unitDef(u).desc ?? 'Unit')),
-      ...(d.buildings ?? []).map((b) => chip('b', icon('building'), BUILDINGS[b].name, BUILDINGS[b].desc)),
-      ...(d.wonders ?? []).map((w) => chip('w', icon('star'), WONDERS[w].name, `Wonder · ${WONDERS[w].desc}`)),
-      ...('governments' in d ? (d.governments ?? []).map((x) => chip('g', icon('government'), governmentDef(x).name, `Government · ${describeAll(governmentDef(x).effects)}`)) : []),
-      ...('policies' in d ? (d.policies ?? []).map((x) => chip('p', icon('politics'), policyDef(x).name, `${KIND_NAME[policyDef(x).kind]} policy · ${describeAll(policyDef(x).effects)}`)) : []),
-      ...(kind === 'tech' ? RESOURCE_KEYS.filter((r) => resourceDef(r).reveal === k).map((r) => chip('r', icon(resourceIcon(r)), `Reveals ${resourceDef(r).name}`, 'A strategic resource, hidden until now')) : []),
+      ...(d.units ?? []).map((u) => ({ cls: '', ic: icon(unitIcon(u)), name: UNITS[u].name, sub: unitDef(u).desc ?? 'Unit' })),
+      ...(d.buildings ?? []).map((b) => ({ cls: 'b', ic: icon('building'), name: BUILDINGS[b].name, sub: BUILDINGS[b].desc })),
+      ...(d.wonders ?? []).map((w) => ({ cls: 'w', ic: icon('star'), name: WONDERS[w].name, sub: `Wonder · ${WONDERS[w].desc}` })),
+      ...('governments' in d ? (d.governments ?? []).map((x) => ({ cls: 'g', ic: icon('government'), name: governmentDef(x).name, sub: `Government · ${describeAll(governmentDef(x).effects)}` })) : []),
+      ...('policies' in d ? (d.policies ?? []).map((x) => ({ cls: 'p', ic: icon('politics'), name: policyDef(x).name, sub: `${KIND_NAME[policyDef(x).kind]} policy · ${describeAll(policyDef(x).effects)}` })) : []),
+      ...builds.map((i) => {
+        const gives = fx.filter((e) => e.k === 'improvement' && e.imp === i).map(describeEffect).join('; ');
+        return lock(`Build ${plural(IMPROVEMENTS[i].name)}`, `${plural(IMPROVEMENTS[i].name)} can be built${gives ? ` · ${gives}` : ''}`);
+      }),
+      ...(k === EMBARK_TECH ? [lock('Land units embark', 'Your land units can take to the water and cross it')] : []),
+      ...(kind === 'tech' ? RESOURCE_KEYS.filter((r) => resourceDef(r).reveal === k).map((r) => lock(`Reveals ${resourceDef(r).name}`, 'A strategic resource, hidden until now')) : []),
+      ...fx.filter((e) => !(e.k === 'improvement' && builds.includes(e.imp))).map((e) => this.effectChip(e)),
     ];
+  }
+  // What an item adds, as a chip under its yield's sign (one yield on an improvement: said short).
+  private effectChip(e: Effect): Chip {
+    const text = describeEffect(e);
+    const ys = e.k === 'yield' ? [e.y] : 'o' in e ? OUTPUT_KEYS.filter((y) => e.o[y] !== 0) : [];
+    const y = ys[0];
+    const name = e.k === 'improvement' && y && ys.length === 1 ? `${e.o[y] > 0 ? '+' : ''}${e.o[y]} per ${IMPROVEMENTS[e.imp].name}` : text;
+    return { cls: `e ${y ? YIELD_CLS[y] : ''}`, ic: icon(y ? YIELD_ICON[y] : 'up'), name, sub: text };
+  }
+  // A plate's chips, drawn: all of them if they fit its rows, or as many as do and a count of the rest.
+  private chipsHtml(chips: readonly Chip[]): { html: string; rows: number } {
+    const width = (c: Chip) => Math.min(CHIP_ROOM, CHIP_PAD + CHIP_CH * c.name.length);
+    let n = chips.length;
+    while (n > 0 && chipRows([...chips.slice(0, n).map(width), ...(n < chips.length ? [MORE_W] : [])]) > CHIP_ROWS) n--;
+    const shown = chips.slice(0, n), rest = chips.slice(n);
+    const html = shown.map((c) => `<span class="u ${c.cls}" data-f="${esc(`${c.name} ${c.sub}`.toLowerCase())}" ${tip(esc(c.name), esc(c.sub))}>${c.ic}<span>${esc(c.name)}</span></span>`).join('')
+      + (rest.length ? `<span class="u more" ${tip(`${rest.length} more`, esc(rest.map((c) => c.name).join(' · ')))}>+${rest.length}</span>` : '');
+    return { html, rows: chipRows([...shown.map(width), ...(rest.length ? [MORE_W] : [])]) };
   }
 
   // A tree: an era to a band, in it a column to each depth (each item one
@@ -262,10 +342,14 @@ export class Sheets {
       const drift = Math.min(at[0]!, Math.max(0, Math.round(order.reduce((a, k, i) => a + at[i]! - want.get(k)!, 0) / order.length)));
       order.forEach((k, i) => row.set(k, at[i]! - drift));
     }
+    // (Every plate as tall as the fullest one's chips ask.)
+    const chips = new Map(keys.map((k) => [k, this.unlockChips(kind, k)]));
+    const drawn = new Map(keys.map((k) => [k, this.chipsHtml(chips.get(k)!)]));
+    const NODE_H = 44 + 26 * Math.max(1, ...keys.map((k) => drawn.get(k)!.rows));
     const x = (c: number) => TREE_PAD + c * (NODE_W + GAP_X), y = (r: number) => TREE_TOP + r * (NODE_H + GAP_Y);
     const known = kind === 'tech' ? p.techs as ReadonlySet<string> : p.politics as ReadonlySet<string>;
     const current = kind === 'tech' ? p.research : p.studying;
-    const queue = new Set<string>(kind === 'tech' ? p.researchQueue : p.politicsQueue);
+    const order: readonly string[] = kind === 'tech' ? p.researchQueue : p.politicsQueue, queue = new Set<string>(order);
     const progress = (k: string) => (kind === 'tech' ? p.techProgress[k as TechKey] : p.politicsProgress[k as PoliticsKey]) ?? 0;
     const rate = kind === 'tech' ? p.ledger.income.science : p.ledger.income.cohesion;
     const unit = kind === 'tech' ? 'science' : 'cohesion';
@@ -275,18 +359,19 @@ export class Sheets {
       const d = def(k), done = known.has(k);
       const ready = (d.needs as readonly string[]).every((n) => known.has(n));
       const cls = done ? 'done' : k === current ? 'current' : queue.has(k) ? 'queued' : ready ? '' : 'locked';
-      const chips = this.unlockChips(kind, k);
+      const mine = chips.get(k)!;
+      // (Its place in what is being worked toward: 1 now, then the queue.)
+      const place = k === current ? 1 : queue.has(k) ? order.indexOf(k) + 2 : 0;
       const fx = 'effects' in d ? (d.effects ?? []).map(describeEffect).join(' · ') : '';
       const pathCost = done ? 0 : (kind === 'tech' ? techPath(k as TechKey, p.techs) : politicsPath(k as PoliticsKey, p.politics) as string[])
         .reduce((s, n) => s + cost(n) - progress(n), 0);
       const turns = done ? '' : rate > 0 ? `${Math.max(1, Math.ceil(pathCost / rate))} turns` : '—';
       const bar = !done && progress(k) > 0 ? `<div class="bar ${kind === 'tech' ? 'sci' : 'coh'}"><i style="width:${(100 * progress(k) / cost(k)).toFixed(1)}%"></i></div>` : '';
       const state = done ? 'Known' : k === current ? 'Being worked on' : queue.has(k) ? 'Queued' : ready ? 'Click to work on it' : 'Click to work toward it, through what it needs';
-      return `<div class="node ${cls}" style="left:${x(col.get(k)!)}px;top:${y(row.get(k)!)}px;width:${NODE_W}px;height:${NODE_H}px" data-node="${k}" ${done ? '' : `data-do="${kind}" data-key="${k}"`}
+      return `<div class="node ${cls}" style="left:${x(col.get(k)!)}px;top:${y(row.get(k)!)}px;width:${NODE_W}px;height:${NODE_H}px" data-node="${k}" data-find="${esc(`${d.name} ${mine.map((c) => `${c.name} ${c.sub}`).join(' ')}`.toLowerCase())}" ${done ? '' : `data-do="${kind}" data-key="${k}"`}
         ${tip(esc(d.name), `${cost(k)} ${unit}${fx ? ` · ${esc(fx)}` : ''} · ${state}`)}>
-        <div class="name"><span>${esc(d.name)}</span><small>${turns}</small></div>
-        <div class="unl">${chips.slice(0, 7).join('')}${chips.length > 7 ? `<small>+${chips.length - 7}</small>` : ''}</div>
-        <div class="fxl">${esc(fx)}</div>${bar}</div>`;
+        <div class="name">${place ? `<i class="ord">${place}</i>` : ''}<span>${esc(d.name)}</span><small>${turns}</small></div>
+        <div class="unl">${drawn.get(k)!.html}</div>${bar}</div>`;
     };
     // The lines: out of an item along its row, down (or up) the gap before
     // the item that needs it, and in; each item's own lane in that gap, so
@@ -299,7 +384,8 @@ export class Sheets {
         const r = Math.min(7, Math.abs(y2 - y1) / 2), dir = Math.sign(y2 - y1);
         const d = dir === 0 ? `M${x1},${y1} H${x2}`
           : `M${x1},${y1} H${lane - r} Q${lane},${y1} ${lane},${y1 + dir * r} V${y2 - dir * r} Q${lane},${y2} ${lane + r},${y2} H${x2}`;
-        links += `<path class="${known.has(n) ? 'done' : ''}" data-a="${n}" data-b="${k}" d="${d}"/>`;
+        const on = (k === current || queue.has(k)) && (n === current || queue.has(n));
+        links += `<path class="${known.has(n) ? 'done' : on ? 'on' : ''}" data-a="${n}" data-b="${k}" d="${d}"/>`;
       }
     }
     const rows = Math.max(...keys.map((k) => row.get(k)!)) + 1;
@@ -414,21 +500,27 @@ export class Sheets {
     return `<div class="gcols">${cols}</div>`;
   }
 
+  // The rules in three short parts, then a card to each religion: its
+  // faith, what a city following it gets, and who founded it, where, how far
+  // it has gone (a founded one lit).
   private religionHtml(): string {
     const g = this.game, p = this.me;
-    const rows = RELIGION_KEYS.map((r) => {
+    const cards = RELIGION_KEYS.map((r) => {
       const d = religionDef(r), f = g.religions.get(r);
       const holy = f?.holyCity != null ? g.cityById.get(f.holyCity) : undefined;
       const followers = g.cities.filter((c) => c.religion === r).length;
-      return `<tr><td><span class="swatch" style="background:${d.color}"></span> ${d.name}</td><td>${esc(traitDef(traitOfReligion(r)).name)}</td>
-        <td>${f ? esc(g.players[f.founder]!.name) : '<small>not yet founded</small>'}</td><td>${holy ? esc(holy.name) : '—'}</td>
-        <td class="num">${followers}</td><td>${outStr(flat(d.follower, 'follower'), true)}</td></tr>`;
+      const by = f ? g.players[f.founder]! : null;
+      const state = by ? `<span><span class="swatch" style="background:${by.color}"></span>Founded by ${by.id === p.id ? 'you' : `the ${esc(by.name)}`}</span>${holy ? `<span>Holy city ${esc(holy.name)}</span>` : ''}<span>${followers === 1 ? '1 city follows it' : `${followers} cities follow it`}</span>`
+        : `<span>Not yet founded</span>${followers ? `<span>${followers} cities follow it</span>` : ''}`;
+      return `<div class="rcard ${f ? 'founded' : ''}"><div class="rhead"><span class="seal" style="background:${d.color}"></span><div><b>${d.name}</b><small>Faith: ${esc(traitDef(traitOfReligion(r)).name)}</small></div></div>
+        <div class="rbonus">${bonusStr(flat(d.follower, 'follower'))}<small>in each city following it</small></div><div class="rfoot">${state}</div></div>`;
     }).join('');
     const mine = g.cities.filter((c) => c.owner === p.id);
     const cities = mine.length ? mine.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.religion ? religionDef(c.religion).name : '<small>none</small>'}</td></tr>`).join('') : '';
-    return `<p class="note">A religion is founded by the first civilization to adopt its faith, a trait of the Devotion path of identity (Meditation founds Hinduism); a civilization adopts one faith at most. It spreads from its holy city to the cities around it, whoever owns them; Shrines and Temples press it harder. Each city following a religion gets its bonus; the founder takes 1 gold a turn from every city following it.</p>
-      <p class="note"><b>A civilization's religion</b> is the one it founded, or else the one more than half of its people follow. <b>In war</b> a civilization attacking one of its own religion fights ${Math.round(100 * FAITH_SAME)}% weaker; attacking one of another religion, ${Math.round(100 * FAITH_RIVAL)}% stronger; with no religion on either side, nothing. And such a war troubles its people: its cities that follow the religion make ${HOLY_STRIFE.slice(1).map((x) => Math.round(100 * x) + '%').join(', ')} less cohesion while it is at war with one, two, three or more civilizations of its own religion.</p>
-      <table class="grid"><tr><th>Religion</th><th>Faith (identity)</th><th>Founder</th><th>Holy city</th><th>Cities</th><th>Bonus per city</th></tr>${rows}</table>
+    return `<div class="rules"><div><h4>Founding</h4><p>A religion is founded by the first civilization to adopt its faith, a trait of the Devotion path of identity (Meditation founds Hinduism). A civilization adopts one faith at most. Its religion is the one it founded, or else the one more than half of its people follow.</p></div>
+      <div><h4>Spreading</h4><p>It spreads from its holy city to the cities around it, whoever owns them; Shrines and Temples press it harder. Each city following a religion gets its bonus; the founder takes 1 gold a turn from every city following it.</p></div>
+      <div><h4>At war</h4><p>A civilization attacking one of its own religion fights ${Math.round(100 * FAITH_SAME)}% weaker; attacking one of another religion, ${Math.round(100 * FAITH_RIVAL)}% stronger; with no religion on either side, nothing. Its cities that follow the religion make ${HOLY_STRIFE.slice(1).map((x) => Math.round(100 * x) + '%').join(', ')} less cohesion while it is at war with one, two, three or more civilizations of its own religion.</p></div></div>
+      <div class="rcards">${cards}</div>
       ${this.convertHtml()}
       ${cities ? `<h3>Your cities</h3><table class="grid"><tr><th>City</th><th>Follows</th></tr>${cities}</table>` : ''}`;
   }

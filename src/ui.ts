@@ -242,8 +242,9 @@ export class UI {
   private empireHtml(): string {
     const g = this.game, p = g.players[HUMAN]!, l = p.ledger;
     const net = Math.round(l.income.gold + l.tithes + l.trade - l.cityUpkeep - l.unitUpkeep);
-    const stat = (cls: string, ic: IconKey, value: string, delta: string, title: string, sub: string, neg = false) =>
-      `<div class="stat ${cls} ${neg ? 'neg' : ''}" ${tip(title, sub)}>${icon(ic)}<b>${value}</b>${delta ? `<small>${delta}</small>` : ''}</div>`;
+    // (Science, cohesion, culture and faith open their sheets: research, politics, identity, religion.)
+    const stat = (cls: string, ic: IconKey, value: string, delta: string, title: string, sub: string, neg = false, sheet = '') =>
+      `<div class="stat ${cls} ${neg ? 'neg' : ''}" ${sheet ? `data-sheet="${sheet}"` : ''} ${tip(title, sub)}>${icon(ic)}<b>${value}</b>${delta ? `<small>${delta}</small>` : ''}</div>`;
     const lines = [`Cities ${signed(Math.round(l.income.gold))}`, l.tithes ? `Tithes ${signed(Math.round(l.tithes))}` : '', l.trade ? `Trade ${signed(Math.round(l.trade))}` : '',
       l.cityUpkeep ? `City upkeep −${l.cityUpkeep.toFixed(1)}` : '', l.unitUpkeep ? `Unit upkeep −${l.unitUpkeep.toFixed(1)}` : ''].filter(Boolean).join(' · ');
     const owned = g.ownedResources(HUMAN);
@@ -251,10 +252,10 @@ export class UI {
     const lux = g.luxuriesOf(HUMAN);
     return [
       stat('gold', 'gold', String(p.gold), `${signed(net)}`, 'Gold', `In the treasury; ${signed(net)} a turn. ${lines}${p.arrears > 0 ? `<br><span class="bad">In arrears: your cities make ${Math.round(100 * p.arrears)}% less production, science and culture</span>` : '. What you cannot pay, your cities lose in proportion'}`, net < 0 || p.arrears > 0),
-      stat('sci', 'science', signed(l.income.science), '', 'Science', 'A turn, toward what you research'),
-      stat('coh', 'cohesion', signed(l.income.cohesion), '', 'Cohesion', 'A turn, toward your politics'),
-      stat('cul', 'culture', signed(l.income.culture), '', 'Culture', 'A turn, toward your identity\'s next trait'),
-      stat('fai', 'faith', String(p.faith), signed(l.income.faith), 'Faith', `In hand; ${signed(l.income.faith)} a turn. Buys what a city builds`),
+      stat('sci', 'science', signed(l.income.science), '', 'Science', 'A turn, toward what you research. Click: research', false, 'research'),
+      stat('coh', 'cohesion', signed(l.income.cohesion), '', 'Cohesion', 'A turn, toward your politics. Click: politics', false, 'politics'),
+      stat('cul', 'culture', signed(l.income.culture), '', 'Culture', 'A turn, toward your identity\'s next trait. Click: identity', false, 'identity'),
+      stat('fai', 'faith', String(p.faith), signed(l.income.faith), 'Faith', `In hand; ${signed(l.income.faith)} a turn. Buys what a city builds. Click: religion`, false, 'religion'),
       strategic.length || lux.length ? '<span class="sep"></span>' : '',
       ...strategic.map((k) => { const cap = UNITS_PER_SOURCE * g.resourceSources(HUMAN, k), used = g.resourceUsed(HUMAN, k);
         return `<span class="res" ${tip(resourceDef(k).name, `${plural(g.resourceSources(HUMAN, k), 'source')}: each arms ${UNITS_PER_SOURCE} units that need it. ${used} of ${cap} in use`)}>${icon(resourceIcon(k))}${used}/${cap}</span>`; }),

@@ -76,7 +76,7 @@ export function drawUnitFlag(ctx: CanvasRenderingContext2D, color: string, glyph
     ctx.strokeStyle = BRASS;
     ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.font = '700 25px Inter, system-ui, sans-serif';
+    ctx.font = '700 25px "JetBrains Mono", ui-monospace, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(stack), 104, 23.5);
@@ -109,7 +109,7 @@ export interface CityBanner {
 // under the name two thin bars, growth and production (its owner's eyes
 // only), and its health in red over them once it is hurt.
 export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): void {
-  ctx.font = '600 38px Cinzel, Georgia, serif';
+  ctx.font = '700 34px "JetBrains Mono", ui-monospace, monospace';
   const label = b.name.toUpperCase();
   const star = b.capital ? 34 : 0, glyph = b.glyph ? 54 : 0, held = b.garrison ? 50 : 0;
   const textW = Math.min(330 - star - held, ctx.measureText(label).width);
@@ -155,7 +155,7 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   ctx.strokeStyle = BRASS;
   ctx.stroke();
   ctx.fillStyle = '#fff';
-  ctx.font = '700 34px Inter, system-ui, sans-serif';
+  ctx.font = '700 34px "JetBrains Mono", ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(b.pop), x + 32, y + h / 2 + 2);
@@ -163,7 +163,7 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   let tx = x + 74;
   const ty = y + h / 2 - (b.growth !== null ? 4 : 0);
   if (b.capital) { drawIcon(ctx, 'star', tx + 13, ty, 28, ink); tx += star; }
-  ctx.font = '600 38px Cinzel, Georgia, serif';
+  ctx.font = '700 34px "JetBrains Mono", ui-monospace, monospace';
   ctx.textAlign = 'left';
   ctx.fillStyle = ink === '#ffffff' ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.35)';
   ctx.fillText(label, tx + 1.5, ty + 4.5, textW);
@@ -174,7 +174,7 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
     const sx = x + w - glyph - 36;
     drawIcon(ctx, 'shield', sx, ty, 34, ink);
     if (b.garrison > 1) {
-      ctx.font = '700 19px Inter, system-ui, sans-serif';
+      ctx.font = '700 19px "JetBrains Mono", ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.fillStyle = b.color;
       ctx.fillText(String(b.garrison), sx, ty - 1);
@@ -242,7 +242,7 @@ export function drawTileYields(ctx: CanvasRenderingContext2D, yields: readonly (
     else {
       drawIcon(ctx, it.k, x + (S / 2) * k, 32, S * k, c);
       ctx.fillStyle = '#fff';
-      ctx.font = `700 ${Math.round(22 * k)}px Inter, system-ui, sans-serif`;
+      ctx.font = `700 ${Math.round(22 * k)}px "JetBrains Mono", ui-monospace, monospace`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(it.n), x + (S + 2) * k, 33.5);

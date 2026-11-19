@@ -712,7 +712,7 @@ export class GlobeRenderer {
     this.cityLabels.setWorldSize(2.95 * tile, 0.645 * tile);
     this.yieldBadges.mesh.userData['stat'] = 'yield icons';
     this.scene.add(this.yieldBadges.mesh);
-    void document.fonts?.load('600 38px Cinzel').then(() => { this.fontEpoch++; this.updateCities(); });
+    void document.fonts?.load('700 34px "JetBrains Mono"').then(() => { this.fontEpoch++; this.updateCities(); });
     g.onBattle = (u, t, style, result) => {
       // (A city's units come out to fight: the attacker from its city, the defenders of the one attacked.)
       const hidden = g.units.filter((x) => g.use[x.tile] === USE.center && (x.id === u.id || x.tile === t) && this.unitView.tileOf(x.id) === undefined);
