@@ -229,7 +229,7 @@ export class Sheets {
     // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
     const tree = (this.open === 'research' || this.open === 'politics') && !from;
     const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.matches('[data-find]');
-    const find = tree ? `<label class="find">${icon('eye')}<input data-find type="text" spellcheck="false" placeholder="Find what gives… ${this.open === 'research' ? 'camp, embark, iron' : 'a policy, a government'}" value="${esc(this.find)}"><small></small></label><span class="findnav"><button type="button" data-do="findPrev" ${tip('The one before', 'Shift + Enter, or the up arrow')}>‹</button><button type="button" data-do="findNext" ${tip('The next', 'Enter, or the down arrow')}>›</button></span>` : '';
+    const find = tree ? `<label class="find">${icon('search')}<input data-find type="text" spellcheck="false" placeholder="Find what gives… ${this.open === 'research' ? 'camp, embark, iron' : 'a policy, a government'}" value="${esc(this.find)}"><small></small></label><span class="findnav"><button type="button" data-do="findPrev" ${tip('The one before', 'Shift + Enter, or the up arrow')}>‹</button><button type="button" data-do="findNext" ${tip('The next', 'Enter, or the down arrow')}>›</button></span>` : '';
     this.el.innerHTML = `<div class="head"><div class="stitle"><h2>${title}</h2>${tabs}<span class="sub">${sub}</span><span class="grow"></span>${find}
       <button class="close" data-do="close">${icon('close')} Close <kbd>Esc</kbd></button></div></div><div class="body">${body}</div>`;
     if (tree) {
