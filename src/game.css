@@ -375,6 +375,8 @@ body.military #notices { right: 504px; }
 #sheet .find input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: inherit; }
 #sheet .find input::placeholder { color: var(--faint); }
 #sheet .find small { white-space: nowrap; color: var(--brass-hi); }
+#sheet .findnav { display: flex; gap: 4px; margin-left: -10px; }
+#sheet .findnav button { width: 32px; height: 32px; padding: 0; line-height: 1; font-size: 18px; }
 #sheet .head h2 { font-size: 22px; font-weight: 800; color: var(--brass-hi); letter-spacing: 0; }
 #sheet .head .sub { color: var(--muted); }
 #sheet .body { padding: 20px 28px 48px; }
@@ -425,6 +427,8 @@ table.grid td.num { text-align: right; }
 .node .u.more { padding: 0 7px; color: var(--muted); background: none; border: 1px solid var(--border); }
 .node .u.hit { background: var(--brass-hi); color: #ffffff; } .node .u.hit .ic { color: #ffffff !important; }
 .node.dim { opacity: 0.22; }
+/* (The item found that the box stands at.) */
+.node.at { box-shadow: 0 0 0 3px var(--brass); }
 .node .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 0; }
 .node.done { background: color-mix(in srgb, var(--tc) 16%, #ebe8e1); border-color: color-mix(in srgb, var(--tc) 55%, transparent); cursor: default; }
 .node.done .name small::after { content: '✓'; color: var(--tc); }

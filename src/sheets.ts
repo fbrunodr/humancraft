@@ -27,7 +27,8 @@ import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 //   economy     the treasury's accounts: what comes in, what goes out, city by city
 //   resources   the strategic resources (their sources, the units they arm) and the luxuries
 //   research    the tech tree: click a tech to research it (and what it needs first);
-//               a box to find what gives something ("camp", "embark")
+//               a box to find what gives something ("camp", "embark"), going from one
+//               item found to the next (Enter, or its arrows)
 //   politics    the politics tree, likewise (governments and policies)
 //   identity    the civ's identity: its paths and traits (identity.ts), to adopt
 //   government  three tabs (beside its title): the government in place and its
@@ -95,6 +96,7 @@ export class Sheets {
   private readonly sorts = new Map<string, { col: number; down: boolean }>();   // each table's order, as the player set it   // the sheets showing their second tab: where their yield comes from
   private readonly el: HTMLElement;
   private govTab: GovTab = 'mine';
+  private findAt = 0;                        // which of the items found it stands at
   private find = '';                         // what the tree's box looks for
   private filter: PolicyKind | 'all' = 'all';
   private target: { slot: PolicySlot; i: number } | null = null;   // the slot a policy card will go to
@@ -138,30 +140,58 @@ export class Sheets {
     this.el.addEventListener('input', (e) => {
       if (!(e.target instanceof HTMLInputElement) || !e.target.matches('[data-find]')) return;
       this.find = e.target.value;
+      this.findAt = 0;
       this.applyFind(true);
     });
+    // (Enter in the box, or the down arrow: the next item found; with Shift, or the up arrow, the one before.)
+    this.el.addEventListener('keydown', (e) => {
+      if (!(e.target instanceof HTMLInputElement) || !e.target.matches('[data-find]')) return;
+      const by = e.key === 'Enter' ? (e.shiftKey ? -1 : 1) : e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+      if (!by) return;
+      e.preventDefault();
+      this.findStep(by);
+    });
+    // (A press on one of the box's arrows leaves the keys with the box.)
+    this.el.addEventListener('mousedown', (e) => { if (e.target instanceof Element && e.target.closest('.findnav')) e.preventDefault(); });
   }
 
   // Dims a tree's items that neither are nor give what the box asks for, and
-  // marks the chips that do (`go`: brings the first such item into view).
+  // marks the chips that do. The items found are gone through in the tree's
+  // order (left to right, then down): one of them is the one stood at, ringed
+  // and counted ("2 of 5"); `go` brings it into view.
   private applyFind(go: boolean): void {
     const q = this.find.trim().toLowerCase();
-    let n = 0, first: HTMLElement | null = null;
+    const hits: HTMLElement[] = [];
     this.el.querySelectorAll<HTMLElement>('.node').forEach((node) => {
       const hit = q !== '' && (node.dataset['find'] ?? '').includes(q);
       node.classList.toggle('dim', q !== '' && !hit);
+      node.classList.remove('at');
       node.querySelectorAll<HTMLElement>('.u').forEach((u) => u.classList.toggle('hit', q !== '' && (u.dataset['f'] ?? '').includes(q)));
-      if (hit) { n++; first ??= node; }
+      if (hit) hits.push(node);
     });
+    hits.sort((a, b) => a.offsetLeft - b.offsetLeft || a.offsetTop - b.offsetTop);
+    this.findAt = hits.length ? ((this.findAt % hits.length) + hits.length) % hits.length : 0;
+    const at = hits[this.findAt];
+    at?.classList.add('at');
     const count = this.el.querySelector('.find small');
-    if (count) count.textContent = q ? (n ? `${n} found` : 'nothing') : '';
-    if (go && first) (first as HTMLElement).scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+    if (count) count.textContent = q ? (hits.length ? `${this.findAt + 1} of ${hits.length}` : 'nothing') : '';
+    this.el.querySelectorAll<HTMLButtonElement>('.findnav button').forEach((b) => { b.disabled = hits.length < 2; });
+    // (Into the middle of what shows of the sheet under its head.)
+    const tree = this.el.querySelector<HTMLElement>('.tree'), head = this.el.querySelector<HTMLElement>('.head');
+    if (go && at && tree) this.el.scrollTo({
+      left: tree.offsetLeft + at.offsetLeft + at.offsetWidth / 2 - this.el.clientWidth / 2,
+      top: tree.offsetTop + at.offsetTop + at.offsetHeight / 2 - (this.el.clientHeight + (head?.offsetHeight ?? 0)) / 2,
+      behavior: 'smooth',
+    });
   }
+  // To the next item found (or the one before), round and round.
+  // (The box keeps the keys: after a click on an arrow, Enter still goes on from there.)
+  private findStep(by: number): void { this.findAt += by; this.el.querySelector<HTMLInputElement>('[data-find]')?.focus({ preventScroll: true }); this.applyFind(true); }
 
   get isOpen(): boolean { return this.open !== null; }
   private get me(): Player { return this.game.players[HUMAN]!; }
 
-  toggle(k: SheetKind): void { this.open = this.open === k ? null : k; this.notice = ''; this.find = ''; this.render(); }
+  toggle(k: SheetKind): void { this.open = this.open === k ? null : k; this.notice = ''; this.find = ''; this.findAt = 0; this.render(); }
   close(): void { this.open = null; this.render(); }
   // Opens a sheet (if it is not the one open).
   show(k: SheetKind): void { if (this.open !== k) this.toggle(k); }
@@ -193,7 +223,7 @@ export class Sheets {
     // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
     const tree = (this.open === 'research' || this.open === 'politics') && !from;
     const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.matches('[data-find]');
-    const find = tree ? `<label class="find">${icon('eye')}<input data-find type="text" spellcheck="false" placeholder="Find what gives… ${this.open === 'research' ? 'camp, embark, iron' : 'a policy, a government'}" value="${esc(this.find)}"><small></small></label>` : '';
+    const find = tree ? `<label class="find">${icon('eye')}<input data-find type="text" spellcheck="false" placeholder="Find what gives… ${this.open === 'research' ? 'camp, embark, iron' : 'a policy, a government'}" value="${esc(this.find)}"><small></small></label><span class="findnav"><button type="button" data-do="findPrev" ${tip('The one before', 'Shift + Enter, or the up arrow')}>‹</button><button type="button" data-do="findNext" ${tip('The next', 'Enter, or the down arrow')}>›</button></span>` : '';
     this.el.innerHTML = `<div class="head"><div class="stitle"><h2>${title}</h2>${tabs}<span class="sub">${sub}</span><span class="grow"></span>${find}
       <button class="close" data-do="close">${icon('close')} Close <kbd>Esc</kbd></button></div></div><div class="body">${body}</div>`;
     if (tree) {
@@ -218,6 +248,8 @@ export class Sheets {
     this.notice = '';
     switch (d['do']) {
       case 'close': this.close(); return;
+      case 'findPrev': this.findStep(-1); return;
+      case 'findNext': this.findStep(1); return;
       case 'sort': {
         // (The same column again: the other way. A new one: figures from the largest, names from A.)
         const id = d['table'] ?? '', col = Number(d['col']), was = this.sorts.get(id);
