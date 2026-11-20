@@ -8,7 +8,8 @@ import { onImprovement, perSpecialist, prodPct, yieldPct, pct, count, type Effec
 // buildings and wonders to build, reveals strategic resources (resources.ts
 // reveal) and improves the land (effects.ts improvement: what used to come
 // with each era). Everyone researches the same tree; only the pace
-// differs. Costs are flat (not scaled by a civ's size: a wide civ pays its
+// differs. No tech names a need it already rests on through another of its
+// needs (test/trees.test.ts): the tree shows every link it has. Costs are flat (not scaled by a civ's size: a wide civ pays its
 // cities' upkeep instead, economy.ts).
 
 export const TECH_KEYS = [
@@ -71,7 +72,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   masonry:         t('Masonry', 0, 35, ['mining'], { buildings: ['walls'], wonders: ['pyramids'] }),
   bronzeWorking:   t('Bronze Working', 0, 40, ['mining'], { units: ['spearman'], buildings: ['barracks'], effects: [onImprovement('mine', { prod: 1 })] }), // (reveals Iron)
   theWheel:        t('The Wheel', 0, 40, ['mining'], { units: ['chariotArcher'], buildings: ['waterMill'] }),
-  horsebackRiding: t('Horseback Riding', 0, 45, ['animalHusbandry', 'archery'], { units: ['horseman'], buildings: ['stable'] }),
+  horsebackRiding: t('Horseback Riding', 0, 45, ['archery'], { units: ['horseman'], buildings: ['stable'] }),
   fishing:         t('Fishing', 0, 35, ['sailing'], { effects: [onImprovement('boats', { gold: 1 })] }),
   mysticism:       t('Mysticism', 0, 40, ['astrology'], { buildings: ['temple'] }),
   // ---- Classical ----
@@ -94,7 +95,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   machinery:       t('Machinery', 2, 55, ['ironWorking', 'engineering'], { units: ['crossbowman'] }),
   militaryTactics: t('Military Tactics', 2, 55, ['mathematics', 'ironWorking'], { units: ['pikeman'] }),
   stirrups:        t('Stirrups', 2, 55, ['horsebackRiding', 'ironWorking'], { units: ['knight'] }),
-  fortification:   t('Fortification', 2, 50, ['construction', 'masonry'], { units: ['trebuchet'], effects: [pct('cityStrength', 25)] }),
+  fortification:   t('Fortification', 2, 50, ['construction'], { units: ['trebuchet'], effects: [pct('cityStrength', 25)] }),
   metalCasting:    t('Metal Casting', 2, 50, ['bronzeWorking', 'apprenticeship'], { units: ['longswordsman'], effects: [onImprovement('quarry', { prod: 1 })], wonders: ['leaningTower'] }),
   forestry:        t('Forestry', 2, 45, ['construction', 'animalHusbandry'], { effects: [yieldPct('prod', 5)], wonders: ['staveChurch'] }),
   drainage:        t('Drainage', 2, 45, ['engineering'], { effects: [onImprovement('wetland', { food: 1 })], wonders: ['machuPicchu'] }),
@@ -108,7 +109,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   astronomy:       t('Astronomy', 3, 85, ['education', 'compass'], { units: ['explorer'], buildings: ['observatory'], wonders: ['tajMahal'] }),
   banking:         t('Banking', 3, 85, ['craftGuilds', 'printingPress'], { buildings: ['bank'], effects: [onImprovement('plantation', { gold: 1 })], wonders: ['stPeters'] }),
   metallurgy:      t('Metallurgy', 3, 90, ['gunpowder', 'metalCasting'], { units: ['lancer', 'shipOfTheLine'], wonders: ['himejiCastle'] }),
-  navigation:      t('Navigation', 3, 80, ['compass', 'astronomy'], { units: ['caravel', 'privateer'], effects: [onImprovement('boats', { gold: 1 })] }),
+  navigation:      t('Navigation', 3, 80, ['astronomy'], { units: ['caravel', 'privateer'], effects: [onImprovement('boats', { gold: 1 })] }),
   physics:         t('Physics', 3, 85, ['astronomy', 'printingPress'], { effects: [yieldPct('science', 5)] }),
   chemistry:       t('Chemistry', 3, 85, ['education', 'metalCasting'], { units: ['cannon'], effects: [onImprovement('mine', { prod: 1 })] }),
   accounting:      t('Accounting', 3, 75, ['banking'], { effects: [perSpecialist('merchant', { gold: 1 })], wonders: ['forbiddenCity'] }),
@@ -128,7 +129,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   economics:       t('Economics', 4, 135, ['industrialization', 'accounting'], { buildings: ['stockExchange'] }),
   fertilizer:      t('Fertilizer', 4, 130, ['cropRotation', 'chemistry'], { effects: [onImprovement('farm', { food: 1 }), onImprovement('plantation', { gold: 1 })] }),
   archaeology:     t('Archaeology', 4, 125, ['patronage', 'scientificTheory'], { buildings: ['museum'], wonders: ['neuschwanstein'] }),
-  pedagogy:        t('Pedagogy', 4, 125, ['scientificTheory', 'printingPress'], { buildings: ['publicSchool'] }),
+  pedagogy:        t('Pedagogy', 4, 125, ['scientificTheory'], { buildings: ['publicSchool'] }),
   biology:         t('Biology', 4, 135, ['scientificTheory'], { effects: [pct('growth', -10)], wonders: ['sagradaFamilia'] }),
   dynamite:        t('Dynamite', 4, 130, ['chemistry', 'steamPower'], { units: ['artillery'], effects: [onImprovement('quarry', { prod: 1 }), pct('vsCities', 15)] }),
   // ---- Modern ----
@@ -145,14 +146,14 @@ export const TECHS: Record<TechKey, TechDef> = {
   medicine:        t('Medicine', 5, 210, ['biology', 'refrigeration'], { effects: [count('heal', 10), pct('growth', -10)] }),
   // (Walls give way to defense in depth: trenches, bunkers, guns.)
   defenseInDepth:  t('Defense in Depth', 5, 205, ['ballistics', 'railroad'], { effects: [{ k: 'fortified' }] }),
-  atomicTheory:    t('Atomic Theory', 5, 225, ['electricity', 'chemistry'], { buildings: ['researchLab'] }),
+  atomicTheory:    t('Atomic Theory', 5, 225, ['electricity'], { buildings: ['researchLab'] }),
   telecommunications: t('Telecommunications', 5, 225, ['radio', 'electronics'], { effects: [yieldPct('cohesion', 10), yieldPct('culture', 10)], wonders: ['tokyoTower'] }),
   flight:          t('Flight', 5, 230, ['combustion', 'radio'], { units: ['fighter', 'bomber'] }),
   radar:           t('Radar', 5, 240, ['flight', 'electronics'], { units: ['antiAircraft', 'carrier'] }),
   jetPropulsion:   t('Jet Propulsion', 5, 260, ['radar', 'massProduction'], { units: ['jetFighter', 'helicopter'] }),
   // ---- Information ----
   computers:       t('Computers', 6, 280, ['electronics', 'atomicTheory'], { effects: [yieldPct('science', 10)], wonders: ['fastTelescope'] }),
-  rocketry:        t('Rocketry', 6, 290, ['radar', 'refining'], { units: ['rocketArtillery', 'mobileSAM'], wonders: ['launchComplex39'] }),
+  rocketry:        t('Rocketry', 6, 290, ['radar'], { units: ['rocketArtillery', 'mobileSAM'], wonders: ['launchComplex39'] }),
   composites:      t('Composites', 6, 290, ['steel', 'motorizedWarfare'], { units: ['modernArmor'], wonders: ['burjKhalifa'] }),
   mobileTactics:   t('Mobile Tactics', 6, 290, ['motorizedWarfare', 'radio'], { units: ['mechanizedInfantry', 'paratrooper', 'specialForces'] }),
   nuclearFission:  t('Nuclear Fission', 6, 300, ['atomicTheory', 'electronics'], { units: ['nuclearSubmarine', 'atomicBomb'], effects: [yieldPct('prod', 5)] }),
@@ -164,7 +165,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   // (The last stretch: from the machines that reckon to the one that thinks. Each a step, none a leap.)
   internet:        t('The Internet', 6, 310, ['computers', 'telecommunications'], { effects: [yieldPct('science', 10), yieldPct('culture', 5)] }),
   satellites:      t('Satellites', 6, 310, ['rocketry', 'computers'], { effects: [yieldPct('gold', 5), yieldPct('cohesion', 5)] }),
-  microprocessors: t('Microprocessors', 6, 320, ['computers', 'robotics'], { effects: [yieldPct('prod', 5)] }),
+  microprocessors: t('Microprocessors', 6, 320, ['robotics'], { effects: [yieldPct('prod', 5)] }),
   machineLearning: t('Machine Learning', 6, 340, ['internet', 'microprocessors'], { effects: [yieldPct('science', 10)] }),
   fusionPower:     t('Fusion Power', 6, 340, ['nuclearFission', 'composites'], { effects: [yieldPct('prod', 10)] }),
   autonomousSystems: t('Autonomous Systems', 6, 350, ['machineLearning', 'stealth', 'mobileTactics'], { effects: [prodPct('military', 10)] }),

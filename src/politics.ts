@@ -212,7 +212,7 @@ export const POLITICS: Record<PoliticsKey, PoliticsDef> = {
   standingLegions:   c('Standing Legions', 1, 75, ['militaryTraining', 'earlyEmpire'], { policies: ['legion', 'siegecraft', 'archeryRanges'] }),
   recordedHistory:   c('Recorded History', 1, 75, ['politicalPhilosophy', 'ancestralRites'], { policies: ['literaryTradition', 'naturalPhilosophy', 'scripture'] }),
   monetaryPolicy:    c('Monetary Policy', 1, 70, ['foreignTrade'], { policies: ['coinage', 'monumentalWorks'] }),
-  colonialCharters:  c('Colonial Charters', 1, 70, ['earlyEmpire', 'foreignTrade'], { policies: ['frontierSettlement', 'stateGranaries'] }),
+  colonialCharters:  c('Colonial Charters', 1, 70, ['foreignTrade'], { policies: ['frontierSettlement', 'stateGranaries'] }),
   // ---- Medieval ----
   feudalism:         c('Feudalism', 2, 95, ['militaryTraining'], { policies: ['serfdom', 'feudalLevy'] }),
   civilService:      c('Civil Service', 2, 100, ['recordedHistory', 'citizenship'], { policies: ['bureaucracy', 'meritocracy'], wonders: ['angkorWat'] }),
@@ -237,7 +237,7 @@ export const POLITICS: Record<PoliticsKey, PoliticsDef> = {
   civilEngineering:  c('Civil Engineering', 4, 195, ['colonialism'], { policies: ['publicWorks', 'scientificManagement'] }),
   urbanization:      c('Urbanization', 4, 210, ['civilEngineering', 'theEnlightenment'], { policies: ['urbanHygiene', 'grandOpera'], wonders: ['bigBen'] }),
   womensSuffrage:    c("Women's Suffrage", 4, 205, ['theEnlightenment'], { policies: ['publicEducation'] }),
-  representativeGovernment: c('Representative Government', 4, 215, ['constitutionalism', 'urbanization'], { governments: ['democracy'], policies: ['freeMarket', 'laissezFaire'] }),
+  representativeGovernment: c('Representative Government', 4, 215, ['urbanization'], { governments: ['democracy'], policies: ['freeMarket', 'laissezFaire'] }),
   scorchedEarth:     c('Scorched Earth', 4, 210, ['nationalism'], { policies: ['totalWar', 'generalStaff'] }),
   agrarianReform:    c('Agrarian Reform', 4, 190, ['manorialSystem', 'theEnlightenment'], { policies: ['enclosure'] }),
   // ---- Modern ----
