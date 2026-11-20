@@ -465,7 +465,8 @@ export class Sheets {
       const cells = Array.from({ length: PAIR_SLOTS }, (_, i) => `<i class="${i < lv[a] ? 'a' : i >= PAIR_SLOTS - lv[b] ? 'b' : ''}"></i>`).join('');
       return `<div class="slider"><span>${PATHS[a].name} <b>${lv[a]}</b></span><div class="cells">${cells}</div><span><b>${lv[b]}</b> ${PATHS[b].name}</span></div>`;
     };
-    const PAIRS = ['martial', 'devotion', 'commerce', 'frontier', 'maritime'] as const;
+    // (Devotion last: with its faiths it is the tallest.)
+    const PAIRS = ['martial', 'commerce', 'frontier', 'maritime', 'devotion'] as const;
     const profile = PAIRS.map(slider).join('');
     const traitNode = (k: TraitKey): string => {
       const d = traitDef(k), block = traitBlock(k, have, p.era, founded);
@@ -572,12 +573,12 @@ export class Sheets {
     }).join('');
     const mine = g.cities.filter((c) => c.owner === p.id);
     const cities = mine.length ? mine.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.religion ? religionDef(c.religion).name : '<small>none</small>'}</td></tr>`).join('') : '';
-    return `<div class="rules"><div><h4>Founding</h4><p>A religion is founded by the first civilization to adopt its faith, a trait of the Devotion path of identity (Meditation founds Hinduism). A civilization adopts one faith at most. Its religion is the one it founded, or else the one more than half of its people follow.</p></div>
+    return `<div class="page"><div class="rules"><div><h4>Founding</h4><p>A religion is founded by the first civilization to adopt its faith, a trait of the Devotion path of identity (Meditation founds Hinduism). A civilization adopts one faith at most. Its religion is the one it founded, or else the one more than half of its people follow.</p></div>
       <div><h4>Spreading</h4><p>It spreads from its holy city to the cities around it, whoever owns them; Shrines and Temples press it harder. Each city following a religion gets its bonus; the founder takes 1 gold a turn from every city following it.</p></div>
       <div><h4>At war</h4><p>A civilization attacking one of its own religion fights ${Math.round(100 * FAITH_SAME)}% weaker; attacking one of another religion, ${Math.round(100 * FAITH_RIVAL)}% stronger; with no religion on either side, nothing. Its cities that follow the religion make ${HOLY_STRIFE.slice(1).map((x) => Math.round(100 * x) + '%').join(', ')} less cohesion while it is at war with one, two, three or more civilizations of its own religion.</p></div></div>
       <div class="rcards">${cards}</div>
       ${this.convertHtml()}
-      ${cities ? `<h3>Your cities</h3><table class="grid"><tr><th>City</th><th>Follows</th></tr>${cities}</table>` : ''}`;
+      ${cities ? `<h3>Your cities</h3><table class="grid"><tr><th>City</th><th>Follows</th></tr>${cities}</table>` : ''}</div>`;
   }
 
   // What the founder of a religion does with its faith: missionaries.
