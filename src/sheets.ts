@@ -30,8 +30,8 @@ import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 //               a box to find what gives something ("camp", "embark")
 //   politics    the politics tree, likewise (governments and policies)
 //   identity    the civ's identity: its paths and traits (identity.ts), to adopt
-//   government  three tabs: the government in place and its policies, the
-//               policy cards to slot, and the governments to adopt
+//   government  three tabs (beside its title): the government in place and its
+//               policies, the policy cards to slot, and the governments to adopt
 //   religion    the world's religions and the civ's cities' faith
 //   diplomacy   the civs met: at war or peace, declare war, offer or accept peace;
 //               trade (resources, gold a turn): offers, deals in force, a proposal
@@ -186,9 +186,11 @@ export class Sheets {
     this.shown = key;
     const left = this.el.scrollLeft, top = this.el.scrollTop;
     const [title, sub, main] = this.page(this.open);
-    // (Victory and diplomacy keep to the middle of the sheet, as the accounts do: game.css .page.)
-    const body = from ? this.sourcesHtml(from) : this.open === 'victory' || this.open === 'diplomacy' ? `<div class="page">${main}</div>` : main;
-    const tabs = tabbed ? `<nav class="htabs"><button class="${from ? '' : 'active'}" data-do="tab" data-tab="main">${tabbed[1]}</button><button class="${from ? 'active' : ''}" data-do="tab" data-tab="from">${icon(YIELD_ICON[tabbed[0]])}${tabbed[2]}</button></nav>` : '';
+    // (Victory, diplomacy and government keep to the middle of the sheet, as the accounts do: game.css .page.)
+    const body = from ? this.sourcesHtml(from) : this.open === 'victory' || this.open === 'diplomacy' || this.open === 'government' ? `<div class="page">${main}</div>` : main;
+    const govTab = (k: GovTab, label: string) => `<button class="${this.govTab === k ? 'active' : ''}" data-do="govTab" data-tab="${k}">${label}</button>`;
+    const tabs = this.open === 'government' ? `<nav class="htabs">${govTab('mine', 'My government')}${govTab('policies', 'Policies')}${govTab('governments', 'Governments')}</nav>`
+      : tabbed ? `<nav class="htabs"><button class="${from ? '' : 'active'}" data-do="tab" data-tab="main">${tabbed[1]}</button><button class="${from ? 'active' : ''}" data-do="tab" data-tab="from">${icon(YIELD_ICON[tabbed[0]])}${tabbed[2]}</button></nav>` : '';
     // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
     const tree = (this.open === 'research' || this.open === 'politics') && !from;
     const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.matches('[data-find]');
@@ -498,10 +500,9 @@ export class Sheets {
   // ---- government ----
 
   private governmentHtml(): string {
-    const tab = (k: GovTab, label: string) => `<button class="${this.govTab === k ? 'active' : ''}" data-do="govTab" data-tab="${k}">${label}</button>`;
+    // (Its three tabs stand beside its title: render.)
     const body = this.govTab === 'mine' ? this.myGovernmentHtml() : this.govTab === 'policies' ? this.policiesHtml() : this.governmentsHtml();
-    return `<div class="tabs">${tab('mine', 'My government')}${tab('policies', 'Policies')}${tab('governments', 'Governments')}</div>
-      ${this.notice ? `<p class="notice">${esc(this.notice)}</p>` : ''}${body}`;
+    return `${this.notice ? `<p class="notice">${esc(this.notice)}</p>` : ''}${body}`;
   }
 
   private policyCard(k: PolicyKey, extra = ''): string {
