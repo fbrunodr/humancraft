@@ -280,6 +280,8 @@ export class Sheets {
 
   // ---- pages ----
 
+  // (A sheet's title is its ministry's: Education for research, Justice for politics, Internal and External
+  // Affairs for government and diplomacy. The top bar and the tabs keep the short names.)
   private page(k: SheetKind): [string, string, string] {
     const p = this.me;
     switch (k) {
@@ -289,12 +291,12 @@ export class Sheets {
       }
       case 'resources': return ['Resources', `${RESOURCE_KEYS.filter((k) => resourceDef(k).kind === 'strategic' && this.game.resourceSources(HUMAN, k) > 0).length} strategic · ${this.game.luxuriesOf(HUMAN).length} luxuries`, this.resourcesHtml()];
       case 'victory': return ['Victory', `Turn ${this.game.turn} of ${this.game.turnLimit} · ${Math.max(0, this.game.turnLimit - this.game.turn)} left`, this.victoryHtml()];
-      case 'research': return ['Research', this.trackSub('tech'), this.treeHtml('tech')];
-      case 'politics': return ['Politics', this.trackSub('politics'), this.treeHtml('politics')];
+      case 'research': return ['Education', this.trackSub('tech'), this.treeHtml('tech')];
+      case 'politics': return ['Justice', this.trackSub('politics'), this.treeHtml('politics')];
       case 'identity': return ['Identity', `${Math.floor(p.identityPoints)} identity points · next trait ${this.game.nextTraitCost(p)} · ${p.ledger.income.culture} culture a turn`, this.identityHtml()];
-      case 'government': return ['Government', governmentDef(p.government).name, this.governmentHtml()];
+      case 'government': return ['Internal Affairs', governmentDef(p.government).name, this.governmentHtml()];
       case 'religion': return ['Religion', `${this.game.religions.size} of ${RELIGION_KEYS.length} founded`, this.religionHtml()];
-      case 'diplomacy': return ['Diplomacy', 'Relations with the civilizations you have met', this.diplomacyHtml()];
+      case 'diplomacy': return ['External Affairs', 'Relations with the civilizations you have met', this.diplomacyHtml()];
     }
   }
 
