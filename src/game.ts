@@ -1800,6 +1800,32 @@ export class Game {
     return { ...sum, surplus: sum.food - FOOD_PER_CITIZEN * city.pop };
   }
 
+  // A city's yields taken apart, for the panels (cityYields is the rule;
+  // this only says where they come from): each part before any percentage,
+  // and the whole as cityYields gives it. The whole less the parts is what
+  // the percentages, the troubles and the rounding make of them.
+  cityYieldParts(city: City): { land: Output; center: Output; buildings: Output; wonders: Output; specialists: Output; capital: Output; roads: Output; religion: Output; total: Output } {
+    let land: Output = ZERO, center: Output = ZERO, buildings: Output = ZERO, wonders: Output = ZERO, specialists: Output = ZERO;
+    const p = this.players[city.owner]!, fx = this.effectsOf(p);
+    for (const t of this.tilesWithin(city.tile, CITY_REACH)) {
+      if (this.tileCity[t] !== city.id || (this.use[t] === USE.wild && !this.wondersAt(t).length)) continue;
+      if (t !== city.tile && this.blockedFor(city, t)) continue;
+      wonders = this.wondersAt(t).reduce((o, w) => addOut(o, WONDERS[w].yields), wonders);
+      if (this.use[t] === USE.rural) land = addOut(land, this.workedYield(t, this.ownerOf(t)));
+      else if (this.use[t] !== USE.wild && this.cityByTile.get(t)) {
+        const res = this.resourceFor(t, this.ownerOf(t));
+        center = addOut(center, addOut(centerYield(this.terrainAt(t), this.map.riverTile[t] === 1), res ? resourceDef(res).yields : ZERO));
+        buildings = addOut(buildings, buildingsYield(city.buildings, city.pop, (k) => this.worked(city, k)));
+        specialists = SPECIALIST_KINDS.reduce((o, k) => addOut(o, scaleOut(addOut(specialistYield(k), specialistBonus(fx, k)), city.specialists[k])), specialists);
+      }
+    }
+    const capital = p.capital === city.id ? addOut(out(PALACE), flat(fx, 'capital')) : ZERO;
+    const roads = p.capital !== city.id && this.roadLinked(city) ? connectionBonus(city.pop) : ZERO;
+    const religion = city.religion ? flat(religionDef(city.religion).follower, 'follower') : ZERO;
+    const { surplus: _, ...total } = this.cityYields(city);
+    return { land, center, buildings, wonders, specialists, capital, roads, religion, total };
+  }
+
   // Where the city's next citizen may go: a tile it owns, not worked yet,
   // land that could be improved (not mountains, ice or the deep ocean) and
   // yields something, improved or not; or a specialist in one of its

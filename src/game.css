@@ -57,6 +57,10 @@ h1, h2, h3, h4 { font-family: var(--display); font-weight: 700; letter-spacing: 
 .panel { position: fixed; background: var(--panel); border: 1px solid var(--brass-lo); border-radius: 8px; box-shadow: var(--shadow);
   padding: 12px 14px; backdrop-filter: blur(10px); }
 
+/* Everything over the map is drawn to one scale (ui.ts: whole on a window
+   of 1280 × 760 or more, down to four fifths on a smaller one). */
+#hud, #tip, #menu, #start, #overlay { zoom: var(--ui, 1); }
+
 /* Yields: a pictogram in the yield's colour, then the figure. */
 .y { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; color: var(--text); font-weight: 600; }
 .y:last-child { margin-right: 0; }
@@ -72,10 +76,10 @@ h1, h2, h3, h4 { font-family: var(--display); font-weight: 700; letter-spacing: 
 #yields { display: flex; align-items: center; gap: 2px; }
 #yields .stat { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; cursor: default; }
 #yields .stat:hover { background: rgba(255, 255, 255, 0.05); }
-/* (Science, cohesion, culture and faith open research, politics, identity and religion: lit while theirs is open.) */
+/* (Each opens its sheet: the economy, research, politics, identity, religion. Lit while theirs is open.) */
 #yields .stat[data-sheet] { cursor: pointer; border: 1px solid transparent; padding: 4px 9px; }
 #yields .stat[data-sheet]:hover { border-color: var(--brass-lo); }
-body[data-open=research] #yields .stat[data-sheet=research], body[data-open=politics] #yields .stat[data-sheet=politics],
+body[data-open=economy] #yields .stat[data-sheet=economy], body[data-open=research] #yields .stat[data-sheet=research], body[data-open=politics] #yields .stat[data-sheet=politics],
 body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=religion] #yields .stat[data-sheet=religion] { border-color: var(--brass-lo); background: rgba(201, 165, 92, 0.12); }
 #yields .stat .ic { font-size: 17px; }
 #yields .stat b { font-size: 14px; font-weight: 700; }
@@ -85,8 +89,12 @@ body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=reli
 #yields .fai .ic { color: var(--c-fai); } #yields .coh .ic { color: var(--c-coh); }
 #yields .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 #yields .res { display: flex; align-items: center; gap: 4px; padding: 5px 7px; border-radius: 6px; color: var(--muted); font-weight: 600; }
+#yields .res[data-sheet] { cursor: pointer; border: 1px solid transparent; padding: 4px 6px; }
+#yields .res[data-sheet]:hover, body[data-open=resources] #yields .res { border-color: var(--brass-lo); background: rgba(201, 165, 92, 0.1); }
 #yields .res .ic { font-size: 15px; color: #e8a94f; }
 #turn { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; margin-right: 8px; white-space: nowrap; flex: none; }
+#turn[data-sheet] { cursor: pointer; padding: 3px 8px; border-radius: 6px; border: 1px solid transparent; margin-right: 0; }
+#turn[data-sheet]:hover, body[data-open=victory] #turn { border-color: var(--brass-lo); background: rgba(201, 165, 92, 0.1); }
 #turn b { font-family: var(--display); font-size: 13px; letter-spacing: 0.08em; color: var(--brass-hi); }
 #turn small { font-size: 11px; }
 #civ { white-space: nowrap; font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; display: flex; align-items: center; gap: 6px; padding: 0 12px;
@@ -300,6 +308,11 @@ body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=reli
 #sheet .head { position: sticky; top: 0; left: 0; z-index: 3; padding: 10px 28px; background: linear-gradient(rgba(20, 26, 36, 0.98), rgba(10, 14, 20, 0.98)); border-bottom: 1px solid var(--brass-lo); }
 #sheet .stitle { display: flex; align-items: center; gap: 18px; min-height: 34px; }
 #sheet .stitle .grow { flex: 1; }
+/* (A sheet's two tabs, beside its title: itself, and where its yield comes from.) */
+#sheet .htabs { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex: none; }
+#sheet .htabs button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 0; background: none; color: var(--muted); padding: 5px 12px; }
+#sheet .htabs button:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+#sheet .htabs button.active { color: var(--brass-hi); background: rgba(201, 165, 92, 0.16); }
 #sheet .stitle .close { display: flex; align-items: center; gap: 7px; background: none; border-color: transparent; color: var(--muted); white-space: nowrap; }
 #sheet .stitle .close:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
 #sheet .find { display: flex; align-items: center; gap: 8px; width: 400px; max-width: 40vw; height: 32px; padding: 0 10px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); border-radius: 5px; color: var(--muted); }
@@ -311,6 +324,7 @@ body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=reli
 #sheet .head .sub { color: var(--muted); }
 #sheet .body { padding: 20px 28px 48px; }
 #sheet h3 { margin: 26px 0 10px; font-size: 15px; color: var(--brass-hi); }
+#sheet h3.top { margin-top: 0; }
 #sheet p.note { color: var(--muted); max-width: 860px; margin: 0 0 16px; line-height: 1.55; }
 p.notice { color: var(--warn); margin: 0 0 12px; }
 table.grid { border-collapse: collapse; width: 100%; max-width: 1100px; }
@@ -408,6 +422,50 @@ table.grid td.num { text-align: right; }
 .gcols { display: grid; grid-template-columns: 240px repeat(3, minmax(250px, 1fr)); gap: 18px; max-width: 1400px; align-items: start; }
 .gcol { display: flex; flex-direction: column; gap: 10px; }
 .gcol .era { font-family: var(--display); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass); }
+
+/* Resources: a card to each strategic resource (how many of its units are armed), then the luxuries. */
+.scards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; max-width: 1400px; margin-bottom: 14px; }
+.scard { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: linear-gradient(#1d2532, #141a25); border: 1px solid var(--border); border-radius: 7px; }
+.scard.none { background: #121720; }
+.scard .shead { display: flex; align-items: center; gap: 10px; }
+.scard .shead .ic { font-size: 22px; color: #e8a94f; }
+.scard .shead b { flex: 1; font-size: 17px; font-weight: 700; color: var(--brass-hi); }
+.scard .shead span { font-size: 17px; font-weight: 800; }
+.scard .bar { height: 6px; border-radius: 3px; } .scard .bar > i { background: #e8a94f; }
+.scard small { line-height: 1.5; }
+
+/* Victory: a card to each way of winning. */
+.vcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; max-width: 1400px; }
+.vcard { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: linear-gradient(#1d2532, #141a25); border: 1px solid var(--border); border-radius: 7px; }
+.vcard > b { font-size: 17px; font-weight: 700; color: var(--brass-hi); }
+.vcard p { margin: 0; color: var(--muted); line-height: 1.5; flex: 1; }
+.vcard .vmine { font-weight: 600; padding-top: 10px; border-top: 1px solid var(--rule); }
+.vcard .bar { height: 6px; border-radius: 3px; } .vcard .bar > i { background: var(--brass); }
+/* The economy: the totals, income beside expenses (a bar to each line, all to one scale), the cities. */
+.etotals { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; }
+.etotals > div { display: flex; flex-direction: column; gap: 2px; min-width: 150px; padding: 10px 16px; background: linear-gradient(#1d2532, #141a25); border: 1px solid var(--border); border-radius: 7px; }
+.etotals b { font-size: 22px; font-weight: 800; }
+.ecols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0 44px; max-width: 1100px; margin-bottom: 18px; }
+.eline { display: flex; flex-direction: column; gap: 4px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.eline .ehead { display: flex; justify-content: space-between; font-weight: 600; }
+.eline .bar { height: 6px; border-radius: 3px; } .eline .bar.gold > i { background: var(--c-gold); } .eline .bar.cost > i { background: var(--bad); }
+table.grid th.num { text-align: right; }
+table.grid.ecities { max-width: none; }
+table.grid.eunits { max-width: 640px; }
+.ecols.one { grid-template-columns: 1fr; max-width: none; }
+/* (The accounts' pages keep to the middle of the sheet.) */
+.page { max-width: 1200px; margin: 0 auto; }
+.page .ecols { max-width: none; }
+.page .rules { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 28px; }
+.page .scards, .page table.grid { max-width: none; }
+.page table.grid.eunits { max-width: 640px; }
+/* A table that sorts: its headings are buttons, the one it is sorted by lit. */
+table.sorts th { cursor: pointer; white-space: nowrap; }
+table.sorts th:hover { color: var(--text); }
+table.sorts th.by { color: var(--brass-hi); }
+table.sorts th i { font-style: normal; margin-left: 4px; }
+.eline .bar.sci > i { background: var(--c-sci); } .eline .bar.coh > i { background: var(--c-coh); } .eline .bar.cul > i { background: var(--c-cul); } .eline .bar.fai > i { background: var(--c-fai); }
+table.grid.ecities .ic { color: var(--brass); }
 
 /* Religion: its rules in three short parts, then a card to each religion (a founded one lit). */
 .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 36px; max-width: 1400px; margin-bottom: 22px; }

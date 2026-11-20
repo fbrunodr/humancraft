@@ -1,4 +1,4 @@
-import { HUMAN, EMBARK_TECH, DEAL_TURNS, TRUCE_TURNS, TRUCE_BREAK, VICTORIES, type Victory, type Game, type Player, type DealSide, type Deal } from './game.ts';
+import { HUMAN, EMBARK_TECH, FAITH_VICTORY, UNITS_PER_SOURCE, DEAL_TURNS, TRUCE_TURNS, TRUCE_BREAK, VICTORIES, type Victory, type Game, type Player, type DealSide, type Deal } from './game.ts';
 import { TECH_KEYS, STAGE_TECHS, techDef, techPath, type TechKey, type TechDef } from './techs.ts';
 import {
   POLITICS_KEYS, politicsDef, politicsPath, GOVERNMENT_KEYS, governmentDef, policyDef, fits, SLOT_KINDS, POLICY_KINDS, POLICY_KEYS,
@@ -10,17 +10,22 @@ import {
 } from './identity.ts';
 import { RELIGION_KEYS, religionDef, FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, CONVERT_PER_POP, DEVOUT_TURNS } from './religion.ts';
 import { RESOURCE_KEYS, resourceDef, empireBonus, type ResourceKey } from './resources.ts';
-import { describe as describeEffect, describeAll, flat, type Effect } from './effects.ts';
+import { describe as describeEffect, describeAll, flat, yieldBonus, total, type Effect } from './effects.ts';
 import { ERAS, BUILDINGS, WONDERS, IMPROVEMENTS, OUTPUT_KEYS, type EraIndex, type ImprovementKey, type OutputKey } from './cities.ts';
 import { UNITS, unitDef } from './rules.ts';
+import { FREE_UNITS, UPKEEP_PER_TILE, UPKEEP_PER_CITY, UPKEEP_PER_POP, COURTHOUSE_CUT, BUILDING_UPKEEP_PER, UNIT_UPKEEP_PER, INFLATION_TURNS, buildingUpkeep } from './economy.ts';
 import { aiAcceptsDeal, resourceWorth, standing, attitude, ATTITUDES, RANKS, type Rank } from './ai.ts';
 import { bonusStr, tip } from './ui.ts';
-import { icon, unitIcon, YIELD_ICON } from './icons.ts';
+import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 
 // The empire's sheets: full-screen pages over the map, opened from the top
 // bar (data-sheet: the research, politics and identity tracks, and the
-// buttons; the science, cohesion, culture and faith yields open research,
-// politics, identity and religion) and closed with Esc.
+// buttons; the gold, science, cohesion, culture and faith yields open the
+// economy, research, politics, identity and religion; the resources beside
+// them, theirs; the turn, victory)
+// and closed with Esc.
+//   economy     the treasury's accounts: what comes in, what goes out, city by city
+//   resources   the strategic resources (their sources, the units they arm) and the luxuries
 //   research    the tech tree: click a tech to research it (and what it needs first);
 //               a box to find what gives something ("camp", "embark")
 //   politics    the politics tree, likewise (governments and policies)
@@ -30,16 +35,40 @@ import { icon, unitIcon, YIELD_ICON } from './icons.ts';
 //   religion    the world's religions and the civ's cities' faith
 //   diplomacy   the civs met: at war or peace, declare war, offer or accept peace;
 //               trade (resources, gold a turn): offers, deals in force, a proposal
+//   victory     how the game is won, and how far the civ and those it has met are
 //   log         the game's record of events (gameLog.ts), to download
+// Research, politics, identity and religion have a second tab each: where
+// their yield (science, cohesion, culture, faith) comes from.
 // They change the game directly and then call `changed` (main.ts redraws).
 
-export type SheetKind = 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'log';
-const SHEETS: readonly SheetKind[] = ['research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'log'];
+export type SheetKind = 'economy' | 'resources' | 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'victory' | 'log';
+const SHEETS: readonly SheetKind[] = ['economy', 'resources', 'research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'victory', 'log'];
 const isSheet = (s: string): s is SheetKind => (SHEETS as readonly string[]).includes(s);
+// The sheets a yield pays for, each with a second tab (where the yield comes from): the yield, the two tabs' names.
+const YIELD_TAB: Partial<Record<SheetKind, readonly [OutputKey, string, string]>> = {
+  research: ['science', 'Technologies', 'Science'], politics: ['cohesion', 'Politics', 'Cohesion'], identity: ['culture', 'Traits', 'Culture'], religion: ['faith', 'Religions', 'Faith'],
+};
+const YIELD_USE: Record<OutputKey, string> = {
+  food: '', prod: '', gold: '', science: 'It goes toward what you research.', cohesion: 'It goes toward your politics.',
+  culture: 'It goes toward your identity\'s next trait, and each city\'s own pushes its borders out.', faith: 'It is kept, and buys what a city builds; a founder\'s raises missionaries.',
+};
 type GovTab = 'mine' | 'policies' | 'governments';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const KIND_NAME: Record<PolicySlot, string> = { military: 'Military', economic: 'Economic', social: 'Social', wildcard: 'Wildcard' };
 const TIER_NAME = ['', 'I', 'II', 'III'] as const;
+// The kinds among some units, each with how many.
+const unitKeysOf = <K extends string>(types: readonly K[]): [K, number][] => {
+  const n = new Map<K, number>();
+  for (const t of types) n.set(t, (n.get(t) ?? 0) + 1);
+  return [...n];
+};
+// A table that sorts: a cell is what it shows and what it sorts by; a
+// column, its heading and whether it is a figure (right-aligned, the
+// largest first when first clicked).
+interface Cell { readonly html: string; readonly v: number | string }
+const num = (v: number, html: string): Cell => ({ html, v });
+type Col = readonly [label: string, figure: boolean, tip?: string];
+
 // A tree's plates and the room between them (pixels). A plate is as tall as
 // the tree's fullest needs: its name, then up to CHIP_ROWS rows of chips.
 const NODE_W = 280, GAP_X = 56, GAP_Y = 14, TREE_TOP = 46, TREE_PAD = 8;
@@ -62,7 +91,9 @@ const chipRows = (widths: readonly number[]): number => {
 
 export class Sheets {
   private open: SheetKind | null = null;
-  private shown: SheetKind | null = null;   // the sheet last drawn (a tree opens scrolled to where the civ has got to)
+  private shown: string | null = null;      // the sheet and tab last drawn (a tree opens scrolled to where the civ has got to)
+  private readonly sources = new Set<SheetKind>();
+  private readonly sorts = new Map<string, { col: number; down: boolean }>();   // each table's order, as the player set it   // the sheets showing their second tab: where their yield comes from
   private readonly el: HTMLElement;
   private govTab: GovTab = 'mine';
   private find = '';                         // what the tree's box looks for
@@ -78,7 +109,15 @@ export class Sheets {
       // (An icon is a target too: an SVG element, not an HTML one.)
       const t = e.target instanceof Element ? e.target : null;
       const btn = t?.closest<HTMLElement>('[data-sheet]');
-      if (btn) { const k = btn.dataset['sheet'] ?? ''; if (isSheet(k)) { if (this.el.contains(btn)) this.show(k); else this.toggle(k); } return; }
+      if (btn) {
+        const k = btn.dataset['sheet'] ?? '';
+        if (!isSheet(k)) return;
+        // (The three advances, top left, open their own tab: the tree or the traits, whatever tab the sheet was left on.)
+        if (btn.closest('#trackers') && this.sources.delete(k)) { this.open = k; this.notice = ''; this.render(); }
+        else if (this.el.contains(btn)) this.show(k);
+        else this.toggle(k);
+        return;
+      }
       if (!t || !this.el.contains(t)) return;
       const act = t.closest<HTMLElement>('[data-do]');
       if (act) this.act(act);
@@ -142,15 +181,18 @@ export class Sheets {
     document.body.dataset['open'] = this.open ?? '';
     if (!this.open) { this.el.classList.add('hidden'); this.el.innerHTML = ''; this.shown = null; return; }
     this.el.classList.remove('hidden');
-    const fresh = this.shown !== this.open;
-    this.shown = this.open;
+    const tabbed = YIELD_TAB[this.open], from = tabbed && this.sources.has(this.open) ? tabbed[0] : null;
+    const key = `${this.open}${from ? ':from' : ''}`, fresh = this.shown !== key;
+    this.shown = key;
     const left = this.el.scrollLeft, top = this.el.scrollTop;
-    const [title, sub, body] = this.page(this.open);
+    const [title, sub, main] = this.page(this.open);
+    const body = from ? this.sourcesHtml(from) : main;
+    const tabs = tabbed ? `<nav class="htabs"><button class="${from ? '' : 'active'}" data-do="tab" data-tab="main">${tabbed[1]}</button><button class="${from ? 'active' : ''}" data-do="tab" data-tab="from">${icon(YIELD_ICON[tabbed[0]])}${tabbed[2]}</button></nav>` : '';
     // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
-    const tree = this.open === 'research' || this.open === 'politics';
+    const tree = (this.open === 'research' || this.open === 'politics') && !from;
     const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.matches('[data-find]');
     const find = tree ? `<label class="find">${icon('eye')}<input data-find type="text" spellcheck="false" placeholder="Find what gives… ${this.open === 'research' ? 'camp, embark, iron' : 'a policy, a government'}" value="${esc(this.find)}"><small></small></label>` : '';
-    this.el.innerHTML = `<div class="head"><div class="stitle"><h2>${title}</h2><span class="sub">${sub}</span><span class="grow"></span>${find}
+    this.el.innerHTML = `<div class="head"><div class="stitle"><h2>${title}</h2>${tabs}<span class="sub">${sub}</span><span class="grow"></span>${find}
       <button class="close" data-do="close">${icon('close')} Close <kbd>Esc</kbd></button></div></div><div class="body">${body}</div>`;
     if (tree) {
       this.applyFind(false);
@@ -174,6 +216,13 @@ export class Sheets {
     this.notice = '';
     switch (d['do']) {
       case 'close': this.close(); return;
+      case 'sort': {
+        // (The same column again: the other way. A new one: figures from the largest, names from A.)
+        const id = d['table'] ?? '', col = Number(d['col']), was = this.sorts.get(id);
+        this.sorts.set(id, { col, down: was?.col === col ? !was.down : d['fig'] === '1' });
+        break;
+      }
+      case 'tab': if (this.open) { if (d['tab'] === 'from') this.sources.add(this.open); else this.sources.delete(this.open); } break;
       case 'tech': g.setResearch(p, d['key'] as TechKey); break;
       case 'politics': g.setPolitics(p, d['key'] as PoliticsKey); break;
       case 'trait': { const k = d['key'] ?? ''; if (isTraitKey(k) && !g.adoptTrait(p, k)) this.notice = 'Not enough identity points yet.'; break; }
@@ -233,6 +282,12 @@ export class Sheets {
   private page(k: SheetKind): [string, string, string] {
     const p = this.me;
     switch (k) {
+      case 'economy': {
+        const l = p.ledger, net = Math.round(l.income.gold + l.tithes + l.trade - l.cityUpkeep - l.unitUpkeep);
+        return ['Economy', `${p.gold} gold in the treasury · ${net >= 0 ? '+' : ''}${net} a turn`, this.economyHtml()];
+      }
+      case 'resources': return ['Resources', `${RESOURCE_KEYS.filter((k) => resourceDef(k).kind === 'strategic' && this.game.resourceSources(HUMAN, k) > 0).length} strategic · ${this.game.luxuriesOf(HUMAN).length} luxuries`, this.resourcesHtml()];
+      case 'victory': return ['Victory', `Turn ${this.game.turn} of ${this.game.turnLimit} · ${Math.max(0, this.game.turnLimit - this.game.turn)} left`, this.victoryHtml()];
       case 'research': return ['Research', this.trackSub('tech'), this.treeHtml('tech')];
       case 'politics': return ['Politics', this.trackSub('politics'), this.treeHtml('politics')];
       case 'identity': return ['Identity', `${Math.floor(p.identityPoints)} identity points · next trait ${this.game.nextTraitCost(p)} · ${p.ledger.income.culture} culture a turn`, this.identityHtml()];
@@ -536,7 +591,7 @@ export class Sheets {
   private diplomacyHtml(): string {
     const g = this.game;
     const others = g.players.filter((o) => o.id !== HUMAN && o.alive && g.met[HUMAN]![o.id]);
-    if (!others.length) return this.standingsHtml() + '<p class="note">You have not met another civilization yet. Civilizations meet when their units or cities come within sight of each other.</p>';
+    if (!others.length) return '<p class="note">You have not met another civilization yet. Civilizations meet when their units or cities come within sight of each other.</p>';
     // (How each compares with you: what anyone who has met them can see; the computer civs weigh the same.)
     const cmp = (x: Rank) => `<span class="${x >= 3 ? 'bad' : x <= 1 ? 'good' : ''}">${RANKS[x]}</span>`;
     const rows = others.map((o) => {
@@ -552,20 +607,209 @@ export class Sheets {
         <td><span class="pill ${mood === 'war' || mood === 'hostile' ? 'war' : mood === 'friendly' ? 'peace' : ''}" ${tip(ATTITUDES[mood].name, ATTITUDES[mood].tells)}>${ATTITUDES[mood].name}</span>${war ? ` <small>since turn ${r.since}</small>` : ''}</td>
         <td>${cmp(st.army)}</td><td>${cmp(st.tech)}</td><td>${cmp(st.prod)}</td><td>${cmp(st.gold)}</td><td>${trade}</td><td>${action}</td></tr>`;
     }).join('');
-    return `${this.standingsHtml()}<p class="note">How each civilization stands toward you is its own weighing of you, in broad: its plans stay its own. The columns rank it against you, in broad (no one knows another's exact figures); the computer's civilizations know of you, and of each other, the same ranks and no more. Everyone starts at peace; at peace, units cannot enter each other's tiles, and attacking a civilization declares war. A war lasts at least 8 turns before peace can be made; a peace is a truce for ${TRUCE_TURNS} turns, which can be broken at a price.</p>
+    return `<p class="note">How each civilization stands toward you is its own weighing of you, in broad: its plans stay its own. The columns rank it against you, in broad (no one knows another's exact figures); the computer's civilizations know of you, and of each other, the same ranks and no more. Everyone starts at peace; at peace, units cannot enter each other's tiles, and attacking a civilization declares war. A war lasts at least 8 turns before peace can be made; a peace is a truce for ${TRUCE_TURNS} turns, which can be broken at a price.</p>
       <table class="grid"><tr><th>Civilization</th><th>Toward you</th><th>Army</th><th>Technology</th><th>Production</th><th>Gold income</th><th></th><th></th></tr>${rows}</table>
       ${this.tradeHtml()}`;
   }
 
-  // How the game is won, and where the civs you have met stand toward each way of winning it.
-  private standingsHtml(): string {
-    const g = this.game;
+  // ---- victory ----
+
+  // How the game is won: a card to each way, with how far the civ is along
+  // it and who leads of those it has met (in broad, as anyone who has met
+  // them can see); then everyone's standing in one table.
+  private victoryHtml(): string {
+    const g = this.game, p = this.me;
     const civs = g.players.filter((o) => o.alive && (o.id === HUMAN || g.met[HUMAN]![o.id])).sort((a, b) => g.score(b.id) - g.score(a.id));
+    const first = (f: (o: Player) => number): Player => civs.reduce((a, o) => (f(o) > f(a) ? o : a), p);
+    const bar = (share: number) => `<div class="bar"><i style="width:${(100 * Math.max(0, Math.min(1, share))).toFixed(1)}%"></i></div>`;
+    const card = (k: Victory, mine: string, share: number, lead: string) =>
+      `<div class="vcard"><b>${VICTORIES[k].name}</b><p>${VICTORIES[k].rule}</p><div class="vmine">${mine}</div>${bar(share)}<small>${lead}</small></div>`;
+    const tenth = (id: number) => Math.round(10 * g.faithShare(id)) * 10;
+    const caps = first((o) => g.capitalsHeld(o.id)), era = first((o) => o.era), faith = first((o) => g.faithShare(o.id));
+    const rank = civs.findIndex((o) => o.id === p.id) + 1;
+    const cards = [
+      card('conquest', `You hold ${g.capitalsHeld(p.id)} of the ${g.capitalsToWin} first capitals that win`, g.capitalsHeld(p.id) / g.capitalsToWin,
+        caps.id === p.id ? 'No one you have met holds more' : `The ${esc(caps.name)} hold ${g.capitalsHeld(caps.id)}`),
+      card('science', `You know ${p.techs.size} of the ${TECH_KEYS.length} technologies`, p.techs.size / TECH_KEYS.length,
+        era.id === p.id ? `No one you have met is past the ${ERAS[p.era].name} era` : `The ${esc(era.name)} are in the ${ERAS[era.era].name} era`),
+      card('religion', g.foundedBy(HUMAN) ? `About ${tenth(p.id)}% of the world's people follow your religion` : 'You have founded no religion', g.faithShare(p.id) / FAITH_VICTORY,
+        faith.id === p.id || g.faithShare(faith.id) <= 0 ? 'No one you have met has more followers' : `The religion of the ${esc(faith.name)}: about ${tenth(faith.id)}%`),
+      card('time', `${g.score(p.id)} points: ${civs.length === 1 ? 'you have met no one to compare' : `${rank === 1 ? 'the best score' : `${rank}${['th', 'st', 'nd', 'rd'][rank] ?? 'th'}`} of the ${civs.length} you know of`}`, g.turn / g.turnLimit,
+        `${Math.max(0, g.turnLimit - g.turn)} turns left: the last is ${g.turnLimit}`),
+    ].join('');
     // (Toward each way of winning, in broad: the score, the era, a tenth of the world's people at a time.)
     const rows = civs.map((o) => `<tr><td><span class="swatch" style="background:${o.color}"></span> ${esc(o.name)}</td><td class="num">${g.score(o.id)}</td>
-      <td>${ERAS[o.era].name}${o.id === HUMAN ? ` <small>${o.techs.size} of ${TECH_KEYS.length} technologies</small>` : ''}</td><td>${g.faithShare(o.id) > 0 ? `about ${Math.round(10 * g.faithShare(o.id)) * 10}%` : '—'}</td><td class="num">${g.capitalsHeld(o.id)} of the ${g.capitalsToWin} that win</td></tr>`).join('');
-    return `<h3>How the game is won</h3><p class="note">${(Object.keys(VICTORIES) as Victory[]).map((k) => `<b>${VICTORIES[k].name}:</b> ${VICTORIES[k].rule}`).join(' ')} The last turn is ${g.turnLimit}.</p>
-      <table class="grid"><tr><th>Civilization</th><th>Score</th><th>Era</th><th>World's people of its faith</th><th>First capitals held</th></tr>${rows}</table><h3>Relations</h3>`;
+      <td>${ERAS[o.era].name}${o.id === HUMAN ? ` <small>${o.techs.size} of ${TECH_KEYS.length} technologies</small>` : ''}</td><td>${g.faithShare(o.id) > 0 ? `about ${tenth(o.id)}%` : '—'}</td><td class="num">${g.capitalsHeld(o.id)} of the ${g.capitalsToWin} that win</td></tr>`).join('');
+    return `<div class="vcards">${cards}</div>
+      <h3>Standings</h3><p class="note">You and the civilizations you have met, the best score first. Of the others you know these things in broad, no more.</p>
+      <table class="grid"><tr><th>Civilization</th><th>Score</th><th>Era</th><th>World's people of its faith</th><th>First capitals held</th></tr>${rows}</table>`;
+  }
+
+  // A table whose columns sort (click a heading: by it, again: the other
+  // way), in the order the player last set or `first`.
+  private tableHtml(id: string, cols: readonly Col[], rows: readonly (readonly Cell[])[], first: { col: number; down: boolean }, cls = ''): string {
+    const by = this.sorts.get(id) ?? first;
+    const sorted = [...rows].sort((a, b) => {
+      const x = a[by.col]!.v, y = b[by.col]!.v;
+      const d = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
+      return by.down ? -d : d;
+    });
+    const head = cols.map(([label, fig, how], i) => `<th class="${fig ? 'num' : ''} ${by.col === i ? 'by' : ''}" data-do="sort" data-table="${id}" data-col="${i}" data-fig="${fig ? 1 : 0}" ${tip(esc(label), `${how ? `${esc(how)}. ` : ''}Click to sort by it`)}>${esc(label)}${by.col === i ? `<i>${by.down ? '▼' : '▲'}</i>` : ''}</th>`).join('');
+    return `<table class="grid sorts ${cls}"><tr>${head}</tr>${sorted.map((r) => `<tr>${r.map((c, i) => `<td class="${cols[i]![1] ? 'num' : ''}">${c.html}</td>`).join('')}</tr>`).join('')}</table>`;
+  }
+
+  // ---- where a yield comes from ----
+
+  // A yield taken apart (game.ts cityYieldParts): its sources line by line,
+  // all the cities' together, then city by city. As the cities stand now.
+  private sourcesHtml(y: OutputKey): string {
+    const g = this.game, p = this.me;
+    const n1 = (x: number) => (Math.round(10 * x) / 10).toLocaleString();
+    const signed = (x: number) => `${x < 0 ? '−' : '+'}${n1(Math.abs(x))}`;
+    const cities = g.cities.filter((c) => c.owner === p.id).map((c) => ({ c, parts: g.cityYieldParts(c) }));
+    const SOURCES = [
+      ['land', 'Worked land', 'The tiles your citizens work, with their improvements and resources'],
+      ['center', 'City tiles', 'The tile each city stands on'],
+      ['buildings', 'Buildings', 'What each city has built'],
+      ['wonders', 'Wonders', 'In your cities and beside them'],
+      ['specialists', 'Specialists', 'Citizens working in a building\'s slots'],
+      ['capital', 'The capital', 'The palace, and what your government, policies and traits give the capital'],
+      ['roads', 'Roads', 'Cities joined to the capital by road'],
+      ['religion', 'Religion', 'What each city gets from the religion it follows'],
+    ] as const;
+    const name = y === 'prod' ? 'production' : y;
+    const made = cities.reduce((a, x) => a + x.parts.total[y], 0);
+    const raw = (x: (typeof cities)[number]) => SOURCES.reduce((a, [k]) => a + x.parts[k][y], 0);
+    const lux = g.luxuryYield(p)[y], pct = yieldBonus(g.effectsOf(p), y);
+    const lines: [string, number, string][] = [
+      ...SOURCES.map(([k, label, how]): [string, number, string] => [label, cities.reduce((a, x) => a + x.parts[k][y], 0), how]),
+      ['Luxuries', lux, 'What your kinds of luxury give the whole civilization'],
+    ];
+    const bonus = made - cities.reduce((a, x) => a + raw(x), 0);
+    const most = Math.max(1, Math.abs(bonus), ...lines.map((x) => x[1]));
+    const line = (label: string, v: number, how: string, cls: string) =>
+      `<div class="eline"><div class="ehead"><span>${label}</span><b>${signed(v)}</b></div><div class="bar ${cls}"><i style="width:${(100 * Math.abs(v) / most).toFixed(1)}%"></i></div><small>${how}</small></div>`;
+    const why = [`${pct >= 0 ? '+' : ''}${pct}% from your technologies, government, policies and traits`, 'your buildings\' percentages',
+      ...(y === 'cohesion' ? ['less in troubled times (a broken truce, a war within your religion)'] : []),
+      ...(p.arrears > 0 && (y === 'science' || y === 'culture' || y === 'prod') ? [`${Math.round(100 * p.arrears)}% less while the treasury is in arrears`] : []), 'rounding'].join('; ');
+    const shown = lines.filter((x) => Math.abs(x[1]) > 0.04).map(([label, v, how]) => line(label, v, how, YIELD_CLS[y])).join('')
+      + (Math.abs(bonus) > 0.04 ? line('Bonuses and penalties', bonus, `What these make of all the above: ${why}`, bonus < 0 ? 'cost' : YIELD_CLS[y]) : '');
+    const cell = (v: number): Cell => num(v, Math.abs(v) > 0.04 ? signed(v) : '—');
+    const rows = cities.map((x): Cell[] => {
+      const q = x.parts;
+      return [{ html: `${p.capital === x.c.id ? `${icon('star')} ` : ''}${esc(x.c.name)}`, v: x.c.name }, num(x.c.pop, String(x.c.pop)), cell(q.land[y]), cell(q.center[y] + q.buildings[y] + q.wonders[y]),
+        cell(q.specialists[y]), cell(q.capital[y] + q.roads[y] + q.religion[y]), cell(q.total[y] - raw(x)), num(q.total[y], `<b>${signed(q.total[y])}</b>`)];
+    });
+    const table = this.tableHtml(`from-${y}`, [['City', false], ['Citizens', true], ['Land', true, 'The tiles its citizens work'], ['City, buildings, wonders', true], ['Specialists', true],
+      ['Capital, roads, religion', true], ['Bonuses', true, 'What percentages, troubles and rounding make of the rest'], ['Makes', true]], rows, { col: 7, down: true }, 'ecities');
+    return `<div class="page"><div class="etotals"><div><span class="label">Each turn</span><b>${signed(made + lux)}</b></div><div><span class="label">From your cities</span><b>${signed(made)}</b></div>
+        ${Math.abs(lux) > 0.04 ? `<div><span class="label">From luxuries</span><b>${signed(lux)}</b></div>` : ''}<div><span class="label">Civilization's bonus</span><b>${pct >= 0 ? '+' : ''}${pct}%</b></div></div>
+      <div class="ecols one"><div><h3>Where your ${name} comes from</h3>${shown || '<p class="note">Nothing yet.</p>'}</div></div>
+      <p class="note">As your cities stand now. ${YIELD_USE[y]}</p>
+      ${rows.length ? `<h3>Your cities</h3>${table}` : ''}</div>`;
+  }
+
+  // ---- resources ----
+
+  // The strategic resources the civ can see, a card to each: its sources
+  // (its land's, traded in, traded away), the units they arm and those it
+  // has; then its luxuries and what they give.
+  private resourcesHtml(): string {
+    const g = this.game, p = this.me;
+    const count = (ks: readonly ResourceKey[], k: ResourceKey) => ks.filter((x) => x === k).length;
+    const strategic = RESOURCE_KEYS.filter((k) => resourceDef(k).kind === 'strategic');
+    const seen = strategic.filter((k) => { const need = resourceDef(k).reveal; return !need || p.techs.has(need); });
+    const unitKeys = Object.keys(UNITS) as (keyof typeof UNITS)[];
+    const cards = seen.map((k) => {
+      const sources = g.resourceSources(HUMAN, k), cap = UNITS_PER_SOURCE * sources, used = g.resourceUsed(HUMAN, k);
+      const bought = count(g.imports(HUMAN), k), sold = count(g.exports(HUMAN), k), own = sources - bought + sold;
+      const arms = unitKeys.filter((u) => unitDef(u).needs === k);
+      const mine = arms.map((u) => [u, g.units.filter((x) => x.owner === HUMAN && x.type === u).length] as const).filter((x) => x[1] > 0);
+      const where = [`${own} on your land`, bought ? `${bought} traded in` : '', sold ? `${sold} traded away` : ''].filter(Boolean).join(' · ');
+      return `<div class="scard ${sources ? '' : 'none'}"><div class="shead">${icon(resourceIcon(k))}<b>${esc(resourceDef(k).name)}</b><span class="${used > cap ? 'bad' : ''}">${used} / ${cap}</span></div>
+        <div class="bar"><i style="width:${cap ? Math.min(100, (100 * used) / cap).toFixed(1) : 0}%"></i></div>
+        <small>${sources === 1 ? '1 source' : `${sources} sources`}: ${where}. ${cap ? `${used} of the ${cap} units they can arm are in the field.` : 'None to arm units with.'}</small>
+        <small>Arms: ${arms.map((u) => esc(UNITS[u].name)).join(', ') || 'nothing yet'}</small>
+        ${mine.length ? `<small>Yours: ${mine.map(([u, n]) => `${n} ${esc(UNITS[u].name)}`).join(', ')}</small>` : ''}</div>`;
+    }).join('');
+    const hidden = strategic.length - seen.length;
+    const luxuries = g.luxuriesOf(HUMAN), imported = new Set(g.imports(HUMAN)), spare = g.spareResources(HUMAN), owned = g.ownedResources(HUMAN);
+    const lux = luxuries.map((k) => `<tr><td>${icon(resourceIcon(k))} ${esc(resourceDef(k).name)}</td><td>${imported.has(k) && !owned.has(k) ? 'Traded in' : 'Your land'}</td>
+      <td class="num">${spare.get(k) ?? 0}</td><td>${bonusStr(empireBonus(k, p.era))}</td></tr>`).join('');
+    return `<div class="page"><h3 class="top">Strategic resources</h3><p class="note">A source is a tile of the resource in your land, improved, or one you trade for. Each arms ${UNITS_PER_SOURCE} of the units that need it; with none left, no more of them can be built.${hidden ? ` ${hidden} more ${hidden === 1 ? 'is' : 'are'} still hidden: technologies reveal them.` : ''}</p>
+      ${cards ? `<div class="scards">${cards}</div>` : ''}
+      <h3>Luxuries</h3><p class="note">The first copy of each luxury gives your whole civilization its bonus every turn, and it grows with the era. More copies add nothing: the spare ones are yours to trade (Diplomacy).</p>
+      ${lux ? `<table class="grid eluxuries"><tr><th>Luxury</th><th>From</th><th class="num">Spare copies</th><th>Each turn</th></tr>${lux}</table>
+        <p class="note">All together: ${bonusStr(p.ledger.luxuries) || 'nothing yet'} a turn.</p>` : '<p class="note">You have none yet: improve a tile of one in your land, or trade for one.</p>'}</div>`;
+  }
+
+  // ---- economy ----
+
+  // The treasury's accounts: last turn's income and expenses line by line
+  // (the top bar's figure, taken apart), then each city as it stands now.
+  private economyHtml(): string {
+    const g = this.game, p = this.me, l = p.ledger;
+    const n1 = (x: number) => (Math.round(10 * x) / 10).toLocaleString();
+    const cities = g.cities.filter((c) => c.owner === p.id);
+    // (The ledger keeps cities' and buildings' upkeep as one: shared out as they stand now.)
+    const cityUp = cities.reduce((a, c) => a + g.upkeepOf(c), 0), buildUp = cities.reduce((a, c) => a + g.buildingUpkeepOf(c), 0);
+    const share = cityUp + buildUp > 0 ? cityUp / (cityUp + buildUp) : 1;
+    const fighting = g.units.filter((u) => u.owner === p.id && !unitDef(u.type).civilian).length;
+    const income: [string, number, string][] = [
+      ['Cities', l.income.gold - l.luxuries.gold, 'Worked tiles, buildings, specialists, the palace, roads to the capital; production with nothing to build'],
+      ['Luxuries', l.luxuries.gold, 'What your kinds of luxury give the whole civilization'],
+      ['Tithes', l.tithes, 'From every city following the religion you founded'],
+      ['Trade', Math.max(0, l.trade), 'Gold a turn from your deals, less what you pay in them'],
+    ];
+    const expenses: [string, number, string][] = [
+      ['Cities', l.cityUpkeep * share, 'Each by its distance from the capital, how many cities you have and its size'],
+      ['Buildings', l.cityUpkeep * (1 - share), 'One gold for each 100 production a building cost'],
+      ['Units', l.unitUpkeep, `${fighting} fighting ${fighting === 1 ? 'unit' : 'units'}; ${FREE_UNITS} and one per city are kept for nothing, civilians always`],
+      ['Trade', Math.max(0, -l.trade), 'Gold a turn you pay in your deals, less what you get'],
+    ];
+    const sum = (ls: readonly [string, number, string][]) => ls.reduce((a, x) => a + x[1], 0);
+    const most = Math.max(1, ...income.map((x) => x[1]), ...expenses.map((x) => x[1]));
+    const lines = (ls: readonly [string, number, string][], cls: string, sign: string) => ls.filter((x) => x[1] > 0.04).map(([name, v, how]) =>
+      `<div class="eline"><div class="ehead"><span>${name}</span><b>${sign}${n1(v)}</b></div><div class="bar ${cls}"><i style="width:${(100 * v / most).toFixed(1)}%"></i></div><small>${how}</small></div>`).join('')
+      || '<p class="note">Nothing yet.</p>';
+    const net = sum(income) - sum(expenses);
+    const deals = g.deals.filter((d) => d.sides.some((x) => x.civ === HUMAN) && d.sides.some((x) => x.gold > 0));
+    // (What upkeep is reckoned from: game.ts upkeepOf, buildingUpkeepOf, upkeep; economy.ts.)
+    const fx = g.effectsOf(p), cityPct = total(fx, 'upkeep'), buildPct = total(fx, 'buildingUpkeep'), infl = g.inflation;
+    const capital = p.capital === null ? undefined : g.cityById.get(p.capital);
+    const gold = (v: number, sign: string): Cell => num(v, v > 0.04 ? `${sign}${n1(v)}` : '—');
+    const rows = cities.map((c): Cell[] => {
+      const made = g.cityYields(c).gold, up = g.upkeepOf(c), build = g.buildingUpkeepOf(c), left = made - up - build;
+      const dist = capital && capital.id !== c.id ? Math.round(g.approxDist(c.tile, capital.tile)) : 0;
+      const paid = [...c.buildings].filter((k) => buildingUpkeep(BUILDINGS[k].cost) > 0).length;
+      return [{ html: `${p.capital === c.id ? `${icon('star')} ` : ''}${esc(c.name)}`, v: c.name }, num(c.pop, String(c.pop)), num(dist, p.capital === c.id ? 'capital' : String(dist)),
+        num(Number(c.buildings.has('courthouse')), c.buildings.has('courthouse') ? 'yes' : '—'), gold(up, '−'), num(paid, `${paid} of ${c.buildings.size}`), gold(build, '−'), gold(made, '+'),
+        num(left, `<b class="${left < 0 ? 'bad' : ''}">${left >= 0 ? '+' : '−'}${n1(Math.abs(left))}</b>`)];
+    });
+    const cityTable = this.tableHtml('economy-cities', [['City', false], ['Citizens', true], ['Tiles from the capital', true, 'Each costs upkeep'], ['Courthouse', true, 'Halves the city\'s upkeep'], ['City upkeep', true],
+      ['Buildings that cost', true, `Those that cost ${BUILDING_UPKEEP_PER} production or more`], ['Building upkeep', true], ['Gold made', true], ['Left', true, 'Gold made, less both upkeeps']], rows, { col: 8, down: true }, 'ecities');
+    // (The units: each kind's, as the share of them that is not free pays.)
+    const kinds = unitKeysOf(g.units.filter((u) => u.owner === p.id && !unitDef(u.type).civilian).map((u) => u.type));
+    const free = FREE_UNITS + cities.length + total(fx, 'freeUnits'), paying = fighting > free ? (fighting - free) / fighting : 0;
+    const unitRows = kinds.map(([u, n]): Cell[] => {
+      const cost = unitDef(u).cost, up = (n * cost / UNIT_UPKEEP_PER) * paying * infl;
+      return [{ html: `${icon(unitIcon(u))} ${esc(UNITS[u].name)}`, v: UNITS[u].name }, num(n, String(n)), num(cost, String(cost)), gold(up, '−')];
+    });
+    const unitTable = this.tableHtml('economy-units', [['Unit', false], ['How many', true], ['Production cost', true, 'Each'], ['Upkeep', true, 'Of them all']], unitRows, { col: 3, down: true }, 'eunits');
+    const pctText = (v: number, what: string) => (v ? `; ${v > 0 ? '+' : ''}${v}% from your ${what}` : '');
+    const how = `<div class="rules"><div><h4>A city</h4><p>${UPKEEP_PER_TILE} gold for each tile between it and the capital, and ${UPKEEP_PER_CITY} for each other city you have (${Math.max(0, cities.length - 1)} now); ${Math.round(100 * UPKEEP_PER_POP)}% more for each citizen past its first. A Courthouse ${COURTHOUSE_CUT === 0.5 ? 'halves' : 'cuts'} it${pctText(cityPct, 'government, policies and traits')}. The capital costs nothing.</p></div>
+      <div><h4>A building</h4><p>1 gold for each whole ${BUILDING_UPKEEP_PER} production it cost: the cheaper ones cost nothing to keep${pctText(buildPct, 'government, policies and traits')}.</p></div>
+      <div><h4>Units</h4><p>A fighting unit costs 1 gold for each ${UNIT_UPKEEP_PER} production it cost. ${FREE_UNITS} units and one for each city are kept for nothing: ${fighting <= free ? `all ${fighting} of yours now` : `${free} of your ${fighting} now, so you pay ${Math.round(100 * paying)}% of what they all cost`}. Civilians cost nothing.</p></div>
+      <div><h4>Inflation</h4><p>All upkeep rises 1% every ${INFLATION_TURNS} turns of a standard game. It now stands at ${Math.round(100 * infl)}% of its first price, counted in every figure here.</p></div></div>`;
+    return `<div class="page">${p.arrears > 0 ? `<p class="notice">In arrears: the treasury could not pay last turn's upkeep, and your cities make ${Math.round(100 * p.arrears)}% less production, science and culture.</p>` : ''}
+      <div class="etotals"><div><span class="label">Treasury</span><b>${p.gold}</b></div><div><span class="label">Income</span><b class="good">+${n1(sum(income))}</b></div>
+        <div><span class="label">Expenses</span><b class="${sum(expenses) > 0.04 ? 'bad' : ''}">${sum(expenses) > 0.04 ? `−${n1(sum(expenses))}` : '0'}</b></div><div><span class="label">Each turn</span><b class="${net < 0 ? 'bad' : ''}">${net >= 0 ? '+' : '−'}${n1(Math.abs(net))}</b></div></div>
+      <div class="ecols"><div><h3>Income</h3>${lines(income, 'gold', '+')}</div><div><h3>Expenses</h3>${lines(expenses, 'cost', '−')}</div></div>
+      <p class="note">Last turn's accounts. What the treasury cannot pay, your cities lose in proportion, in production, science and culture, and a unit deserts.</p>
+      ${deals.length ? `<h3>Deals with gold in them</h3><table class="grid">${deals.map((d) => `<tr><td>${this.dealText(d)}</td></tr>`).join('')}</table>` : ''}
+      <h3>How upkeep is reckoned</h3>${how}
+      ${rows.length ? `<h3>Your cities</h3><p class="note">As they stand now. Click a heading to sort by it.</p>${cityTable}` : ''}
+      ${unitRows.length ? `<h3>Your fighting units</h3>${unitTable}` : ''}</div>`;
   }
 
   // ---- trade ----

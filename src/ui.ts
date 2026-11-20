@@ -135,7 +135,18 @@ function noticeLook(text: string): [IconKey, string] {
   return ['bell', ''];
 }
 
-const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'government', 'Government'], ['religion', 'religion', 'Religion'], ['diplomacy', 'diplomacy', 'Diplomacy'], ['log', 'log', 'Log']];
+// The interface's scale (game.css: zoom on everything over the map): whole
+// on a window 1280 × 760 or larger, smaller in proportion on a smaller one,
+// to four fifths at the least (smaller than that is not read).
+let uiScale = 1;
+const fitScale = (): void => {
+  uiScale = Math.max(0.8, Math.min(1, innerWidth / 1280, innerHeight / 760));
+  document.documentElement.style.setProperty('--ui', uiScale.toFixed(3));
+};
+fitScale();
+addEventListener('resize', fitScale);
+
+const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'government', 'Government'], ['diplomacy', 'diplomacy', 'Diplomacy'], ['log', 'log', 'Log']];
 
 export class UI {
   private readonly game: Game;
@@ -173,10 +184,11 @@ export class UI {
       const box = this.el.tip;
       box.innerHTML = el.dataset['tip'] ?? '';
       box.classList.remove('hidden');
-      const r = el.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
+      // (Measured on the screen; placed in its own pixels, which the interface's scale shrinks.)
+      const r = el.getBoundingClientRect(), b = box.getBoundingClientRect(), w = b.width, h = b.height;
       const below = r.bottom + 8 + h < innerHeight - 4;
-      box.style.left = `${Math.max(6, Math.min(innerWidth - w - 6, r.left + r.width / 2 - w / 2))}px`;
-      box.style.top = `${below ? r.bottom + 8 : r.top - h - 8}px`;
+      box.style.left = `${Math.max(6, Math.min(innerWidth - w - 6, r.left + r.width / 2 - w / 2)) / uiScale}px`;
+      box.style.top = `${(below ? r.bottom + 8 : r.top - h - 8) / uiScale}px`;
     });
     document.body.addEventListener('mousedown', () => this.hideTip());
     const canvas = $('c');
@@ -242,7 +254,7 @@ export class UI {
   private empireHtml(): string {
     const g = this.game, p = g.players[HUMAN]!, l = p.ledger;
     const net = Math.round(l.income.gold + l.tithes + l.trade - l.cityUpkeep - l.unitUpkeep);
-    // (Science, cohesion, culture and faith open their sheets: research, politics, identity, religion.)
+    // (Each opens its sheet: gold the economy, science research, cohesion politics, culture identity, faith religion.)
     const stat = (cls: string, ic: IconKey, value: string, delta: string, title: string, sub: string, neg = false, sheet = '') =>
       `<div class="stat ${cls} ${neg ? 'neg' : ''}" ${sheet ? `data-sheet="${sheet}"` : ''} ${tip(title, sub)}>${icon(ic)}<b>${value}</b>${delta ? `<small>${delta}</small>` : ''}</div>`;
     const lines = [`Cities ${signed(Math.round(l.income.gold))}`, l.tithes ? `Tithes ${signed(Math.round(l.tithes))}` : '', l.trade ? `Trade ${signed(Math.round(l.trade))}` : '',
@@ -251,15 +263,15 @@ export class UI {
     const strategic = RESOURCE_KEYS.filter((k) => resourceDef(k).kind === 'strategic' && (owned.has(k) || g.resourceSources(HUMAN, k) > 0));
     const lux = g.luxuriesOf(HUMAN);
     return [
-      stat('gold', 'gold', String(p.gold), `${signed(net)}`, 'Gold', `In the treasury; ${signed(net)} a turn. ${lines}${p.arrears > 0 ? `<br><span class="bad">In arrears: your cities make ${Math.round(100 * p.arrears)}% less production, science and culture</span>` : '. What you cannot pay, your cities lose in proportion'}`, net < 0 || p.arrears > 0),
+      stat('gold', 'gold', String(p.gold), `${signed(net)}`, 'Gold', `In the treasury; ${signed(net)} a turn. ${lines}${p.arrears > 0 ? `<br><span class="bad">In arrears: your cities make ${Math.round(100 * p.arrears)}% less production, science and culture</span>` : '. What you cannot pay, your cities lose in proportion'}. Click: economy`, net < 0 || p.arrears > 0, 'economy'),
       stat('sci', 'science', signed(l.income.science), '', 'Science', 'A turn, toward what you research. Click: research', false, 'research'),
       stat('coh', 'cohesion', signed(l.income.cohesion), '', 'Cohesion', 'A turn, toward your politics. Click: politics', false, 'politics'),
       stat('cul', 'culture', signed(l.income.culture), '', 'Culture', 'A turn, toward your identity\'s next trait. Click: identity', false, 'identity'),
       stat('fai', 'faith', String(p.faith), signed(l.income.faith), 'Faith', `In hand; ${signed(l.income.faith)} a turn. Buys what a city builds. Click: religion`, false, 'religion'),
       strategic.length || lux.length ? '<span class="sep"></span>' : '',
       ...strategic.map((k) => { const cap = UNITS_PER_SOURCE * g.resourceSources(HUMAN, k), used = g.resourceUsed(HUMAN, k);
-        return `<span class="res" ${tip(resourceDef(k).name, `${plural(g.resourceSources(HUMAN, k), 'source')}: each arms ${UNITS_PER_SOURCE} units that need it. ${used} of ${cap} in use`)}>${icon(resourceIcon(k))}${used}/${cap}</span>`; }),
-      lux.length ? `<span class="res" ${tip(plural(lux.length, 'luxury', 'luxuries'), lux.map((k) => resourceDef(k).name).join(', '))}>${icon('gem')}${lux.length}</span>` : '',
+        return `<span class="res" data-sheet="resources" ${tip(resourceDef(k).name, `${plural(g.resourceSources(HUMAN, k), 'source')}: each arms ${UNITS_PER_SOURCE} units that need it. ${used} of ${cap} in use. Click: resources`)}>${icon(resourceIcon(k))}${used}/${cap}</span>`; }),
+      lux.length ? `<span class="res" data-sheet="resources" ${tip(plural(lux.length, 'luxury', 'luxuries'), `${lux.map((k) => resourceDef(k).name).join(', ')}. Click: resources`)}>${icon('gem')}${lux.length}</span>` : '',
     ].join('');
   }
 
@@ -505,11 +517,11 @@ export class UI {
     const show = this.pointer.over && this.tileShown >= 0 && this.drawn.get(box) !== '';
     box.classList.toggle('hidden', !show);
     if (!show) return;
-    const w = box.offsetWidth, h = box.offsetHeight;
+    const b = box.getBoundingClientRect(), w = b.width, h = b.height;
     const x = this.pointer.x + 22 + w > innerWidth - 8 ? this.pointer.x - 16 - w : this.pointer.x + 22;
     const y = Math.min(innerHeight - h - 8, this.pointer.y + 22);
-    box.style.left = `${Math.max(8, x)}px`;
-    box.style.top = `${Math.max(52, y)}px`;
+    box.style.left = `${Math.max(8, x) / uiScale}px`;
+    box.style.top = `${Math.max(52 * uiScale, y) / uiScale}px`;
   }
 
   private renderTile(sel: Selection, t: number, placing: Placing): void {
