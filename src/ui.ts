@@ -11,7 +11,7 @@ import { resourceDef, empireBonus } from './resources.ts';
 import { BORDER_AT, BORDER_MAX, OUTPUT_KEYS } from './cities.ts';
 import { icon, unitIcon, resourceIcon, YIELD_ICON, type IconKey } from './icons.ts';
 import { inkOn } from './mapIcons.ts';
-import { cityUpkeep } from './economy.ts';
+import { cityUpkeep, FREE_UNITS, UNIT_UPKEEP_PER } from './economy.ts';
 import { total } from './effects.ts';
 import { RESOURCE_KEYS } from './resources.ts';
 import {
@@ -44,6 +44,7 @@ export type Action =
   | { type: 'buyMode' }
   | { type: 'missionary' }
   | { type: 'buy'; currency: 'gold' | 'faith' }
+  | { type: 'selectUnit'; id: number }
   | { type: 'endTurn' }
   | { type: 'next' };
 
@@ -65,6 +66,10 @@ function parseAction(el: HTMLElement): Action | null {
   switch (type) {
     case 'found': case 'improve': case 'stop': case 'road': case 'fort': case 'fortify': case 'wake': case 'skip': case 'disband': case 'endTurn': case 'next': case 'governorPlace': case 'pillage': case 'raze': case 'buyMode': case 'missionary': case 'preach': case 'rally': case 'deploy': case 'upgrade':
       return { type };
+    case 'selectUnit': {
+      const id = Number(el.dataset['id']);
+      return Number.isInteger(id) ? { type, id } : null;
+    }
     case 'buy': {
       const c = el.dataset['currency'];
       return c === 'gold' || c === 'faith' ? { type, currency: c } : null;
@@ -152,7 +157,7 @@ export class UI {
   private readonly game: Game;
   private readonly el = {
     hud: $('hud'), civ: $('civ'), turn: $('turn'), yields: $('yields'), trackers: $('trackers'), notices: $('notices'), next: $('next'),
-    selection: $('selection'), cityside: $('cityside'), tile: $('tileinfo'), overlay: $('overlay'), tip: $('tip'),
+    military: $('military'), selection: $('selection'), cityside: $('cityside'), tile: $('tileinfo'), overlay: $('overlay'), tip: $('tip'),
   };
   // News: what was said since the player's turn began, less what they dismissed.
   private noticesFrom = 0;
@@ -163,15 +168,37 @@ export class UI {
   private tileTimer = 0;
   // (What was last drawn in each box: redrawn only when it changed, so a button under the pointer is not replaced mid-click.)
   private readonly drawn = new Map<HTMLElement, string>();
+  // The military panel (a list of the civ's units, beside the map): open or not, and its order.
+  private militaryOpen = false;
+  onMilitaryOpen: (() => void) | null = null;   // (main.ts: closes the sheet that is open)
+  // Closes the military panel; whether it was open.
+  closeMilitary(): boolean {
+    if (!this.militaryOpen) return false;
+    this.militaryOpen = false;
+    this.renderMilitary();
+    return true;
+  }
+  private militarySort: { by: 'unit' | 'health' | 'cost' | 'upkeep'; down: boolean } = { by: 'unit', down: false };
 
   constructor(game: Game, onAction: (a: Action) => void) {
     this.game = game;
-    $('sheets').innerHTML = SHEET_BUTTONS.map(([k, ic, name]) => `<button data-sheet="${k}">${icon(ic)}<span>${name}</span></button>`).join('');
+    // (The military's button stands between them: it opens a panel beside the map, not a sheet over it.)
+    const sheetButton = ([k, ic, name]: (typeof SHEET_BUTTONS)[number]) => `<button data-sheet="${k}">${icon(ic)}<span>${name}</span></button>`;
+    $('sheets').innerHTML = `${sheetButton(SHEET_BUTTONS[0]!)}<button data-panel="military">${icon('shield')}<span>Military</span></button>${SHEET_BUTTONS.slice(1).map(sheetButton).join('')}`;
     $('menuBtn').innerHTML = icon('menu');
     document.body.addEventListener('click', (e) => {
       const from = e.target instanceof Element ? e.target : null;
       const note = from?.closest<HTMLElement>('[data-notice]');
       if (note) { for (const i of (note.dataset['notice'] ?? '').split(',')) this.dismissed.add(Number(i)); this.renderNotices(); return; }
+      // (The military panel is one of the places to go, as the sheets are: opening it closes a sheet, opening a sheet closes it.)
+      if (from?.closest('[data-panel="military"]')) { this.militaryOpen = !this.militaryOpen; if (this.militaryOpen) this.onMilitaryOpen?.(); this.renderMilitary(); return; }
+      if (from?.closest('[data-sheet]')) this.closeMilitary();
+      const order = from?.closest<HTMLElement>('[data-msort]')?.dataset['msort'];
+      if (order === 'unit' || order === 'health' || order === 'cost' || order === 'upkeep') {
+        this.militarySort = { by: order, down: this.militarySort.by === order ? !this.militarySort.down : order !== 'unit' };
+        this.renderMilitary();
+        return;
+      }
       const target = from?.closest<HTMLElement>('[data-act]');
       if (!target || target.classList.contains('off')) return;
       const action = parseAction(target);
@@ -217,6 +244,7 @@ export class UI {
     this.el.next.className = next.ready ? 'ready' : '';
     this.set(this.el.next, `${esc(next.label)}<small>${next.sub}</small>`);
     this.renderNotices();
+    this.renderMilitary(sel);
     this.renderSelection(sel, placing);
     this.renderTile(sel, hover, placing);
 
@@ -273,6 +301,59 @@ export class UI {
         return `<span class="res" data-sheet="resources" ${tip(resourceDef(k).name, `${plural(g.resourceSources(HUMAN, k), 'source')}: each arms ${UNITS_PER_SOURCE} units that need it. ${used} of ${cap} in use. Click: resources`)}>${icon(resourceIcon(k))}${used}/${cap}</span>`; }),
       lux.length ? `<span class="res" data-sheet="resources" ${tip(plural(lux.length, 'luxury', 'luxuries'), `${lux.map((k) => resourceDef(k).name).join(', ')}. Click: resources`)}>${icon('gem')}${lux.length}</span>` : '',
     ].join('');
+  }
+
+  // The military panel: every unit of the civ, a row each (click: selected
+  // and brought into view), with where it is, its health, the resource it
+  // is armed with and what it costs to keep; over them, how many there are
+  // and what they all cost. The fighting units, then the civilians.
+  private lastSel: Selection = null;
+  private renderMilitary(sel: Selection = this.lastSel): void {
+    this.lastSel = sel;
+    const box = this.el.military, g = this.game, p = g.players[HUMAN]!;
+    document.querySelector('#sheets [data-panel="military"]')?.classList.toggle('active', this.militaryOpen);
+    document.body.classList.toggle('military', this.militaryOpen);
+    box.classList.toggle('hidden', !this.militaryOpen);
+    if (!this.militaryOpen) { this.set(box, ''); return; }
+    const mine = g.units.filter((u) => u.owner === HUMAN && !u.dead);
+    const fighting = mine.filter((u) => !unitDef(u.type).civilian);
+    const cities = g.cities.filter((c) => c.owner === HUMAN);
+    // (Upkeep: game.ts upkeep, economy.ts unitUpkeep: the share of the fighting units that is not free pays.)
+    const free = FREE_UNITS + cities.length + total(g.effectsOf(p), 'freeUnits');
+    const paying = fighting.length > free ? (fighting.length - free) / fighting.length : 0;
+    const upkeepOf = (u: Unit) => (unitDef(u.type).civilian ? 0 : (unitDef(u.type).cost / UNIT_UPKEEP_PER) * paying * g.inflation);
+    const n1 = (x: number) => (Math.round(10 * x) / 10).toLocaleString();
+    const where = (u: Unit): string => {
+      if (u.packedIn !== null) return 'with its commander';
+      const here = g.cityByTile.get(u.tile);
+      if (here) return `in ${esc(here.name)}`;
+      const near = cities.reduce<City | null>((a, c) => (!a || g.approxDist(u.tile, c.tile) < g.approxDist(u.tile, a.tile) ? c : a), null);
+      return near ? `near ${esc(near.name)}` : 'afield';
+    };
+    const doing = (u: Unit): string => (u.work !== null ? 'working' : u.fortified ? (unitDef(u.type).civilian ? 'asleep' : 'fortified') : u.goal !== null ? 'on its way' : u.moves > 0 && !u.skipped ? 'awaits orders' : '');
+    const { by, down } = this.militarySort;
+    const key = (u: Unit): number | string => (by === 'health' ? u.hp : by === 'cost' ? unitDef(u.type).cost : by === 'upkeep' ? upkeepOf(u) : unitDef(u.type).name);
+    const sorted = (us: readonly Unit[]) => [...us].sort((a, b) => {
+      const x = key(a), y = key(b), d = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
+      return (down ? -d : d) || a.id - b.id;
+    });
+    const row = (u: Unit): string => {
+      const d = unitDef(u.type), need = d.needs, up = upkeepOf(u), state = doing(u);
+      const strength = [d.melee > 1 ? `strength ${d.melee}` : '', d.rangedAtk ? `ranged ${d.rangedAtk}` : ''].filter(Boolean).join(' · ');
+      return `<tr class="${sel?.kind === 'unit' && sel.unit.id === u.id ? 'on' : ''}" data-act="selectUnit" data-id="${u.id}" ${tip(esc(d.name), `${strength || 'A civilian'}${need ? ` · armed with ${resourceDef(need).name}` : ''}. Click: go to it`)}>
+        <td>${icon(unitIcon(u.type))}</td><td><b>${esc(d.name)}</b><small>${where(u)}${state ? ` · ${state}` : ''}</small></td>
+        <td><div class="hp ${u.hp < 35 ? 'low' : u.hp < 70 ? 'mid' : ''}"><i style="width:${Math.max(0, Math.min(100, u.hp))}%"></i></div><small>${Math.round(u.hp)}</small></td>
+        <td class="num">${need ? icon(resourceIcon(need)) : ''}</td><td class="num">${d.cost}</td><td class="num">${up > 0.04 ? `−${n1(up)}` : '—'}</td></tr>`;
+    };
+    const head = (k: 'unit' | 'health' | 'cost' | 'upkeep', label: string, cls = '') => `<th class="${cls} ${by === k ? 'by' : ''}" data-msort="${k}">${label}${by === k ? `<i>${down ? '▼' : '▲'}</i>` : ''}</th>`;
+    const table = (us: readonly Unit[]) => `<table><tr><th></th>${head('unit', 'Unit')}${head('health', 'Health')}<th class="num" ${tip('Armed with', 'The strategic resource the unit needs')}>Needs</th>${head('cost', 'Cost', 'num')}${head('upkeep', 'Upkeep', 'num')}</tr>${sorted(us).map(row).join('')}</table>`;
+    const civilians = mine.filter((u) => unitDef(u.type).civilian);
+    const armed = RESOURCE_KEYS.filter((k) => resourceDef(k).kind === 'strategic' && g.resourceUsed(HUMAN, k) > 0)
+      .map((k) => `<span class="res" data-sheet="resources" ${tip(resourceDef(k).name, 'Units armed with it, of those its sources can arm. Click: resources')}>${icon(resourceIcon(k))}${g.resourceUsed(HUMAN, k)}/${UNITS_PER_SOURCE * g.resourceSources(HUMAN, k)}</span>`).join('');
+    this.set(box, `<div class="mhead"><h3>Military</h3><button data-panel="military" ${tip('Close')}>${icon('close')}</button></div>
+      <div class="msum"><span><b>${fighting.length}</b> fighting ${fighting.length === 1 ? 'unit' : 'units'}</span><span ${tip('Upkeep', `${Math.min(free, fighting.length)} of them are kept for nothing (${FREE_UNITS} and one for each city). Click the gold for the accounts`)}><b>${p.ledger.unitUpkeep > 0.04 ? `−${n1(p.ledger.unitUpkeep)}` : '0'}</b> gold a turn</span>${armed}</div>
+      <div class="mlist">${fighting.length ? table(fighting) : '<p>No fighting units.</p>'}
+        ${civilians.length ? `<span class="label">Civilians</span>${table(civilians)}` : ''}</div>`);
   }
 
   // Its three advances, each opening its sheet: research and politics with

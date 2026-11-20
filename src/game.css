@@ -136,6 +136,39 @@ body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=reli
 @keyframes slidein { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 .citymode #notices, .citymode #trackers { display: none; }
 
+/* ---- the military, at the right over the corner: the civ's units, a row each ---- */
+#military { right: 12px; top: 56px; bottom: 300px; width: 480px; padding: 0; display: flex; flex-direction: column; z-index: 6; overflow: hidden; }
+#military .mhead { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 8px 14px; }
+#military .mhead h3 { font-size: 17px; color: var(--brass-hi); }
+#military .mhead button { background: none; border-color: transparent; color: var(--muted); padding: 4px 7px; }
+#military .msum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 0 14px 10px; color: var(--muted); border-bottom: 1px solid var(--brass-lo); }
+#military .msum b { color: var(--text); }
+#military .msum .res { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 600; }
+#military .msum .res .ic { color: #e8a94f; font-size: 15px; }
+#military .mlist { flex: 1; overflow: auto; padding: 4px 6px 10px; }
+#military .mlist .label { display: block; margin: 12px 8px 2px; }
+#military .mlist p { color: var(--muted); margin: 10px 8px; }
+#military table { width: 100%; border-collapse: collapse; }
+#military th { position: sticky; top: 0; z-index: 1; background: #10151e; text-align: left; font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--faint); font-weight: 700; padding: 6px 8px; white-space: nowrap; }
+#military th[data-msort] { cursor: pointer; } #military th[data-msort]:hover { color: var(--text); } #military th.by { color: var(--brass-hi); }
+#military th i { font-style: normal; margin-left: 4px; }
+#military th.num, #military td.num { text-align: right; }
+#military td { padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+#military td:first-child { width: 26px; padding-right: 0; font-size: 17px; color: var(--brass); }
+#military td b { display: block; font-weight: 600; }
+#military td small { font-size: 11px; }
+#military td .ic { font-size: 16px; }
+#military td.num .ic { color: #e8a94f; }
+#military tr[data-act] { cursor: pointer; }
+#military tr[data-act]:hover td { background: rgba(255, 255, 255, 0.05); }
+#military tr.on td { background: rgba(201, 165, 92, 0.14); }
+#military .hp { width: 74px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin-bottom: 2px; }
+#military .hp > i { display: block; height: 100%; background: var(--good); }
+#military .hp.mid > i { background: var(--warn); } #military .hp.low > i { background: var(--bad); }
+/* (The turn's news makes room for it; a city's own panel takes its place.) */
+body.military #notices { right: 504px; }
+.citymode #military { display: none; }
+
 /* ---- the selection, bottom left: a unit or a city ---- */
 #selection { left: 12px; bottom: 12px; width: 372px; max-height: calc(100vh - 68px); overflow: auto; z-index: 6; }
 #selection h3 { font-size: 17px; color: var(--brass-hi); }

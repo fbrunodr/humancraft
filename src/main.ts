@@ -191,6 +191,7 @@ function startGame(game: Game): void {
     URL.revokeObjectURL(a.href);
   };
   const sheets = new Sheets(game, () => refresh());
+  ui.onMilitaryOpen = () => sheets.close();
   view.onTileHover = onHover;
   view.onTileClick = onClick;
   // Dev-only handle for profiling from the browser console or test scripts.
@@ -572,6 +573,13 @@ function startGame(game: Game): void {
       case 'next':
         nextStep().go();
         break;
+      // (From the military panel: the unit, or the commander carrying it, selected and brought into view.)
+      case 'selectUnit': {
+        const u = game.units.find((x) => x.id === a.id && x.owner === HUMAN && !x.dead);
+        const at = u && u.packedIn !== null ? game.units.find((x) => x.id === u.packedIn) ?? u : u;
+        if (at) { sel = { kind: 'unit', unit: at }; placing = null; view.focusOn(at.tile); }
+        break;
+      }
       default:
         assertNever(a);
     }
@@ -643,10 +651,11 @@ function startGame(game: Game): void {
     if (a) { e.preventDefault(); act(a); return; }
     if (e.key === 'n' || e.key === 'Tab') { e.preventDefault(); selectNextUnit(); refresh(); }
     else if (e.key === 'Escape') {
-      // Close a sheet first; then cancel picking a wonder's tile (or buying tiles); otherwise deselect.
+      // Close a sheet first; then cancel picking a wonder's tile (or buying tiles); otherwise deselect; then the military panel; then the menu.
       if (sheets.isOpen) sheets.close();
       else if ((wonderPicked(placing) || placing === 'buy') && sel?.kind === 'city') placing = defaultPlacing(sel.city);
       else if (sel) { sel = null; placing = null; }
+      else if (ui.closeMilitary()) { /* (the military panel, as a sheet would be) */ }
       else openMenu(true);
       refresh();
     }
