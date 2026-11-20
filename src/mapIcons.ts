@@ -20,8 +20,8 @@ function luminance(color: string): number {
 export const inkOn = (color: string): string => (luminance(color) > 0.62 ? '#151a24' : '#ffffff');
 
 // A unit's flag (a 128 × 128 cell): a disc in its civ's colour (a civilian's:
-// a rounded square), its kind's pictogram, its health under it; a brass rim
-// when selected, a shield's notch of gold when fortified; an army's count.
+// a rounded square) in a pale rim, its kind's pictogram, its health under it;
+// a glow when selected, the rim brass when fortified; an army's count.
 export function drawUnitFlag(ctx: CanvasRenderingContext2D, color: string, glyph: IconKey, civilian: boolean, stack: number, hp: number, selected: boolean, fortified: boolean): void {
   const cx = 64, cy = 56, r = 40;
   const shape = (grow: number) => {
@@ -37,9 +37,13 @@ export function drawUnitFlag(ctx: CanvasRenderingContext2D, color: string, glyph
     ctx.fillStyle = '#ffe9ad';
     ctx.fill();
   }
+  // (Its rim: pale stone, as a city banner's, with a thin dark edge to hold it on snow; brass when fortified.)
   shape(4);
-  ctx.fillStyle = fortified ? BRASS : 'rgba(10, 13, 20, 0.95)';
+  ctx.fillStyle = fortified ? BRASS : STONE;
   ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(27, 33, 44, 0.7)';
+  ctx.stroke();
   shape(0);
   const g = ctx.createLinearGradient(0, cy - r, 0, cy + r);
   g.addColorStop(0, color);
