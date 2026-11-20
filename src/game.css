@@ -457,7 +457,7 @@ table.grid.eunits { max-width: 640px; }
 .page { max-width: 1200px; margin: 0 auto; }
 .page .ecols { max-width: none; }
 .page .rules { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 28px; }
-.page .scards, .page .rcards, .page table.grid { max-width: none; }
+.page .scards, .page .rcards, .page .vcards, .page .tradebox, .page .tfoot, .page table.grid { max-width: none; }
 .page table.grid.eunits { max-width: 640px; }
 /* A table that sorts: its headings are buttons, the one it is sorted by lit. */
 table.sorts th { cursor: pointer; white-space: nowrap; }

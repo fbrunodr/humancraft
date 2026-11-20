@@ -186,7 +186,8 @@ export class Sheets {
     this.shown = key;
     const left = this.el.scrollLeft, top = this.el.scrollTop;
     const [title, sub, main] = this.page(this.open);
-    const body = from ? this.sourcesHtml(from) : main;
+    // (Victory and diplomacy keep to the middle of the sheet, as the accounts do: game.css .page.)
+    const body = from ? this.sourcesHtml(from) : this.open === 'victory' || this.open === 'diplomacy' ? `<div class="page">${main}</div>` : main;
     const tabs = tabbed ? `<nav class="htabs"><button class="${from ? '' : 'active'}" data-do="tab" data-tab="main">${tabbed[1]}</button><button class="${from ? 'active' : ''}" data-do="tab" data-tab="from">${icon(YIELD_ICON[tabbed[0]])}${tabbed[2]}</button></nav>` : '';
     // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
     const tree = (this.open === 'research' || this.open === 'politics') && !from;
@@ -643,7 +644,7 @@ export class Sheets {
       <td>${ERAS[o.era].name}${o.id === HUMAN ? ` <small>${o.techs.size} of ${TECH_KEYS.length} technologies</small>` : ''}</td><td>${g.faithShare(o.id) > 0 ? `about ${tenth(o.id)}%` : '—'}</td><td class="num">${g.capitalsHeld(o.id)} of the ${g.capitalsToWin} that win</td></tr>`).join('');
     return `<div class="vcards">${cards}</div>
       <h3>Standings</h3><p class="note">You and the civilizations you have met, the best score first. Of the others you know these things in broad, no more.</p>
-      <table class="grid"><tr><th>Civilization</th><th>Score</th><th>Era</th><th>World's people of its faith</th><th>First capitals held</th></tr>${rows}</table>`;
+      <table class="grid"><tr><th>Civilization</th><th class="num">Score</th><th>Era</th><th>World's people of its faith</th><th class="num">First capitals held</th></tr>${rows}</table>`;
   }
 
   // A table whose columns sort (click a heading: by it, again: the other
@@ -843,7 +844,7 @@ export class Sheets {
       <p class="note">The first copy of each luxury gives your whole civilization its bonus every turn, mostly cohesion, and it grows with the era. More copies add nothing, so you can trade them: a spare copy (you always keep one) for another civilization's goods or for gold a turn, for ${DEAL_TURNS} turns. A strategic resource you trade for lets you build what needs it. A war, losing the spare tile, or a payer running out of gold ends a deal.</p>
       ${offers ? `<h3>Offers to you</h3><table class="grid"><tr><th>From</th><th>You give</th><th>You get</th><th>Term</th><th></th></tr>${offers}</table>` : ''}
       ${this.draftHtml()}
-      <h3>Your luxuries</h3><table class="grid"><tr><th>Luxury</th><th>From</th><th>Bonus to your civilization</th><th>Spare copies</th></tr>${lux}</table>
+      <h3>Your luxuries</h3><table class="grid"><tr><th>Luxury</th><th>From</th><th>Bonus to your civilization</th><th class="num">Spare copies</th></tr>${lux}</table>
       ${strategics.length ? `<p class="note">Spare strategic copies: ${strategics.map(([k, n]) => `${esc(resourceDef(k).name)} ×${n}`).join(', ')}.</p>` : ''}
       ${deals ? `<h3>Deals in force</h3><table class="grid"><tr><th>With</th><th>You give</th><th>You get</th><th>Turns left</th></tr>${deals}</table>` : ''}`;
   }
