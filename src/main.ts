@@ -190,7 +190,7 @@ function startGame(game: Game): void {
     a.click();
     URL.revokeObjectURL(a.href);
   };
-  const sheets = new Sheets(game, () => refresh(), downloadLog);
+  const sheets = new Sheets(game, () => refresh());
   view.onTileHover = onHover;
   view.onTileClick = onClick;
   // Dev-only handle for profiling from the browser console or test scripts.
@@ -256,10 +256,18 @@ function startGame(game: Game): void {
     ['<kbd>H</kbd> <kbd>Y</kbd> <kbd>M</kbd>', 'hex grid · yields · strategic view'],
     ['<kbd>Esc</kbd>', 'close, cancel, deselect; then this menu'], ['<kbd>J</kbd>', 'debug views of the land'],
   ];
-  const openMenu = (on: boolean) => {
+  // The menu: this game in broad and what to do with it, a button to a line;
+  // the settings, the controls and the log each a page of their own, with a
+  // way back.
+  type MenuPage = 'main' | 'settings' | 'controls' | 'log';
+  const openMenu = (on: boolean, page: MenuPage = 'main') => {
     menuBox.classList.toggle('hidden', !on);
     if (!on) return;
-    menuBox.innerHTML = `<div class="card"><h2>Human craft <small>${VERSION}</small></h2>
+    const back = '<div class="acts"><button data-page="main">Back to the menu</button></div>';
+    const head = (title: string) => `<h2>${title}</h2>`;
+    let body: string;
+    if (page === 'settings') {
+      body = `${head('Settings')}
       <span class="label">Graphics</span>
       <div class="opts">
         <label class="opt">Shadows <input type="checkbox" data-set="shadows" ${settings.shadows ? 'checked' : ''}></label>
@@ -272,16 +280,46 @@ function startGame(game: Game): void {
       <div class="opts">
         <label class="opt">Frame rate counter <input type="checkbox" data-set="fps" ${fpsBox.classList.contains('hidden') ? '' : 'checked'}></label>
         <label class="opt">View of the land <select data-set="view">${(Object.keys(VIEW_NAME) as DebugView[]).map((v) => `<option value="${v}" ${v === view.view ? 'selected' : ''}>${VIEW_NAME[v]}</option>`).join('')}</select></label>
-      </div>
-      <span class="label">Controls</span>
-      <div class="keys">${KEYS.map(([k, what]) => `<span>${k}</span><span>${what}</span>`).join('')}</div>
-      <div class="foot"><button data-menu="save">Save to a file</button><button data-menu="new" class="danger">Leave for a new game</button><button data-menu="close" class="primary">Back to the game</button></div></div>`;
+      </div>${back}`;
+    } else if (page === 'controls') {
+      body = `${head('Controls')}<div class="keys">${KEYS.map(([k, what]) => `<span>${k}</span><span>${what}</span>`).join('')}</div>${back}`;
+    } else if (page === 'log') {
+      // (Your own last actions, the newest first; the whole record is every player's.)
+      const text = (x: string) => x.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+      const mine = game.events.filter((e) => e.player === HUMAN && e.kind !== 'move' && e.kind !== 'summary').slice(-40).reverse();
+      const rows = mine.map((e) => `<tr><td class="num">${e.turn}</td><td>${e.kind}</td><td><small>${text(JSON.stringify(e.data))}</small></td></tr>`).join('');
+      body = `${head('Log')}<p class="note">Every action of every player, human and computer, is recorded each turn: moves, research, politics, identity, policies, battles, cities, diplomacy, and a summary of each civilization's accounts. ${game.events.length.toLocaleString()} events so far.</p>
+      <div class="acts"><button data-menu="log">Save the full log <small>JSON lines</small></button><button data-page="main">Back to the menu</button></div>
+      <span class="label">Your recent actions</span>
+      ${rows ? `<table class="grid"><tr><th class="num">Turn</th><th>Kind</th><th>Details</th></tr>${rows}</table>` : '<p class="note">None yet.</p>'}`;
+    } else {
+      // (This game, in broad: who, on what world, against whom, how far in.)
+      const me = game.players[HUMAN]!, o = game.options, size = MAP_SIZES[o.size];
+      const facts: readonly [string, string][] = [
+        ['Civilization', `<span class="swatch" style="background:${me.color}"></span>${me.name}`],
+        ['Turn', `${game.turn} of ${game.turnLimit}`],
+        ['Lands', MAP_SCRIPTS[o.script ?? 'continents'].name],
+        ['World', `${size.name} · ${tileCount(size.n).toLocaleString()} tiles · ${game.players.length} civilizations`],
+        ['Rivals', LEVELS[Math.min(LEVELS.length - 1, Math.max(0, o.level ?? DEFAULT_LEVEL))]!.name],
+        ['Speed', GAME_SPEEDS[o.speed ?? DEFAULT_SPEED].name],
+        ['Seed', String(o.seed)],
+      ];
+      body = `<h2>Human craft <small>${VERSION}</small></h2>
+      <div class="facts">${facts.map(([k, v]) => `<div><small>${k}</small><b>${v}</b></div>`).join('')}</div>
+      <div class="acts"><button data-menu="close" class="primary">Back to the game</button><button data-menu="save">Save the game</button>
+        <button data-page="settings">Settings</button><button data-page="controls">Controls</button><button data-page="log">Log</button>
+        <button data-menu="new" class="danger">Leave the game</button></div>`;
+    }
+    menuBox.innerHTML = `<div class="card ${page}">${body}</div>`;
   };
   document.getElementById('menuBtn')!.addEventListener('click', () => openMenu(menuBox.classList.contains('hidden')));
   menuBox.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
+    const to = t.closest<HTMLElement>('[data-page]')?.dataset['page'];
+    if (to === 'main' || to === 'settings' || to === 'controls' || to === 'log') { openMenu(true, to); return; }
     if (t === menuBox || t.dataset['menu'] === 'close') openMenu(false);
     else if (t.dataset['menu'] === 'new') location.reload();
+    else if (t.closest<HTMLElement>('[data-menu]')?.dataset['menu'] === 'log') downloadLog();
     else if (t.dataset['menu'] === 'save') downloadSave(`human-craft-${game.players[HUMAN]!.name.toLowerCase()}-turn-${game.turn}.json`, saveGame(game));
   });
   menuBox.addEventListener('change', (e) => {

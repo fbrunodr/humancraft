@@ -146,7 +146,7 @@ const fitScale = (): void => {
 fitScale();
 addEventListener('resize', fitScale);
 
-const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'government', 'Government'], ['diplomacy', 'diplomacy', 'Diplomacy'], ['log', 'log', 'Log']];
+const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'government', 'Government'], ['diplomacy', 'diplomacy', 'Diplomacy']];
 
 export class UI {
   private readonly game: Game;

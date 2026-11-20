@@ -36,13 +36,12 @@ import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 //   diplomacy   the civs met: at war or peace, declare war, offer or accept peace;
 //               trade (resources, gold a turn): offers, deals in force, a proposal
 //   victory     how the game is won, and how far the civ and those it has met are
-//   log         the game's record of events (gameLog.ts), to download
 // Research, politics, identity and religion have a second tab each: where
 // their yield (science, cohesion, culture, faith) comes from.
 // They change the game directly and then call `changed` (main.ts redraws).
 
-export type SheetKind = 'economy' | 'resources' | 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'victory' | 'log';
-const SHEETS: readonly SheetKind[] = ['economy', 'resources', 'research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'victory', 'log'];
+export type SheetKind = 'economy' | 'resources' | 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'victory';
+const SHEETS: readonly SheetKind[] = ['economy', 'resources', 'research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'victory'];
 const isSheet = (s: string): s is SheetKind => (SHEETS as readonly string[]).includes(s);
 // The sheets a yield pays for, each with a second tab (where the yield comes from): the yield, the two tabs' names.
 const YIELD_TAB: Partial<Record<SheetKind, readonly [OutputKey, string, string]>> = {
@@ -103,7 +102,7 @@ export class Sheets {
   // The trade being drawn up: with whom, what each side gives.
   private draft: { civ: number; give: ResourceKey | null; get: ResourceKey | null; pay: number; paid: number } | null = null;
 
-  constructor(private readonly game: Game, private readonly changed: () => void, private readonly downloadLog: () => void) {
+  constructor(private readonly game: Game, private readonly changed: () => void) {
     this.el = document.getElementById('sheet')!;
     document.body.addEventListener('click', (e) => {
       // (An icon is a target too: an SVG element, not an HTML one.)
@@ -274,7 +273,6 @@ export class Sheets {
         break;
       }
       case 'dealAnswer': g.answerDeal(Number(d['i']), d['yes'] === '1'); break;
-      case 'download': this.downloadLog(); return;
       default: return;
     }
     this.changed();
@@ -297,7 +295,6 @@ export class Sheets {
       case 'government': return ['Government', governmentDef(p.government).name, this.governmentHtml()];
       case 'religion': return ['Religion', `${this.game.religions.size} of ${RELIGION_KEYS.length} founded`, this.religionHtml()];
       case 'diplomacy': return ['Diplomacy', 'Relations with the civilizations you have met', this.diplomacyHtml()];
-      case 'log': return ['Log', `${this.game.events.length.toLocaleString()} events recorded`, this.logHtml()];
     }
   }
 
@@ -866,14 +863,5 @@ export class Sheets {
         <div class="tside"><span class="label">The ${esc(o.name)} give</span><div class="tchips">${chips(g.tradeable(o.id, HUMAN), 'get', this.me)}</div>${gold('paid')}</div>
       </div>
       <div class="tfoot"><span class="${block ? 'bad' : ''}">${verdict}</span>${this.notice ? ` <b>${esc(this.notice)}</b>` : ''}<span class="grow"></span><button data-do="tradeCancel">Cancel</button> <button class="primary" data-do="tradePropose" ${block ? 'disabled' : ''}>Propose for ${DEAL_TURNS} turns</button></div>`;
-  }
-
-  private logHtml(): string {
-    const g = this.game;
-    const mine = g.events.filter((e) => e.player === HUMAN && e.kind !== 'move' && e.kind !== 'summary').slice(-40).reverse();
-    const rows = mine.map((e) => `<tr><td class="num">${e.turn}</td><td>${e.kind}</td><td><small>${esc(JSON.stringify(e.data))}</small></td></tr>`).join('');
-    return `<p class="note">Every action of every player, human and computer, is recorded each turn (moves, research, politics, identity, policies, battles, cities, diplomacy, and a summary of each civilization's accounts). In development the record is also written to <b>logs/</b> in the project folder as the game goes.</p>
-      <div class="buttons"><button data-do="download">Download the full log (JSON lines)</button></div>
-      <h3>Your recent actions</h3><table class="grid"><tr><th>Turn</th><th>Kind</th><th>Details</th></tr>${rows}</table>`;
   }
 }
