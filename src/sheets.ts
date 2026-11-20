@@ -72,6 +72,8 @@ type Col = readonly [label: string, figure: boolean, tip?: string];
 // A tree's plates and the room between them (pixels). A plate is as tall as
 // the tree's fullest needs: its name, then up to CHIP_ROWS rows of chips.
 const NODE_W = 280, GAP_X = 56, GAP_Y = 14, TREE_TOP = 46, TREE_PAD = 8;
+// How far before an item its lines turn up or down the gap.
+const LANE_BACK = 20;
 // A chip on a plate: what an item unlocks or gives, named. Their widths are
 // reckoned here (one face, every letter as wide: game.css .node .u), so a
 // plate knows its rows before it is drawn.
@@ -134,7 +136,11 @@ export class Sheets {
         needs.forEach(add);
       };
       if (node?.dataset['node']) add(node.dataset['node']);
-      this.el.querySelectorAll<SVGPathElement>('svg.links path').forEach((p) => p.classList.toggle('lit', lit.has(p.dataset['b'] ?? '') && lit.has(p.dataset['a'] ?? '')));
+      // (Those lit are drawn last, over the rest: they run one over another before a column, and the last drawn shows.)
+      this.el.querySelectorAll<SVGPathElement>('svg.links path').forEach((p) => {
+        const on = lit.has(p.dataset['b'] ?? '') && lit.has(p.dataset['a'] ?? '');
+        if (on !== p.classList.contains('lit')) { p.classList.toggle('lit', on); if (on) p.parentNode?.appendChild(p); }
+      });
     });
     // A tree's box: what is typed dims every item that does not give it.
     this.el.addEventListener('input', (e) => {
@@ -465,18 +471,19 @@ export class Sheets {
         <div class="unl">${drawn.get(k)!.html}</div>${bar}</div>`;
     };
     // The lines: out of an item along its row, down (or up) the gap before
-    // the item that needs it, and in; each item's own lane in that gap, so
-    // lines to different items run side by side, not one over the other.
-    let links = '';
+    // the item that needs it, and in: all at one distance before the items
+    // of a column, so they run there one over another, as a single line.
+    // (Drawn in this order, each over the last: the plain ones, those of what is known, those on the way to what is worked toward.)
+    const links: [number, string][] = [];
     for (const k of keys) {
-      const x2 = x(col.get(k)!), y2 = y(row.get(k)!) + NODE_H / 2, lane = x2 - 10 - (row.get(k)! % 5) * 8;
+      const x2 = x(col.get(k)!), y2 = y(row.get(k)!) + NODE_H / 2, lane = x2 - LANE_BACK;
       for (const n of def(k).needs as readonly string[]) {
         const x1 = x(col.get(n)!) + NODE_W, y1 = y(row.get(n)!) + NODE_H / 2;
         const r = Math.min(7, Math.abs(y2 - y1) / 2), dir = Math.sign(y2 - y1);
         const d = dir === 0 ? `M${x1},${y1} H${x2}`
           : `M${x1},${y1} H${lane - r} Q${lane},${y1} ${lane},${y1 + dir * r} V${y2 - dir * r} Q${lane},${y2} ${lane + r},${y2} H${x2}`;
         const on = (k === current || queue.has(k)) && (n === current || queue.has(n));
-        links += `<path class="${known.has(n) ? 'done' : on ? 'on' : ''}" data-a="${n}" data-b="${k}" d="${d}"/>`;
+        links.push([on ? 2 : known.has(n) ? 1 : 0, `<path class="${known.has(n) ? 'done' : on ? 'on' : ''}" data-a="${n}" data-b="${k}" d="${d}"/>`]);
       }
     }
     const rows = Math.max(...keys.map((k) => row.get(k)!)) + 1;
@@ -485,7 +492,7 @@ export class Sheets {
     // (Opened at the first column with something still to learn.)
     const first = Math.min(...keys.filter((k) => !known.has(k)).map((k) => col.get(k)!), cols.length - 1);
     return `<div class="tree ${kind}" data-tree="${kind}" data-start="${Math.max(0, x(first) - 80)}" style="width:${width}px;height:${height}px">${bandHtml}
-      <svg class="links" width="${width}" height="${height}">${links}</svg>${keys.map(node).join('')}</div>`;
+      <svg class="links" width="${width}" height="${height}">${links.sort((a, b) => a[0] - b[0]).map((l) => l[1]).join('')}</svg>${keys.map(node).join('')}</div>`;
   }
 
   // ---- identity ----

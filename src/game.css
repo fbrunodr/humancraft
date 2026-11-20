@@ -403,8 +403,9 @@ table.grid td.num { text-align: right; }
 .tree .band:nth-child(odd) { background: linear-gradient(rgba(201, 165, 92, 0.05), transparent 40%); }
 .tree .band span { position: sticky; top: 62px; display: block; padding: 8px 14px; font-family: var(--display); font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--brass); }
 .tree svg.links { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-.tree svg.links path { fill: none; stroke: rgb(var(--lift) / 0.16); stroke-width: 1.5; transition: stroke 0.1s; }
-.tree svg.links path.done { stroke: color-mix(in srgb, var(--tc) 55%, transparent); }
+/* (Opaque: the lines run one over another before a column, and would darken there.) */
+.tree svg.links path { fill: none; stroke: #b5b3ad; stroke-width: 1.5; transition: stroke 0.1s; }
+.tree svg.links path.done { stroke: color-mix(in srgb, var(--tc) 55%, #d6d3cc); }
 /* (On the way to what is being worked toward.) */
 .tree svg.links path.on { stroke: var(--brass); stroke-width: 2; }
 .tree svg.links path.lit { stroke: var(--brass-hi); stroke-width: 2.2; }
