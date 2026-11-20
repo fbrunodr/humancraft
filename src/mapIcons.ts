@@ -6,8 +6,8 @@
 
 import { drawIcon, type IconKey } from './icons.ts';
 
-// (INK for figures; GREY for a pictogram on stone: ink was too strong there.)
-const BRASS = '#a67c1e', STONE = 'rgba(235, 232, 225, 0.96)', INK = '#1b212c', GREY = '#4b5462';
+// (INK for figures; GREY for a pictogram on stone: ink was too strong there, the lens buttons' grey too soft.)
+const BRASS = '#a67c1e', STONE = 'rgba(235, 232, 225, 0.96)', INK = '#1b212c', GREY = '#363e4b';
 const HP = (f: number) => (f > 0.6 ? '#6fcf73' : f > 0.3 ? '#f2c14e' : '#ef6a5a');
 
 // Whether text reads better dark or light on a colour.

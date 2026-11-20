@@ -9,6 +9,12 @@
 // key. The atlas grows (in rows) when full. Billboards are drawn back to
 // front, as sprites are sorted, so their soft edges blend over those
 // behind.
+//
+// Billboards of different kinds (a city's banner, a resource's medallion)
+// are different draws, one kind after another: so that the nearer one is
+// in front whatever its kind, each kind first writes the depth of its
+// pictures' solid parts (`depth`, drawn before any kind's colours), and
+// the colours are then drawn only where nothing nearer was written.
 
 import * as THREE from 'three';
 
@@ -27,6 +33,7 @@ const VERTEX = /* glsl */ `
   uniform vec2 uScale;
   uniform vec2 uWorld;
   uniform vec2 uCellUv;
+  uniform float uPush;
   varying vec2 vUv;
   #include <fog_pars_vertex>
   void main() {
@@ -37,24 +44,33 @@ const VERTEX = /* glsl */ `
     // stands on, so a crowd of them does not pile up.)
     mvPosition.xy += position.xy * min(uScale * -mvPosition.z, uWorld);
     gl_Position = projectionMatrix * mvPosition;
+    // (The depth pass stands a hair behind its own colours: at the very same depth the two fought, and a billboard flickered out.)
+    gl_Position.z += uPush * gl_Position.w;
     #include <fog_vertex>
   }
 `;
 const FRAGMENT = /* glsl */ `
   uniform sampler2D uMap;
+  uniform float uCut;
   varying vec2 vUv;
   #include <fog_pars_fragment>
   void main() {
     gl_FragColor = texture2D(uMap, vUv);
-    if (gl_FragColor.a < 0.02) discard;
+    // (The colours: all but the empty corners. The depth: the solid parts only, not a soft edge or a shadow.)
+    if (gl_FragColor.a < uCut) discard;
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
     #include <fog_fragment>
   }
 `;
 
+// Every kind's depth is drawn at this place in the order, before any kind's colours (render.ts: 3 and up).
+const DEPTH_ORDER = 2.5;
+
 export class Billboards {
   readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
+  // The same billboards drawn for their depth alone, before any kind's colours (its mesh's child: in the scene with it).
+  private readonly depth: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial>;
   private readonly quad: THREE.BufferGeometry;
   private readonly canvas = document.createElement('canvas');
   private readonly ctx: CanvasRenderingContext2D;
@@ -80,8 +96,8 @@ export class Billboards {
     this.texture.anisotropy = 4;
     this.texture.flipY = false;
     this.material = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: null }, uScale: { value: new THREE.Vector2() }, uWorld: { value: new THREE.Vector2(1e9, 1e9) }, uCellUv: { value: new THREE.Vector2() } }]),
-      // (Hidden by the land, but writing no depth of their own: a billboard's empty corners must not cut the one behind it.)
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: null }, uCut: { value: 0.02 }, uPush: { value: 0 }, uScale: { value: new THREE.Vector2() }, uWorld: { value: new THREE.Vector2(1e9, 1e9) }, uCellUv: { value: new THREE.Vector2() } }]),
+      // (Hidden by the land, and by a nearer billboard's solid parts (`depth`); writing no depth here: a billboard's soft edge must not cut the one behind it.)
       vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, fog: true, depthTest, depthWrite: false,
     });
     this.material.uniforms['uMap']!.value = this.texture;
@@ -94,6 +110,15 @@ export class Billboards {
     this.mesh = new THREE.Mesh(this.instances(256), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = renderOrder;
+    // (The same uniforms, but for the cut: only what is nearly solid writes depth.)
+    const depthMaterial = new THREE.ShaderMaterial({
+      uniforms: { ...this.material.uniforms, uCut: { value: 0.85 }, uPush: { value: 3e-5 } },
+      vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, fog: true, depthTest, depthWrite: true, colorWrite: false,
+    });
+    this.depth = new THREE.Mesh(this.mesh.geometry, depthMaterial);
+    this.depth.frustumCulled = false;
+    this.depth.renderOrder = DEPTH_ORDER;
+    this.mesh.add(this.depth);
   }
 
   // The largest its billboards may be in the world (globe radii): past the distance where their fixed size on screen is that large, they shrink.
@@ -148,7 +173,7 @@ export class Billboards {
   // as many instances as its attributes had when first drawn.)
   private grow(n: number): void {
     this.mesh.geometry.dispose();
-    this.mesh.geometry = this.instances(n);
+    this.mesh.geometry = this.depth.geometry = this.instances(n);
   }
   private instances(n: number): THREE.InstancedBufferGeometry {
     const geo = new THREE.InstancedBufferGeometry();
