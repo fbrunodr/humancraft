@@ -142,12 +142,13 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
   ctx.fillRect(x, y, w, h * 0.42);
   // Growth and production along the bottom.
+  // (A pale track from the roundel on, as a tracker's ring has: what is done in the yield's colour.)
   if (b.growth !== null) {
-    ctx.fillStyle = 'rgba(8, 11, 17, 0.6)';
-    ctx.fillRect(x, y + h - 12, w, 12);
-    ctx.fillStyle = '#8fd47f';
+    ctx.fillStyle = 'rgba(235, 232, 225, 0.82)';
+    ctx.fillRect(x + 62, y + h - 12, w - 62, 12);
+    ctx.fillStyle = '#3f8f32';
     ctx.fillRect(x + 62, y + h - 11, (w - 62) * Math.min(1, Math.max(0, b.growth)), 5);
-    ctx.fillStyle = '#e2a25a';
+    ctx.fillStyle = '#b3660f';
     ctx.fillRect(x + 62, y + h - 5, (w - 62) * Math.min(1, Math.max(0, b.production ?? 0)), 5);
   }
   ctx.restore();
