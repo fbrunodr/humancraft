@@ -135,6 +135,8 @@ body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=reli
 .notice { pointer-events: auto; display: flex; align-items: center; gap: 9px; max-width: 100%; padding: 6px 12px 6px 6px; cursor: pointer; font-size: 12.5px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow); backdrop-filter: blur(10px); animation: slidein 0.25s ease-out; }
 .notice:hover { border-color: var(--brass); }
+#notices .clear { pointer-events: auto; display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 14px; font-size: 12px; color: var(--muted); background: var(--panel); box-shadow: var(--shadow); }
+#notices .clear:hover { color: var(--text); }
 .notice .chip { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; background: #d9d5cd; color: var(--brass-hi); font-size: 15px; }
 .notice.war .chip { background: #f0cdc7; color: #a52a1c; } .notice.good .chip { background: #cbe6cf; color: #1f6b30; }
 .notice.sci .chip { background: #ccdcf2; color: #1c4f96; } .notice.cul .chip { background: #dfcdee; color: #6a3a9c; }

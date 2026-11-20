@@ -6,7 +6,8 @@
 
 import { drawIcon, type IconKey } from './icons.ts';
 
-const BRASS = '#a67c1e', STONE = 'rgba(235, 232, 225, 0.96)', INK = '#1b212c';
+// (INK for figures; GREY for a pictogram on stone: ink was too strong there.)
+const BRASS = '#a67c1e', STONE = 'rgba(235, 232, 225, 0.96)', INK = '#1b212c', GREY = '#4b5462';
 const HP = (f: number) => (f > 0.6 ? '#6fcf73' : f > 0.3 ? '#f2c14e' : '#ef6a5a');
 
 // Whether text reads better dark or light on a colour.
@@ -193,7 +194,7 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
     ctx.arc(gx, ty, 21, 0, Math.PI * 2);
     ctx.fillStyle = STONE;
     ctx.fill();
-    drawIcon(ctx, b.glyph, gx, ty, 26, '#6f4e0c');
+    drawIcon(ctx, b.glyph, gx, ty, 26, GREY);
   }
   // Its health, once hurt.
   if (b.hp < 1) {
@@ -224,7 +225,7 @@ export function drawResourceIcon(ctx: CanvasRenderingContext2D, glyph: IconKey, 
   ctx.lineWidth = 6;
   ctx.strokeStyle = color;
   ctx.stroke();
-  drawIcon(ctx, glyph, 48, 46, 44, INK);
+  drawIcon(ctx, glyph, 48, 46, 44, GREY);
 }
 
 // A tile's yields (a 192 × 64 cell): each kind's pictogram in its colour,

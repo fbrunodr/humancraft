@@ -216,7 +216,9 @@ function roofOf(temp: number, pop: number, era: EraIndex, rand: Rng): number {
 const mix = (a: number, b: number) => { let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ b; h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); return (h ^ (h >>> 16)) >>> 0; };
 
 // An improved tile drawn with a rural drawing: a city's land, a hex, its improvement a kind of work.
-export const isFarmland = (g: Game, t: number): boolean => g.tileCity[t]! >= 0 && g.tiles[t].corners.length === 6 && !g.isWater(t)
+// (Not a city's own tile: a city founded on improved land keeps the improvement in the game's record,
+// and its lodge and carts stood among the city's houses.)
+export const isFarmland = (g: Game, t: number): boolean => g.tileCity[t]! >= 0 && g.use[t] !== USE.center && g.tiles[t].corners.length === 6 && !g.isWater(t)
   && (() => { const k = g.builtAt(t); return k !== null && WORK_OF[k] !== null; })();
 
 // Built-up tiles: the cities' centers.

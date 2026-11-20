@@ -268,7 +268,9 @@ export class UI {
     this.set(this.el.notices, items.slice(-7).map(({ text, ids }) => {
       const [ic, cls] = noticeLook(text);
       return `<div class="notice ${cls}" data-notice="${ids.join(',')}" ${tip('Dismiss')}><span class="chip">${icon(ic)}</span><span>${esc(text)}${ids.length > 1 ? ` <small>×${ids.length}</small>` : ''}</span></div>`;
-    }).join(''));
+    }).join('')
+      // (Two or more: one button for them all, those not shown too.)
+      + (items.length > 1 ? `<button class="clear" data-notice="${items.flatMap((x) => x.ids).join(',')}">${icon('close')} Dismiss all</button>` : ''));
   }
 
   // The civ's accounts (last turn's, net of upkeep), each with what makes it
