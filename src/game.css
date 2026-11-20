@@ -102,8 +102,6 @@ body[data-open=identity] #yields .stat[data-sheet=identity], body[data-open=reli
 #turn[data-sheet]:hover, body[data-open=victory] #turn { border-color: var(--brass-lo); background: rgba(201, 165, 92, 0.1); }
 #turn b { font-family: var(--display); font-size: 13px; letter-spacing: 0.08em; color: var(--brass-hi); }
 #turn small { font-size: 11px; }
-#civ { white-space: nowrap; font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; display: flex; align-items: center; gap: 6px; padding: 0 12px;
-  border-left: 1px solid var(--border); border-right: 1px solid var(--border); height: 26px; }
 #sheets { display: flex; gap: 2px; margin-left: 4px; }
 #sheets button, #menuBtn { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12.5px; color: var(--muted); background: none; border-color: transparent; }
 #sheets button .ic, #menuBtn .ic { font-size: 16px; color: var(--brass); }

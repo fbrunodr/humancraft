@@ -150,7 +150,7 @@ const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'gov
 export class UI {
   private readonly game: Game;
   private readonly el = {
-    hud: $('hud'), civ: $('civ'), turn: $('turn'), yields: $('yields'), trackers: $('trackers'), notices: $('notices'), next: $('next'),
+    hud: $('hud'), turn: $('turn'), yields: $('yields'), trackers: $('trackers'), notices: $('notices'), next: $('next'),
     military: $('military'), selection: $('selection'), cityside: $('cityside'), tile: $('tileinfo'), overlay: $('overlay'), tip: $('tip'),
   };
   // News: what was said since the player's turn began, less what they dismissed.
@@ -231,7 +231,6 @@ export class UI {
   render(sel: Selection, hover: number, next: NextStep, placing: Placing = null): void {
     const g = this.game;
     const me = g.players[HUMAN];
-    this.set(this.el.civ, `<span class="swatch" style="background:${me.color}"></span>${esc(me.name)}`);
     this.set(this.el.turn, `<b>Turn ${g.turn}<small> / ${g.turnLimit}</small></b><small>${ERAS[me.era].name} era · ${g.score(HUMAN)} points</small>`);
     this.set(this.el.yields, this.empireHtml());
     this.set(this.el.trackers, this.trackersHtml());
