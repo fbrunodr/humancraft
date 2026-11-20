@@ -349,8 +349,9 @@ function startGame(game: Game): void {
   // (The tiles the selected city's citizens work: a click on one takes its citizen off, to be placed again.)
   const WORKED_COLOR = 0xffc94d;
   const REACH_COLOR = 0xe8604a;
-  const defaultPlacing = (c: City): Placing =>
-    c.owner !== HUMAN ? null : c.growth > 0 ? game.governorPick(c)?.kind ?? null : null;
+  // (A citizen waiting to be placed: the tiles it could work are shown at once, whatever the governor would pick;
+  // a specialist's place is taken from the panel.)
+  const defaultPlacing = (c: City): Placing => (c.owner === HUMAN && c.growth > 0 ? 'rural' : null);
 
   // Select a city; if it has something to place, start placing it.
   function selectCity(c: City): void {
@@ -537,9 +538,6 @@ function startGame(game: Game): void {
         if (a.key === null) wealthy.add(c.id);
         break;
       }
-      case 'placeKind':
-        if (placingCity()?.growth) placing = a.kind;
-        break;
       case 'specialist': {
         const c = placingCity();
         if (c?.growth) game.placeGrowth(c, { kind: 'specialist', specialist: a.specialist });

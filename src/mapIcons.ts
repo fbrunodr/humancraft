@@ -1,11 +1,12 @@
 // What the map's billboards show (render.ts, billboards.ts), drawn on their
 // atlas's canvas: a unit's flag, a city's banner, a resource's medallion, a
-// tile's yields. The interface's own look (game.css): dark enamel, a brass
-// rim, the pictograms of icons.ts.
+// tile's yields. The interface's own look (game.css): pale stone, ink, a
+// dark brass rim, the pictograms of icons.ts. A unit's flag and a city's
+// plate keep their civ's colour: that is who they are.
 
 import { drawIcon, type IconKey } from './icons.ts';
 
-const BRASS = '#d9b56a', ENAMEL = 'rgba(14, 18, 26, 0.92)';
+const BRASS = '#a67c1e', STONE = 'rgba(235, 232, 225, 0.96)', INK = '#1b212c';
 const HP = (f: number) => (f > 0.6 ? '#6fcf73' : f > 0.3 ? '#f2c14e' : '#ef6a5a');
 
 // Whether text reads better dark or light on a colour.
@@ -70,12 +71,12 @@ export function drawUnitFlag(ctx: CanvasRenderingContext2D, color: string, glyph
   if (stack > 1) {
     ctx.beginPath();
     ctx.arc(104, 22, 19, 0, Math.PI * 2);
-    ctx.fillStyle = ENAMEL;
+    ctx.fillStyle = STONE;
     ctx.fill();
     ctx.lineWidth = 3;
     ctx.strokeStyle = BRASS;
     ctx.stroke();
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = INK;
     ctx.font = '700 25px "JetBrains Mono", ui-monospace, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -120,11 +121,15 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
   ctx.shadowBlur = 10;
   ctx.shadowOffsetY = 3;
-  ctx.fillStyle = 'rgba(8, 11, 17, 0.96)';
+  ctx.fillStyle = STONE;
   ctx.beginPath();
   ctx.roundRect(x - 4, y - 4, w + 8, h + 8, 36);
   ctx.fill();
   ctx.shadowColor = 'transparent';
+  // (A thin dark edge holds the pale rim on snow and sand.)
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(27, 33, 44, 0.7)';
+  ctx.stroke();
   const g = ctx.createLinearGradient(0, y, 0, y + h);
   g.addColorStop(0, b.color);
   g.addColorStop(1, shade(b.color, 0.7));
@@ -149,12 +154,12 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   // Its size.
   ctx.beginPath();
   ctx.arc(x + 32, y + h / 2, 30, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(10, 13, 20, 0.96)';
+  ctx.fillStyle = STONE;
   ctx.fill();
   ctx.lineWidth = 3;
   ctx.strokeStyle = BRASS;
   ctx.stroke();
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = INK;
   ctx.font = '700 34px "JetBrains Mono", ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -185,9 +190,9 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
     const gx = x + w - 34;
     ctx.beginPath();
     ctx.arc(gx, ty, 21, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(10, 13, 20, 0.85)';
+    ctx.fillStyle = STONE;
     ctx.fill();
-    drawIcon(ctx, b.glyph, gx, ty, 26, '#f0d9a0');
+    drawIcon(ctx, b.glyph, gx, ty, 26, '#6f4e0c');
   }
   // Its health, once hurt.
   if (b.hp < 1) {
@@ -202,38 +207,42 @@ export function drawCityBanner(ctx: CanvasRenderingContext2D, b: CityBanner): vo
   }
 }
 
-// A resource's medallion (a 96 × 96 cell): its pictogram on dark enamel, a
+// A resource's medallion (a 96 × 96 cell): its pictogram in ink on pale stone, a
 // rim of its kind's colour (bonus, luxury, strategic).
 // (The rims: a bonus resource's, a luxury's, a strategic one's.)
-export const RESOURCE_COLORS = { bonus: '#8fd47f', luxury: '#c79be8', strategic: '#e8a94f' } as const;
+export const RESOURCE_COLORS = { bonus: '#3f8f32', luxury: '#7d45b8', strategic: '#c2660a' } as const;
 export function drawResourceIcon(ctx: CanvasRenderingContext2D, glyph: IconKey, color: string): void {
   ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
   ctx.shadowBlur = 8;
   ctx.shadowOffsetY = 2;
   ctx.beginPath();
   ctx.arc(48, 46, 36, 0, Math.PI * 2);
-  ctx.fillStyle = ENAMEL;
+  ctx.fillStyle = STONE;
   ctx.fill();
   ctx.shadowColor = 'transparent';
   ctx.lineWidth = 6;
   ctx.strokeStyle = color;
   ctx.stroke();
-  drawIcon(ctx, glyph, 48, 46, 44, '#f4efe2');
+  drawIcon(ctx, glyph, 48, 46, 44, INK);
 }
 
 // A tile's yields (a 192 × 64 cell): each kind's pictogram in its colour,
 // as many as it yields (past three: one, with the figure).
-export const YIELD_COLOR = { food: '#8fd47f', prod: '#e2a25a', gold: '#f0cc5a', science: '#7fb6ee', culture: '#c79be8', faith: '#e9e2c0', cohesion: '#6cc9bb' } as const;
+export const YIELD_COLOR = { food: '#3f8f32', prod: '#b3660f', gold: '#a57b00', science: '#2468c2', culture: '#7d45b8', faith: '#7a6a2a', cohesion: '#14867a' } as const;
 export function drawTileYields(ctx: CanvasRenderingContext2D, yields: readonly (readonly [keyof typeof YIELD_COLOR, number])[]): void {
   const S = 26, items: { k: keyof typeof YIELD_COLOR; n: number; w: number }[] = [];
   for (const [k, v] of yields) if (v > 0) items.push({ k, n: v, w: v <= 3 ? S + (v - 1) * 13 : S + 20 });
   if (!items.length) return;
   const gap = 8, total = items.reduce((a, i) => a + i.w, 0) + gap * (items.length - 1);
   const w = Math.min(188, total + 20), x0 = (192 - w) / 2;
-  ctx.fillStyle = 'rgba(10, 13, 20, 0.72)';
+  ctx.fillStyle = 'rgba(235, 232, 225, 0.9)';
   ctx.beginPath();
   ctx.roundRect(x0, 14, w, 36, 18);
   ctx.fill();
+  // (A thin edge, to hold the pale plate on snow.)
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(27, 33, 44, 0.45)';
+  ctx.stroke();
   let x = x0 + 10;
   const k = Math.min(1, (w - 20) / total);
   for (const it of items) {
@@ -241,7 +250,7 @@ export function drawTileYields(ctx: CanvasRenderingContext2D, yields: readonly (
     if (it.n <= 3) for (let i = 0; i < it.n; i++) drawIcon(ctx, it.k, x + (S / 2 + i * 13) * k, 32, S * k, c);
     else {
       drawIcon(ctx, it.k, x + (S / 2) * k, 32, S * k, c);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = INK;
       ctx.font = `700 ${Math.round(22 * k)}px "JetBrains Mono", ui-monospace, monospace`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';

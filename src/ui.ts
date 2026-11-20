@@ -36,7 +36,6 @@ export type Action =
   | { type: 'pillage' }
   | { type: 'raze' }
   | { type: 'build'; key: BuildKey | null }
-  | { type: 'placeKind'; kind: GrowthKind }
   | { type: 'specialist'; specialist: SpecialistKind }
   | { type: 'unspecialist'; specialist: SpecialistKind }
   | { type: 'governorPlace' }
@@ -73,10 +72,6 @@ function parseAction(el: HTMLElement): Action | null {
     case 'buy': {
       const c = el.dataset['currency'];
       return c === 'gold' || c === 'faith' ? { type, currency: c } : null;
-    }
-    case 'placeKind': {
-      const kind = el.dataset['kind'];
-      return kind === 'rural' || kind === 'specialist' ? { type, kind } : null;
     }
     case 'specialist': case 'unspecialist': {
       const k = el.dataset['specialist'] ?? '';
@@ -120,7 +115,6 @@ export const outStr = (o: Output, sign = false) => OUTPUT_KEYS
 export const bonusStr = (o: Output) => OUTPUT_KEYS.filter((k) => o[k] !== 0).map((k) => yieldChip(k, signed(o[k]))).join('');
 const yieldStr = (food: number, prod: number, gold: number) => yieldChip('food', String(food)) + yieldChip('prod', String(prod)) + yieldChip('gold', String(gold));
 
-const KIND_NAME: Record<GrowthKind, string> = { rural: 'Rural', specialist: 'Specialist' };
 export const specialistName = (k: SpecialistKind): string => SPECIALISTS[k].name;
 export const optionName = (o: GrowthOption): string =>
   o.kind === 'rural' ? (o.improvement ? IMPROVEMENTS[o.improvement].name : 'Unimproved land') : specialistName(o.specialist);
@@ -339,7 +333,7 @@ export class UI {
     });
     const row = (u: Unit): string => {
       const d = unitDef(u.type), need = d.needs, up = upkeepOf(u), state = doing(u);
-      const strength = [d.melee > 1 ? `strength ${d.melee}` : '', d.rangedAtk ? `ranged ${d.rangedAtk}` : ''].filter(Boolean).join(' · ');
+      const strength = [d.civilian ? '' : `strength ${d.melee}`, d.rangedAtk ? `ranged ${d.rangedAtk}` : ''].filter(Boolean).join(' · ');
       return `<tr class="${sel?.kind === 'unit' && sel.unit.id === u.id ? 'on' : ''}" data-act="selectUnit" data-id="${u.id}" ${tip(esc(d.name), `${strength || 'A civilian'}${need ? ` · armed with ${resourceDef(need).name}` : ''}. Click: go to it`)}>
         <td>${icon(unitIcon(u.type))}</td><td><b>${esc(d.name)}</b><small>${where(u)}${state ? ` · ${state}` : ''}</small></td>
         <td><div class="hp ${u.hp < 35 ? 'low' : u.hp < 70 ? 'mid' : ''}"><i style="width:${Math.max(0, Math.min(100, u.hp))}%"></i></div><small>${Math.round(u.hp)}</small></td>
@@ -488,10 +482,10 @@ export class UI {
       const opts = g.growthOptions(c);
       const free = opts.filter((o) => o.kind === 'rural').length;
       const specs = opts.flatMap((o) => (o.kind === 'specialist' ? [o.specialist] : []));
-      const buttons = [`<button data-act="placeKind" data-kind="rural" class="${placing === 'rural' ? 'active' : ''}" ${free ? '' : 'disabled'}>${KIND_NAME.rural} <small>${free}</small></button>`,
-        ...specs.map((k) => `<button data-act="specialist" data-specialist="${k}">${specialistName(k)} ${outStr(specialistYield(k), true)}</button>`)].join('');
-      place = `<div class="place"><b>Place a citizen</b> <small>on a highlighted tile, or as a specialist · <kbd>Esc</kbd> leaves it to the governor</small>
-        <div class="buttons">${buttons}<button data-act="governorPlace">Governor</button></div></div>`;
+      // (The tiles it could work are lit on the map as it is: no button to ask for them.)
+      const buttons = specs.map((k) => `<button data-act="specialist" data-specialist="${k}">${specialistName(k)} ${outStr(specialistYield(k), true)}</button>`).join('');
+      place = `<div class="place"><b>Place a citizen</b> <small>${free ? `on one of the ${plural(free, 'highlighted tile')}` : 'no tile is free for it'}${specs.length ? ', or as a specialist' : ''} · <kbd>Esc</kbd> leaves it to the governor</small>
+        <div class="buttons">${buttons}<button data-act="governorPlace" ${tip('Governor', 'Places it by the governor\'s focus')}>Governor</button></div></div>`;
     }
     const FOCUS_ICON: Record<FocusKey, IconKey | null> = { balanced: null, food: 'food', production: 'prod', gold: 'gold', science: 'science', culture: 'culture', faith: 'faith' };
     const focus = mine
@@ -577,17 +571,19 @@ export class UI {
     return [left, right];
   }
 
-  // The city's buildings, specialists and wonders.
+  // The city's wonders and buildings, then its specialists.
   private buildingsHtml(c: City): string {
     const g = this.game;
     const tags: string[] = [];
     for (const w of g.cityWonders(c)) tags.push(`<span class="tag wonder" ${tip(esc(WONDERS[w].name), esc(WONDERS[w].desc))}>${icon('star')}${esc(WONDERS[w].name)}</span>`);
     for (const b of c.buildings) tags.push(`<span class="tag" ${tip(esc(BUILDINGS[b].name), esc(BUILDINGS[b].desc))}>${esc(BUILDINGS[b].name)}</span>`);
-    // (A specialist: a click takes one off its work, to be placed again.)
-    for (const k of SPECIALIST_KINDS) if (c.specialists[k] > 0) tags.push(c.owner === HUMAN
+    // (A specialist: a click takes one off its work, to be placed again. A list of their own, not among the buildings.)
+    const people: string[] = [];
+    for (const k of SPECIALIST_KINDS) if (c.specialists[k] > 0) people.push(c.owner === HUMAN
       ? `<button class="tag" data-act="unspecialist" data-specialist="${k}" ${tip(`Take a ${specialistName(k).toLowerCase()} off its work`, 'To place the citizen elsewhere')}>${icon('person')}${c.specialists[k]} ${specialistName(k).toLowerCase()}${c.specialists[k] > 1 ? 's' : ''} ${icon('close')}</button>`
       : `<span class="tag">${icon('person')}${c.specialists[k]} ${specialistName(k).toLowerCase()}${c.specialists[k] > 1 ? 's' : ''}</span>`);
-    return tags.length ? `<div class="sect"><span class="label">In the city</span><div class="tags">${tags.join('')}</div></div>` : '';
+    return (tags.length ? `<div class="sect"><span class="label">In the city</span><div class="tags">${tags.join('')}</div></div>` : '')
+      + (people.length ? `<div class="sect"><span class="label">Specialists</span><div class="tags">${people.join('')}</div></div>` : '');
   }
 
   // The tile's tooltip, by the pointer: at once while a unit is selected or
