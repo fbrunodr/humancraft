@@ -418,10 +418,10 @@ table.grid td.num { text-align: right; }
 .node .u { display: inline-flex; align-items: center; gap: 5px; height: 22px; max-width: 100%; padding: 0 7px 0 6px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; background: rgba(16, 22, 34, 0.1); color: #27303d; }
 .node .u .ic { font-size: 13px; }
 .node .u span { overflow: hidden; text-overflow: ellipsis; }
-.node .u.w { background: #e6d29c; color: #6f4e0c; } .node .u.l { background: #bfded5; color: #0f5f55; } .node .u.g { background: #d9c9e8; color: #5b3391; } .node .u.p { background: #e2cfae; color: #7a5510; }
-.node .u.e { background: rgb(var(--lift) / 0.06); color: var(--muted); }
-.node .u.e.food .ic { color: var(--c-food); } .node .u.e.prod .ic { color: var(--c-prod); } .node .u.e.gold .ic { color: var(--c-gold); } .node .u.e.sci .ic { color: var(--c-sci); }
-.node .u.e.cul .ic { color: var(--c-cul); } .node .u.e.fai .ic { color: var(--c-fai); } .node .u.e.coh .ic { color: var(--c-coh); }
+/* (A colour to a kind: a unit red, a building the plain grey, a wonder gold, an unlock teal, a government purple, a policy tan (duller than a wonder's gold), a yield green.) */
+.node .u.n { background: #ecc9c3; color: #8c2a1f; }
+.node .u.w { background: #e6d29c; color: #6f4e0c; } .node .u.l { background: #bfded5; color: #0f5f55; } .node .u.g { background: #d9c9e8; color: #5b3391; } .node .u.p { background: #d9c9b3; color: #6b5233; }
+.node .u.e { background: #d5dfae; color: #4c5f0f; }
 .node .u.more { padding: 0 7px; color: var(--muted); background: none; border: 1px solid var(--border); }
 .node .u.hit { background: var(--brass-hi); color: #ffffff; } .node .u.hit .ic { color: #ffffff !important; }
 .node.dim { opacity: 0.22; }

@@ -306,8 +306,10 @@ export class Sheets {
     return `${on ? `On ${esc(on)}` : 'Nothing chosen'} · ${rate} ${k === 'tech' ? 'science' : 'cohesion'} a turn · click any item to work toward it`;
   }
 
-  // What a tech or politics item unlocks and gives, each a named chip: a
-  // unit, a building, a wonder, a government, a policy by their own signs;
+  // What a tech or politics item unlocks and gives, each a named chip, a
+  // colour to a kind (game.css .node .u: a unit red, a building grey, a
+  // wonder gold, a government purple, a policy tan, an unlock teal, a
+  // yield green): a unit, a building, a wonder, a government, a policy by their own signs;
   // an open padlock for everything else it makes possible (an improvement
   // to build, a resource to see, land units at sea); a yield's sign for
   // what it adds.
@@ -318,7 +320,7 @@ export class Sheets {
     const builds = kind === 'tech' ? IMPROVEMENT_KEYS.filter((i) => STAGE_TECHS(i)[0] === k) : [];
     const lock = (name: string, sub: string): Chip => ({ cls: 'l', ic: icon('unlock'), name, sub });
     return [
-      ...(d.units ?? []).map((u) => ({ cls: '', ic: icon(unitIcon(u)), name: UNITS[u].name, sub: unitDef(u).desc ?? 'Unit' })),
+      ...(d.units ?? []).map((u) => ({ cls: 'n', ic: icon(unitIcon(u)), name: UNITS[u].name, sub: unitDef(u).desc ?? 'Unit' })),
       ...(d.buildings ?? []).map((b) => ({ cls: 'b', ic: icon('building'), name: BUILDINGS[b].name, sub: BUILDINGS[b].desc })),
       ...(d.wonders ?? []).map((w) => ({ cls: 'w', ic: icon('star'), name: WONDERS[w].name, sub: `Wonder · ${WONDERS[w].desc}` })),
       ...('governments' in d ? (d.governments ?? []).map((x) => ({ cls: 'g', ic: icon('government'), name: governmentDef(x).name, sub: `Government · ${describeAll(governmentDef(x).effects)}` })) : []),
@@ -338,7 +340,7 @@ export class Sheets {
     const ys = e.k === 'yield' ? [e.y] : 'o' in e ? OUTPUT_KEYS.filter((y) => e.o[y] !== 0) : [];
     const y = ys[0];
     const name = e.k === 'improvement' && y && ys.length === 1 ? `${e.o[y] > 0 ? '+' : ''}${e.o[y]} per ${IMPROVEMENTS[e.imp].name}` : text;
-    return { cls: `e ${y ? YIELD_CLS[y] : ''}`, ic: icon(y ? YIELD_ICON[y] : 'up'), name, sub: text };
+    return { cls: 'e', ic: icon(y ? YIELD_ICON[y] : 'up'), name, sub: text };
   }
   // A plate's chips, drawn: all of them if they fit its rows, or as many as do and a count of the rest.
   private chipsHtml(chips: readonly Chip[]): { html: string; rows: number } {
