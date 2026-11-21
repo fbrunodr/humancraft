@@ -519,6 +519,9 @@ table.grid.eunits { max-width: 640px; }
 table.sorts th { cursor: pointer; white-space: nowrap; }
 table.sorts th:hover { color: var(--text); }
 table.sorts th.by { color: var(--brass-hi); }
+/* (A name that goes to its city.) */
+table.grid a.go { cursor: pointer; font-weight: 600; }
+table.grid a.go:hover { color: var(--brass-hi); text-decoration: underline; }
 table.sorts th i { font-style: normal; margin-left: 4px; }
 .eline .bar.sci > i { background: var(--c-sci); } .eline .bar.coh > i { background: var(--c-coh); } .eline .bar.cul > i { background: var(--c-cul); } .eline .bar.fai > i { background: var(--c-fai); }
 table.grid.ecities .ic { color: var(--brass); }

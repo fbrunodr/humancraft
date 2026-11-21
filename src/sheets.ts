@@ -12,7 +12,7 @@ import { RELIGION_KEYS, religionDef, FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, CONVE
 import { RESOURCE_KEYS, resourceDef, empireBonus, type ResourceKey } from './resources.ts';
 import { describe as describeEffect, describeAll, flat, yieldBonus, total, type Effect } from './effects.ts';
 import { ERAS, BUILDINGS, WONDERS, IMPROVEMENTS, OUTPUT_KEYS, type EraIndex, type ImprovementKey, type OutputKey } from './cities.ts';
-import { UNITS, unitDef } from './rules.ts';
+import { UNITS, unitDef, buildDef } from './rules.ts';
 import { FREE_UNITS, UPKEEP_PER_TILE, UPKEEP_PER_CITY, UPKEEP_PER_POP, COURTHOUSE_CUT, BUILDING_UPKEEP_PER, UNIT_UPKEEP_PER, INFLATION_TURNS, buildingUpkeep } from './economy.ts';
 import { aiAcceptsDeal, resourceWorth, standing, attitude, ATTITUDES, RANKS, type Rank } from './ai.ts';
 import { bonusStr, tip } from './ui.ts';
@@ -25,6 +25,7 @@ import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 // them, theirs; the turn, victory)
 // and closed with Esc.
 //   economy     the treasury's accounts: what comes in, what goes out, city by city
+//   cities      every city of the civ in one table: what each makes, how it grows, what it builds
 //   resources   the strategic resources (their sources, the units they arm) and the luxuries
 //   research    the tech tree: click a tech to research it (and what it needs first);
 //               a box to find what gives something ("camp", "embark"), going from one
@@ -41,8 +42,8 @@ import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 // their yield (science, cohesion, culture, faith) comes from.
 // They change the game directly and then call `changed` (main.ts redraws).
 
-export type SheetKind = 'economy' | 'resources' | 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'victory';
-const SHEETS: readonly SheetKind[] = ['economy', 'resources', 'research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'victory'];
+export type SheetKind = 'economy' | 'resources' | 'cities' | 'research' | 'politics' | 'identity' | 'government' | 'religion' | 'diplomacy' | 'victory';
+const SHEETS: readonly SheetKind[] = ['economy', 'resources', 'cities', 'research', 'politics', 'identity', 'government', 'religion', 'diplomacy', 'victory'];
 const isSheet = (s: string): s is SheetKind => (SHEETS as readonly string[]).includes(s);
 // The sheets a yield pays for, each with a second tab (where the yield comes from): the yield, the two tabs' names.
 const YIELD_TAB: Partial<Record<SheetKind, readonly [OutputKey, string, string]>> = {
@@ -222,7 +223,7 @@ export class Sheets {
     const left = this.el.scrollLeft, top = this.el.scrollTop;
     const [title, sub, main] = this.page(this.open);
     // (Victory, diplomacy and government keep to the middle of the sheet, as the accounts do: game.css .page.)
-    const body = from ? this.sourcesHtml(from) : this.open === 'victory' || this.open === 'diplomacy' || this.open === 'government' ? `<div class="page">${main}</div>` : main;
+    const body = from ? this.sourcesHtml(from) : this.open === 'victory' || this.open === 'diplomacy' || this.open === 'government' || this.open === 'cities' ? `<div class="page">${main}</div>` : main;
     const govTab = (k: GovTab, label: string) => `<button class="${this.govTab === k ? 'active' : ''}" data-do="govTab" data-tab="${k}">${label}</button>`;
     const tabs = this.open === 'government' ? `<nav class="htabs">${govTab('mine', 'My government')}${govTab('policies', 'Policies')}${govTab('governments', 'Governments')}</nav>`
       : tabbed ? `<nav class="htabs"><button class="${from ? '' : 'active'}" data-do="tab" data-tab="main">${tabbed[1]}</button><button class="${from ? 'active' : ''}" data-do="tab" data-tab="from">${icon(YIELD_ICON[tabbed[0]])}${tabbed[2]}</button></nav>` : '';
@@ -328,6 +329,10 @@ export class Sheets {
         return ['Economy', `${p.gold} gold in the treasury · ${net >= 0 ? '+' : ''}${net} a turn`, this.economyHtml()];
       }
       case 'resources': return ['Resources', `${RESOURCE_KEYS.filter((k) => resourceDef(k).kind === 'strategic' && this.game.resourceSources(HUMAN, k) > 0).length} strategic · ${this.game.luxuriesOf(HUMAN).length} luxuries`, this.resourcesHtml()];
+      case 'cities': {
+        const mine = this.game.cities.filter((c) => c.owner === HUMAN), pop = mine.reduce((a, c) => a + c.pop, 0);
+        return ['Cities', `${mine.length === 1 ? '1 city' : `${mine.length} cities`} · ${pop} ${pop === 1 ? 'citizen' : 'citizens'}`, this.citiesHtml()];
+      }
       case 'victory': return ['Victory', `Turn ${this.game.turn} of ${this.game.turnLimit} · ${Math.max(0, this.game.turnLimit - this.game.turn)} left`, this.victoryHtml()];
       case 'research': return ['Education', this.trackSub('tech'), this.treeHtml('tech')];
       case 'politics': return ['Justice', this.trackSub('politics'), this.treeHtml('politics')];
@@ -699,6 +704,35 @@ export class Sheets {
     });
     const head = cols.map(([label, fig, how], i) => `<th class="${fig ? 'num' : ''} ${by.col === i ? 'by' : ''}" data-do="sort" data-table="${id}" data-col="${i}" data-fig="${fig ? 1 : 0}" ${tip(esc(label), `${how ? `${esc(how)}. ` : ''}Click to sort by it`)}>${esc(label)}${by.col === i ? `<i>${by.down ? '▼' : '▲'}</i>` : ''}</th>`).join('');
     return `<table class="grid sorts ${cls}"><tr>${head}</tr>${sorted.map((r) => `<tr>${r.map((c, i) => `<td class="${cols[i]![1] ? 'num' : ''}">${c.html}</td>`).join('')}</tr>`).join('')}</table>`;
+  }
+
+  // ---- cities ----
+
+  // Every city of the civ, a row each: all it makes a turn, how long to its
+  // next citizen, what it builds and how long that takes. A click on its
+  // name goes to it (main.ts selectCity).
+  private citiesHtml(): string {
+    const g = this.game, p = this.me;
+    const cities = g.cities.filter((c) => c.owner === HUMAN);
+    if (!cities.length) return '<p class="note">You have no city yet: found one with a settler.</p>';
+    const fig = (v: number): Cell => num(v, v ? String(v) : '—');
+    const rows = cities.map((c): Cell[] => {
+      const y = g.cityYields(c);
+      const need = g.growthCostOf(c, c.pop + c.growth);
+      // (To sort by: the turns; a city not growing after all that grow, a starving one first of all.)
+      const grow: Cell = c.growth > 0 ? num(0, '<span class="warn">a citizen to place</span>')
+        : y.surplus > 0 ? (() => { const t = Math.ceil((need - c.food) / y.surplus); return num(t, `${t} ${t === 1 ? 'turn' : 'turns'}`); })()
+        : y.surplus < 0 ? num(-1, '<span class="bad">starving</span>') : num(1e9, '<small>not growing</small>');
+      const build: Cell = c.building ? (() => {
+        const left = Math.max(0, g.costOf(c.building) - c.prod), t = y.prod > 0 ? Math.max(1, Math.ceil(left / y.prod)) : Infinity;
+        return num(Number.isFinite(t) ? t : 1e9, `${esc(buildDef(c.building).name)} <small>${Number.isFinite(t) ? `${t} ${t === 1 ? 'turn' : 'turns'}` : 'no production'}</small>`);
+      })() : num(-1, '<span class="warn">nothing</span>');
+      return [{ html: `<a class="go" data-act="selectCity" data-id="${c.id}" ${tip(esc(c.name), 'Click: go to the city')}>${p.capital === c.id ? `${icon('star')} ` : ''}${esc(c.name)}</a>`, v: c.name },
+        num(c.pop, String(c.pop)), fig(y.food), num(y.surplus, `${y.surplus > 0 ? '+' : y.surplus < 0 ? '−' : ''}${Math.abs(y.surplus)}`), fig(y.prod), fig(y.gold), fig(y.science), fig(y.culture), fig(y.faith), fig(y.cohesion), grow, build];
+    });
+    return `<p class="note">What each city makes a turn, as it stands now. Click a heading to sort by it, a city's name to go to it. The gold is before upkeep (the economy sheet has that); where a yield comes from is on its own sheet's second tab.</p>
+      ${this.tableHtml('cities', [['City', false], ['Citizens', true], ['Food', true], ['Food spare', true, 'What is left once its citizens have eaten: toward its next citizen'], ['Production', true], ['Gold', true], ['Science', true], ['Culture', true], ['Faith', true], ['Cohesion', true],
+        ['Next citizen', true], ['Building', true, 'Sorts by the turns left']], rows, { col: 1, down: true }, 'ecities')}`;
   }
 
   // ---- where a yield comes from ----

@@ -578,6 +578,12 @@ function startGame(game: Game): void {
         if (at) { sel = { kind: 'unit', unit: at }; placing = null; view.focusOn(at.tile); }
         break;
       }
+      // (From the cities' sheet: the city selected and brought into view, the sheet put away.)
+      case 'selectCity': {
+        const c = game.cities.find((x) => x.id === a.id && x.owner === HUMAN);
+        if (c) { selectCity(c); view.focusOn(c.tile); sheets.close(); }
+        break;
+      }
       default:
         assertNever(a);
     }

@@ -44,6 +44,7 @@ export type Action =
   | { type: 'missionary' }
   | { type: 'buy'; currency: 'gold' | 'faith' }
   | { type: 'selectUnit'; id: number }
+  | { type: 'selectCity'; id: number }
   | { type: 'endTurn' }
   | { type: 'next' };
 
@@ -65,7 +66,7 @@ function parseAction(el: HTMLElement): Action | null {
   switch (type) {
     case 'found': case 'improve': case 'stop': case 'road': case 'fort': case 'fortify': case 'wake': case 'skip': case 'disband': case 'endTurn': case 'next': case 'governorPlace': case 'pillage': case 'raze': case 'buyMode': case 'missionary': case 'preach': case 'rally': case 'deploy': case 'upgrade':
       return { type };
-    case 'selectUnit': {
+    case 'selectUnit': case 'selectCity': {
       const id = Number(el.dataset['id']);
       return Number.isInteger(id) ? { type, id } : null;
     }
@@ -145,7 +146,7 @@ const fitScale = (): void => {
 fitScale();
 addEventListener('resize', fitScale);
 
-const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'government', 'Government'], ['diplomacy', 'diplomacy', 'Diplomacy']];
+const SHEET_BUTTONS: readonly [string, IconKey, string][] = [['government', 'government', 'Government'], ['cities', 'building', 'Cities'], ['diplomacy', 'diplomacy', 'Diplomacy']];
 
 export class UI {
   private readonly game: Game;
@@ -176,9 +177,9 @@ export class UI {
 
   constructor(game: Game, onAction: (a: Action) => void) {
     this.game = game;
-    // (The military's button stands between them: it opens a panel beside the map, not a sheet over it.)
+    // (The military's button stands among them, after the cities': it opens a panel beside the map, not a sheet over it.)
     const sheetButton = ([k, ic, name]: (typeof SHEET_BUTTONS)[number]) => `<button data-sheet="${k}">${icon(ic)}<span>${name}</span></button>`;
-    $('sheets').innerHTML = `${sheetButton(SHEET_BUTTONS[0]!)}<button data-panel="military">${icon('shield')}<span>Military</span></button>${SHEET_BUTTONS.slice(1).map(sheetButton).join('')}`;
+    $('sheets').innerHTML = `${SHEET_BUTTONS.slice(0, 2).map(sheetButton).join('')}<button data-panel="military">${icon('shield')}<span>Military</span></button>${SHEET_BUTTONS.slice(2).map(sheetButton).join('')}`;
     $('menuBtn').innerHTML = icon('menu');
     document.body.addEventListener('click', (e) => {
       const from = e.target instanceof Element ? e.target : null;
