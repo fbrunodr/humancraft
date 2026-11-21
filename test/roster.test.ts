@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Game, matchup, combatStrength, SIEGE_VS_UNITS, EMBARKED_DEF } from '../src/game.ts';
-import { UNITS, UPGRADES, type UnitKey } from '../src/rules.ts';
+import { UNITS, UPGRADES, unitDef, type UnitKey } from '../src/rules.ts';
 import { TECHS, TECH_KEYS } from '../src/techs.ts';
 import { POLITICS } from '../src/politics.ts';
 import { UNIT_CLASS, attackBlock, attackStyle, canAttackType } from '../src/unitClasses.ts';
 import { SPECIALIST_KINDS } from '../src/cities.ts';
-import { unitModel, unitVariants, fullCount } from '../src/unitModels.ts';
+import { unitModel, unitVariants, fullCount, transportModel } from '../src/unitModels.ts';
+import { coplanarClashes } from '../src/coplanar.ts';
 
 // The unit roster (rules.ts): lines that upgrade era to era, counters
 // between them, and classes that say which attacks can be made at all and
@@ -285,5 +286,17 @@ describe('R7: nuclear weapons', () => {
     expect(guard.dead).toBe(true);
     expect(target.hp).toBe(0);
     expect(target.pop).toBeLessThanOrEqual(3);
+  });
+});
+
+// Faces of different colours lying in one plane and overlapping flicker as the view moves (coplanar.ts): a
+// stripe painted on a deck, two sails hung side by side. No ship, nor the boat of an embarked unit, has any.
+describe('the ships\' models', () => {
+  it('have no overlapping faces in one plane', () => {
+    const ships = (Object.keys(UNITS) as UnitKey[]).filter((k) => unitDef(k).domain === 'sea');
+    expect(ships.length).toBeGreaterThan(10);
+    const bad = [...ships.map((k) => [k, unitModel(k, 'Romans')] as const), ['an embarked unit\'s boat', transportModel()] as const]
+      .flatMap(([k, g]) => { const c = coplanarClashes(g, 1); return c.length ? [`${k}: ${c[0]!.colorA} on ${c[0]!.colorB}`] : []; });
+    expect(bad).toEqual([]);
   });
 });

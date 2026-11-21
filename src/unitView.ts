@@ -5,7 +5,7 @@ import type { Billboard } from './billboards.ts';
 import type { ArchCiv } from './architecture.ts';
 import { unitDef, domainOf, type UnitKey } from './rules.ts';
 import { UNIT_CLASS, firesAtClose, returnFire, type AttackStyle, type Projectile } from './unitClasses.ts';
-import { IN_FLIGHT, UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
+import { CARRIER_DECK, IN_FLIGHT, UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
 import { mulberry32 } from './rng.ts';
 import { HIP, GUN_L, GUN_R, elbowAt, handAt } from './people.ts';
 import { pairUp, type P2 } from './duel.ts';
@@ -82,8 +82,6 @@ export const FIGHT = 4.2;
 const CHARGE = 0.42, UNDEFENDED_CHARGE = 0.62;
 // Ships that fight with guns along their sides (a broadside), turning beam-on to the enemy.
 const BROADSIDE: ReadonlySet<UnitKey> = new Set<UnitKey>(['galleass', 'frigate', 'privateer', 'shipOfTheLine', 'ironclad', 'cruiser', 'battleship']);
-// A carrier's deck above the water (figure heights: unitModels.ts).
-const CARRIER_DECK = 0.48;
 
 // How a fight plays out, over its FIGHT seconds (shares of it): how far the
 // unit goes in (a share of CHARGE: 0 stays put), when it sets out and has
