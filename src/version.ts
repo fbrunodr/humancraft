@@ -13,5 +13,5 @@
 // A saved game says both (save.ts), so whoever serves the game knows which
 // to fetch for it: the latest release of its X.
 export const RULES_VERSION = 0;
-export const RELEASE = 2;
+export const RELEASE = 3;
 export const VERSION = `v${RULES_VERSION}.${RELEASE}`;
