@@ -94,7 +94,7 @@ export function makeWaterMaterial(): WaterMaterial {
         // and open water, a longer swell and a fine chop drifting across it.
         // (The noise, eased between its texels: read plainly its slope is constant across each, and
         // waves shaded by their slope show the texels as blocks.)
-        float wNoise(vec3 x) { vec3 q = x - 0.5, f = fract(q); return texture(uNoise, (floor(q) + f * f * (3.0 - 2.0 * f) + 0.5) * ${(1 / NOISE_SIZE).toFixed(8)}).r; }
+        float wNoise(vec3 x) { vec3 q = x - 0.5, f = fract(q); return textureLod(uNoise, (floor(q) + f * f * (3.0 - 2.0 * f) + 0.5) * ${(1 / NOISE_SIZE).toFixed(8)}, 0.0).r; }
         float waveHeight(vec3 P) {
           // (How much a river's: eased in with its current, so where it runs out into a lake or
           // the sea its ripples pass into the swell with no line between them.)

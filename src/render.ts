@@ -52,8 +52,10 @@ const FOG_REACH = 0.5;
 // Clouds are the far view's: none over the map as it is played (they hid the land), gathering as the camera pulls back toward orbit (altitudes, of the air's height).
 const CLOUDS_FROM = 1.3, CLOUDS_FULL = 2.6;
 
-// Pixels per CSS pixel the renderer may use (setResolution).
-export const RESOLUTIONS = [2, 1.5, 1] as const;
+// Pixels per CSS pixel the renderer may use (setResolution). (Below 1, the
+// last: the one that still spares an ordinary screen's graphics card, which
+// has one pixel per CSS pixel whatever the others say.)
+export const RESOLUTIONS = [2, 1.5, 1, 0.75] as const;
 export type Resolution = typeof RESOLUTIONS[number];
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -190,7 +192,7 @@ const WALK_FOV = 55;
 const LENS = 35;
 // The sun's shadow map (texels a side) and its normal offset in texels.
 // (Its size by the resolution setting: the sharpest gets the finest shadows.)
-const SHADOW_MAP: Record<Resolution, number> = { 2: 4096, 1.5: 2048, 1: 2048 };
+const SHADOW_MAP: Record<Resolution, number> = { 2: 4096, 1.5: 2048, 1: 2048, 0.75: 2048 };
 const SHADOW_NORMAL_TEXELS = 1.5;
 // How far the shadows' edges are blurred, in world units (the same however
 // much ground the map covers), and the most and least that is in texels.

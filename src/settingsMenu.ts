@@ -9,7 +9,7 @@ import { RESOLUTIONS, type GlobeRenderer, type Resolution } from './render.ts';
 
 export interface Settings { shadows: boolean; toneMapping: boolean; resolution: Resolution }
 // The resolution choices as shown.
-export const RESOLUTION_NAME: Record<Resolution, string> = { 2: 'Sharp', 1.5: 'Balanced', 1: 'Fast' };
+export const RESOLUTION_NAME: Record<Resolution, string> = { 2: 'Sharp', 1.5: 'Balanced', 1: 'Fast', 0.75: 'Fastest' };
 export const isResolution = (x: unknown): x is Resolution => RESOLUTIONS.some((r) => r === x);
 const KEY = 'civ.settings';
 

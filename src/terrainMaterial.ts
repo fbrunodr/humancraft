@@ -107,7 +107,11 @@ vec3 grade(vec3 c, float s) {
 `;
 
 export const NOISE_GLSL = /* glsl */ `
-float tNoise(vec3 x) { return texture(uNoise, x * ${(1 / NOISE_SIZE).toFixed(8)}).r; }
+// (Read at an explicit level, its only one: a read that takes its level from
+// the screen's derivatives cannot sit in a branch on Direct3D, whose compiler
+// then runs both sides of the branch for every pixel. The same holds for
+// every texture read and every fwidth below a branch in these shaders.)
+float tNoise(vec3 x) { return textureLod(uNoise, x * ${(1 / NOISE_SIZE).toFixed(8)}, 0.0).r; }
 float tFbm(vec3 p, int octaves) {
   float s = 0.0, a = 0.5;
   for (int i = 0; i < 3; i++) {
@@ -144,6 +148,8 @@ float owned(vec4 w, int k) {
   return smoothstep(-0.04, 0.04, w[k] - o);
 }
 vec4 tileRow(int t, int k) { int i = t * ${TILE_ROWS} + k; return texelFetch(uTileTex, ivec2(i % ${TEX_W}, i / ${TEX_W}), 0); }
+// A direction's place in a tile's frame (tile steps; its rows 7 to 9): the inverse of onTile's projection, exactly.
+vec2 tileStep(vec3 d, vec4 f0, vec4 f1, vec4 f2) { return vec2(dot(d, f1.xyz), dot(d, f2.xyz)) / (dot(d, f0.xyz) * f0.w); }
 vec4 fanRow(int f, int k) { int i = f * ${FAN_ROWS} + k; return texelFetch(uFanTex, ivec2(i % ${TEX_W}, i / ${TEX_W}), 0); }
 vec4 paintWeights(int fan, vec3 P, vec4 ids, out vec3 sEdge, out vec4 soft) {
   vec3 s = vPc0.xyz;
@@ -192,11 +198,12 @@ vec4 paintWeights(int fan, vec3 P, vec4 ids, out vec3 sEdge, out vec4 soft) {
 const GROUND_GLSL = /* glsl */ `
 vec3 gN;
 vec3 gQ, gBw;
+vec3 gQx, gQy; // gQ's change to the next pixel right and up (worked out once, outside every branch)
 float gTpp; // ground texels per pixel at the usual scale
 // Projected along the surface's own normal (not straight down), so steep
 // faces aren't smeared.
 void gSetup(vec3 P, vec3 Nrm) {
-  gQ = P * uGroundScale;
+  gQ = P * uGroundScale; gQx = tPx * uGroundScale; gQy = tPy * uGroundScale;
   vec3 a = abs(normalize(Nrm));
   gBw = pow(a, vec3(10.0));
   gBw /= gBw.x + gBw.y + gBw.z;
@@ -213,9 +220,9 @@ vec4 gSample(float layer, out vec3 n, float k) {
   vec4 s = vec4(0.0);
   float tw = 0.0;
   vec3 q = gQ * k;
-  if (gBw.x > 0.02) { vec4 t = texture(uGround, vec3(q.yz, layer)); s += gBw.x * t; n += gBw.x * vec3(0.0, t.b - 0.5, t.a - 0.5); tw += gBw.x; }
-  if (gBw.y > 0.02) { vec4 t = texture(uGround, vec3(q.zx, layer)); s += gBw.y * t; n += gBw.y * vec3(t.a - 0.5, 0.0, t.b - 0.5); tw += gBw.y; }
-  if (gBw.z > 0.02) { vec4 t = texture(uGround, vec3(q.xy, layer)); s += gBw.z * t; n += gBw.z * vec3(t.b - 0.5, t.a - 0.5, 0.0); tw += gBw.z; }
+  if (gBw.x > 0.02) { vec4 t = textureGrad(uGround, vec3(q.yz, layer), gQx.yz * k, gQy.yz * k); s += gBw.x * t; n += gBw.x * vec3(0.0, t.b - 0.5, t.a - 0.5); tw += gBw.x; }
+  if (gBw.y > 0.02) { vec4 t = textureGrad(uGround, vec3(q.zx, layer), gQx.zx * k, gQy.zx * k); s += gBw.y * t; n += gBw.y * vec3(t.a - 0.5, 0.0, t.b - 0.5); tw += gBw.y; }
+  if (gBw.z > 0.02) { vec4 t = textureGrad(uGround, vec3(q.xy, layer), gQx.xy * k, gQy.xy * k); s += gBw.z * t; n += gBw.z * vec3(t.b - 0.5, t.a - 0.5, 0.0); tw += gBw.z; }
   n *= (1.0 - coarse) / tw;
   return mix(s / tw, vec4(0.5), coarse);
 }
@@ -264,6 +271,14 @@ vec3 groundColor(vec3 c, vec3 soilC, vec4 s0, vec4 s1, vec4 s2, vec3 P) {
 // clearings, paddies). Masks come from the soft painting weights plus noise,
 // so their edges are organic like the painting's, never hexes.
 const CITY_GLSL = /* glsl */ `
+// A floodplain's old beds (see the shader's floodplains): the distance from
+// a bed, less where a bead swells it: < 0 in a pool.
+float floodBed(vec3 P) {
+  vec3 q = P / (0.6 * uR0);
+  float n = tFbm(q + 0.8 * vec3(tNoise(q * 1.3 + 2.3), tNoise(q * 1.3 + 7.1), tNoise(q * 1.3 + 4.7)), 3);
+  float bead = tFbm(P / (0.12 * uR0) + 9.7, 2);
+  return abs(n - 0.45) - 0.05 * smoothstep(0.45, 0.7, bead);
+}
 float cHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 // Rectangular plots in a local tangent frame (size in tile radii); plots of a
 // region share one of three orientations. Returns the plot's hash; f is the
@@ -371,6 +386,35 @@ function makeNoiseTexture(): THREE.Data3DTexture {
 // keeps its shape and the unknown slopes away from it with no cliff.
 const FOG_FLATTEN = /* glsl */ `
   transformed = normalize(transformed) * mix(length(transformed), 1.0, unexplored);`;
+
+// The unknown: an old map's vellum, mottled, its hexes inked faintly (needs
+// gridLine); where it meets the known land its edge is scorched dark.
+// Unlit: the same at any hour, from any side. It veils the ground wholly
+// from FOG_VEILED of `unexplored` up.
+const FOG_VEILED = '0.55';
+// The water's depth from which its bed is hidden (see the shader).
+const BED_HIDDEN = '0.006';
+// A fragment that ends early, its colour (outgoingLight) known without
+// light: the rest of three's own ending, as after its lighting. (Its first
+// chunk under another name until the lit ending's own is rewritten.)
+const UNLIT_END = /* glsl */ `
+          #include <opaque_fragment_unlit>
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+          #include <fog_fragment>
+          #include <premultiplied_alpha_fragment>
+          #include <dithering_fragment>
+          return;`;
+const FOG_GLSL = /* glsl */ `
+vec3 fogVellum() {
+  vec3 Q = normalize(vObjPos);
+  float blot = tFbm(Q * 9.0, 3), grainF = tFbm(Q * 70.0, 2);
+  vec3 fogCol = mix(vec3(0.30, 0.235, 0.15), vec3(0.47, 0.385, 0.255), blot) * (0.9 + 0.2 * grainF);
+  fogCol *= 1.0 - 0.3 * gridLine;
+  float scorch = smoothstep(0.0, ${FOG_VEILED}, vFog) * (1.0 - smoothstep(0.5, 1.0, vFog));
+  return mix(fogCol, vec3(0.07, 0.05, 0.035), 0.75 * scorch);
+}
+`;
 
 // The ground as drawn into the sun's shadow map: flattened under fog of war
 // like the ground itself (`holed`: and cut where wonders dig: TerrainHoles).
@@ -518,6 +562,8 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
         varying vec3 vObjPos;
         varying vec3 vObjNormal;
         float tLod;
+        vec3 tPx, tPy; // the position's change to the next pixel right and up
+        float fwRing, fwAlt;
         float gridLine;
         float wetGround;
         float duneWave;
@@ -529,11 +575,32 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
         ${PAINT_GLSL}
         ${GROUND_GLSL}
         ${CITY_GLSL}
-        ${CROP_GLSL}`)
+        ${CROP_GLSL}
+        ${FOG_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
+        // Wholly under fog of war (most of the screen in a game's first
+        // turns): the vellum alone, unlit, and nothing of the ground under
+        // it is worked out: no painting, no textures, no light, no shadow.
+        // (Every screen derivative the ground needs, before the first branch.)
+        tPx = dFdx(vObjPos); tPy = dFdy(vObjPos);
+        tLod = length(abs(tPx) + abs(tPy)); // world units per pixel
+        fwRing = fwidth(vRing); fwAlt = fwidth(length(vObjPos));
+        if (vFog >= ${FOG_VEILED}) {
+          gridLine = (1.0 - smoothstep(0.0, fwRing * 1.5, 1.0 - vRing)) * (1.0 - smoothstep(0.05, 0.16, fwRing));
+          vec3 outgoingLight = fogVellum();
+          ${UNLIT_END}
+        }
+        // The bed of the deep, under water that lets nothing through
+        // (water.ts: its alpha is 1 - 0.6 exp(-depth murk / 0.0009), murk 1
+        // or more, so past BED_HIDDEN less than a thousandth of the bed
+        // shows): dark, and no more worked out than the unknown. (In the
+        // normal view only: the others show the bed, or no water.)
+        if (vDepth > ${BED_HIDDEN} && vFog <= 0.0 && uView < 0.5) {
+          vec3 outgoingLight = vec3(0.02, 0.03, 0.05);
+          ${UNLIT_END}
+        }
         {
           vec3 P = vObjPos;
-          tLod = length(fwidth(P)); // world units per pixel
 
           // The painting: mix the materials of the tiles that reach this pixel.
           int fan = int(round(vPc1.y));
@@ -628,17 +695,17 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           if (g2.w > 0.01) {
             float built = 0.0;
             for (int k = 0; k < 4; k++) if (soft[k] > 0.001) { vec4 r5 = tileRow(int(ids[k]), 5); if (r5.x > 0.5 || r5.z > 0.5) built += soft[k]; }
-            vec3 q = P / (0.6 * uR0);
-            float n = tFbm(q + 0.8 * vec3(tNoise(q * 1.3 + 2.3), tNoise(q * 1.3 + 7.1), tNoise(q * 1.3 + 4.7)), 3);
-            float bead = tFbm(P / (0.12 * uR0) + 9.7, 2);
-            // (Distance from the bed, less where a bead swells it: < 0 in a pool.)
-            float d = abs(n - 0.45) - 0.05 * smoothstep(0.45, 0.7, bead);
-            float fw = max(fwidth(d), 1e-5);
             float keep = smoothstep(0.65, 0.9, g2.w) * (1.0 - built) * dry * (1.0 - snowCover);
+            if (keep > 0.0) {
+            float d = floodBed(P);
+            // (Its change over a pixel by hand, where a pool's edge may lie: no fwidth in a branch.)
+            float fw = 1e-5;
+            if (d > -0.006) fw = max(abs(floodBed(P + tPx) - d) + abs(floodBed(P + tPy) - d), 1e-5);
             float pool = 1.0 - smoothstep(-0.006, -0.006 + 1.5 * fw, d);
             float damp = 1.0 - smoothstep(-0.006, 0.02, d);
             float hollow = (0.32 * pool + 0.12 * damp) * keep;
             diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.78, 0.6), hollow * 2.0);
+            }
           }
 
           // Dunes and sand ripples: warped ripples.
@@ -708,15 +775,17 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               int me = int(ids[k]), mc = int(tileRow(me, 5).z + 0.5);
               if (mc != 1 && mc != 9) continue;
               vec4 q0 = tileRow(me, 7), q1 = tileRow(me, 8), q2 = tileRow(me, 9);
-              vec3 dn = normalize(P);
-              vec2 lq = vec2(dot(dn, q1.xyz), dot(dn, q2.xyz)) / (dot(dn, q0.xyz) * q0.w);
-              float dep = 1.0, sh = 0.0;
+              vec2 lq = tileStep(normalize(P), q0, q1, q2);
+              // (Its change to the next pixels, by hand: no fwidth in a branch.)
+              vec2 lqx = tileStep(normalize(P + tPx), q0, q1, q2) - lq, lqy = tileStep(normalize(P + tPy), q0, q1, q2) - lq;
+              float dep = 1.0, depW = 0.0, sh = 0.0;
               for (int j = 0; j < 6; j++) {
                 vec4 sd = tileRow(me, 13 + j);
                 float dd = dot(sd.xy, lq) - sd.z;
-                if (sd.w > 0.5) sh = max(sh, 1.0 - smoothstep(0.1, 0.16, dd)); else dep = min(dep, dd);
+                if (sd.w > 0.5) sh = max(sh, 1.0 - smoothstep(0.1, 0.16, dd));
+                else if (dd < dep) { dep = dd; depW = abs(dot(sd.xy, lqx)) + abs(dot(sd.xy, lqy)); }
               }
-              if (mix(1.0, owned(w, k), sh) < 0.5 || dep < -2.0 * fwidth(dep)) continue;
+              if (mix(1.0, owned(w, k), sh) < 0.5 || dep < -2.0 * depW) continue;
               if (dep > deepest) { deepest = dep; farmK = k; }
             }
             for (int k = 0; k < 4; k++) {
@@ -727,8 +796,8 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               vec4 fr0 = tileRow(me, 7), fr1 = tileRow(me, 8), fr2 = tileRow(me, 9);
               int region = int(mod(fr1.w + 0.5, ${STAGE_STEP}.0)), stage = int((fr1.w + 0.5) / ${STAGE_STEP}.0);
               // (The inverse of onTile's projection, exactly.)
-              vec3 d = normalize(P);
-              vec2 lp = vec2(dot(d, fr1.xyz), dot(d, fr2.xyz)) / (dot(d, fr0.xyz) * fr0.w);
+              vec2 lp = tileStep(normalize(P), fr0, fr1, fr2);
+              vec2 lpx = tileStep(normalize(P + tPx), fr0, fr1, fr2) - lp, lpy = tileStep(normalize(P + tPy), fr0, fr1, fr2) - lp;
               // (Its fields straight between its corners, FARM_BAND in from
               // those sides, over the painting's wiggles; near water the
               // painting decides: cityProps.ts farmShape.)
@@ -737,13 +806,16 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               float straight = 1.0, hexIn = 1.0, shore = meCode == 5 ? 1.0 : 0.0;
               if (meCode != 5) for (int j = 0; j < 6; j++) {
                 vec4 sd = tileRow(me, 13 + j);
-                float dd = dot(sd.xy, lp) - sd.z, aa = 1.5 * fwidth(dd);
+                float dd = dot(sd.xy, lp) - sd.z, aa = 1.5 * (abs(dot(sd.xy, lpx)) + abs(dot(sd.xy, lpy)));
                 if (sd.w > 0.5) shore = max(shore, 1.0 - smoothstep(0.1, 0.16, dd));
                 else { hexIn *= smoothstep(-aa, 0.0, dd); straight *= smoothstep(0.0, aa, dd - ${(1.5 * FARM_LANE).toFixed(4)}); }
               }
               float mine = mix(1.0, owned(w, k), shore);
               float ca = cos(fr2.w), sa = sin(fr2.w);
               vec2 uv = vec2(ca * lp.x + sa * lp.y, -sa * lp.x + ca * lp.y);
+              vec2 uvx = vec2(ca * lpx.x + sa * lpx.y, -sa * lpx.x + ca * lpx.y), uvy = vec2(ca * lpy.x + sa * lpy.y, -sa * lpy.x + ca * lpy.y);
+              // (A plot's edge runs along u or v: its distance changes by a pixel as the nearer of them does.)
+              float fwEdge = max(abs(uvx.x) + abs(uvy.x), abs(uvx.y) + abs(uvy.y));
               // (A paddy's plots are its flooded ground, under its water, the
               // dry ground between left wild.)
               // (Wherever the painting is most its tile's, at full strength: its
@@ -772,7 +844,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               // (FARM_LANE wide: a first farm's narrower, the machine age's
               // narrower still; a pasture's paddocks keep thin lines).
               float lw = meCode == 5 ? 0.002 : 0.5 * ${FARM_LANE} * (stage <= 1 ? 0.55 : stage == 4 ? 0.375 : 1.0);
-              float hedge = (1.0 - smoothstep(lw, lw + 1.5 * fwidth(edge), edge)) * tFade(1.0 / (0.02 * tile));
+              float hedge = (1.0 - smoothstep(lw, lw + 1.5 * fwEdge, edge)) * tFade(1.0 / (0.02 * tile));
               if (meCode == 5) crop = mix(crop, vec3(0.32, 0.4, 0.2), hedge * 0.6);
               // Each plot in its crop's colour on a scan of what it is: a
               // ploughed one furrowed (the scan laid along the farm, its
@@ -787,7 +859,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
                 // repeat FURROW_REPEAT tile steps. Its furrows softened, the
                 // soil's clods through them.)
                 vec2 q = uv / ${FURROW_REPEAT};
-                tex = texture(uGround, vec3(q, ${GROUND_LAYER.furrows}.0));
+                tex = textureGrad(uGround, vec3(q, ${GROUND_LAYER.furrows}.0), uvx / ${FURROW_REPEAT}, uvy / ${FURROW_REPEAT});
                 vec3 tu = normalize(ca * fr1.xyz + sa * fr2.xyz), tv = normalize(-sa * fr1.xyz + ca * fr2.xyz);
                 tn = ((tex.b - 0.5) * tu + (tex.a - 0.5) * tv) * 0.6;
                 float coarse = smoothstep(12.0, 32.0, tLod / ${FURROW_REPEAT} / tile * ${GROUND_TEX}.0);
@@ -822,8 +894,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               // thicker toward its middle, fading out toward its border;
               // a farm's fields reaching here win.
               vec4 fr0 = tileRow(me, 7), fr1 = tileRow(me, 8), fr2 = tileRow(me, 9);
-              vec3 d = normalize(P);
-              vec2 lp = vec2(dot(d, fr1.xyz), dot(d, fr2.xyz)) / (dot(d, fr0.xyz) * fr0.w);
+              vec2 lp = tileStep(normalize(P), fr0, fr1, fr2);
               float at = owned(w, k) * smoothstep(0.5, 0.6, soft[k]) * keep;
               vec2 wr = wearAt(meCode, lp, mod(float(me) * 7.31, 64.0)) * at;
               vec3 land = diffuseColor.rgb / max(vShade, 0.05), soil = tileRow(me, 10).rgb;
@@ -967,7 +1038,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           }
 
           // Hex grid: a thin anti-aliased line where ring reaches 1.
-          float fw = fwidth(vRing);
+          float fw = fwRing;
           gridLine = 1.0 - smoothstep(0.0, fw * 1.5, 1.0 - vRing);
           // (The water surface draws its own; under fog of war, everywhere
           // alike, so the lines never trace an unexplored coast.)
@@ -1024,9 +1095,10 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               : alt < 0.025 ? mix(vec3(0.75, 0.8, 0.3), vec3(0.8, 0.45, 0.15), (alt - 0.01) / 0.015)
               : mix(vec3(0.8, 0.45, 0.15), vec3(1.0), clamp((alt - 0.025) / 0.03, 0.0, 1.0));
             float c1 = alt / 0.0005, c2 = alt / 0.0025;
-            float l1 = 1.0 - smoothstep(0.0, fwidth(c1) * 1.2, abs(fract(c1 - 0.5) - 0.5));
-            float l2 = 1.0 - smoothstep(0.0, fwidth(c2) * 1.5, abs(fract(c2 - 0.5) - 0.5));
-            hc *= 1.0 - 0.25 * l1 * (1.0 - smoothstep(0.2, 0.6, fwidth(c1))) - 0.5 * l2;
+            float fw1 = fwAlt / 0.0005, fw2 = fwAlt / 0.0025;
+            float l1 = 1.0 - smoothstep(0.0, fw1 * 1.2, abs(fract(c1 - 0.5) - 0.5));
+            float l2 = 1.0 - smoothstep(0.0, fw2 * 1.5, abs(fract(c2 - 0.5) - 0.5));
+            hc *= 1.0 - 0.25 * l1 * (1.0 - smoothstep(0.2, 0.6, fw1)) - 0.5 * l2;
             if (uView > 1.5) hc = mix(vec3(dot(hc, vec3(0.333))), hc, 0.25);
             diffuseColor.rgb = hc;
           }
@@ -1045,21 +1117,12 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           normal = normalize(normal + mat3(viewMatrix) * gN * 0.9);
         }`)
       .replace('#include <opaque_fragment>', `{
-          // The unknown: an old map's vellum, mottled, its hexes inked
-          // faintly; where it meets the known land its edge is scorched
-          // dark. Unlit: the same at any hour, from any side.
-          if (vFog > 0.001) {
-            vec3 Q = normalize(vObjPos);
-            float blot = tFbm(Q * 9.0, 3), grainF = tFbm(Q * 70.0, 2);
-            vec3 fogCol = mix(vec3(0.30, 0.235, 0.15), vec3(0.47, 0.385, 0.255), blot) * (0.9 + 0.2 * grainF);
-            fogCol *= 1.0 - 0.3 * gridLine;
-            float veil = smoothstep(0.0, 0.55, vFog);
-            float scorch = veil * (1.0 - smoothstep(0.5, 1.0, vFog));
-            fogCol = mix(fogCol, vec3(0.07, 0.05, 0.035), 0.75 * scorch);
-            outgoingLight = mix(outgoingLight, fogCol, veil);
-          }
+          // The unknown, where it meets the known land (deeper in, the
+          // fragment ended long before: FOG_VEILED).
+          if (vFog > 0.001) outgoingLight = mix(outgoingLight, fogVellum(), smoothstep(0.0, ${FOG_VEILED}, vFog));
         }
-        #include <opaque_fragment>`);
+        #include <opaque_fragment>`)
+      .replaceAll('#include <opaque_fragment_unlit>', '#include <opaque_fragment>');
     if (holed) holeFragment(shader, 'vObjPos', false);
   };
   mat.onBeforeCompile = (shader) => compile(shader, false);
