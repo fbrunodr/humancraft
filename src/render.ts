@@ -1136,7 +1136,8 @@ export class GlobeRenderer {
         n++;
       }
       fogArr[v] = field[vertShared[v]!]!;
-      dimArr[v] = unseen / Math.max(1, n - hidden);
+      // (Where every tile is unknown, as out of sight as can be: what still shows of it at the unknown's edge is grayed with the rest.)
+      dimArr[v] = n === hidden ? 1 : unseen / (n - hidden);
     }
     fogAttr.needsUpdate = true;
     dimAttr.needsUpdate = true;
@@ -1155,7 +1156,7 @@ export class GlobeRenderer {
         else if (!g.visible[t]) unseen++;
       }
       wf[n] = field[sv]!;
-      wd[n] = unseen / Math.max(1, count - hidden);
+      wd[n] = count === hidden ? 1 : unseen / (count - hidden);
     });
     wFog.needsUpdate = true;
     wDim.needsUpdate = true;

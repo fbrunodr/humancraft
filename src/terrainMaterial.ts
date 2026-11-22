@@ -384,20 +384,20 @@ function makeNoiseTexture(): THREE.Data3DTexture {
 // updateFog): 0 on every explored tile, edges included, rising to 1 a
 // little way into the unexplored tiles beside them, so the known land
 // keeps its shape and the unknown slopes away from it with no cliff.
-const FOG_FLATTEN = /* glsl */ `
+export const FOG_FLATTEN = /* glsl */ `
   transformed = normalize(transformed) * mix(length(transformed), 1.0, unexplored);`;
 
 // The unknown: an old map's vellum, mottled, its hexes inked faintly (needs
 // gridLine); where it meets the known land its edge is scorched dark.
 // Unlit: the same at any hour, from any side. It veils the ground wholly
 // from FOG_VEILED of `unexplored` up.
-const FOG_VEILED = '0.55';
+export const FOG_VEILED = '0.55';
 // The water's depth from which its bed is hidden (see the shader).
 const BED_HIDDEN = '0.006';
 // A fragment that ends early, its colour (outgoingLight) known without
 // light: the rest of three's own ending, as after its lighting. (Its first
 // chunk under another name until the lit ending's own is rewritten.)
-const UNLIT_END = /* glsl */ `
+export const UNLIT_END = /* glsl */ `
           #include <opaque_fragment_unlit>
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -405,7 +405,7 @@ const UNLIT_END = /* glsl */ `
           #include <premultiplied_alpha_fragment>
           #include <dithering_fragment>
           return;`;
-const FOG_GLSL = /* glsl */ `
+export const FOG_GLSL = /* glsl */ `
 vec3 fogVellum() {
   vec3 Q = normalize(vObjPos);
   float blot = tFbm(Q * 9.0, 3), grainF = tFbm(Q * 70.0, 2);
@@ -594,7 +594,8 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
         // (water.ts: its alpha is 1 - 0.6 exp(-depth murk / 0.0009), murk 1
         // or more, so past BED_HIDDEN less than a thousandth of the bed
         // shows): dark, and no more worked out than the unknown. (In the
-        // normal view only: the others show the bed, or no water.)
+        // normal view only: the others show the bed, or no water. By the
+        // unknown's edge the water turns to its vellum, water.ts: as opaque.)
         if (vDepth > ${BED_HIDDEN} && vFog <= 0.0 && uView < 0.5) {
           vec3 outgoingLight = vec3(0.02, 0.03, 0.05);
           ${UNLIT_END}

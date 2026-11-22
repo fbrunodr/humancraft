@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRADE_GLSL, NOISE_GLSL, noiseTexture } from './terrainMaterial.ts';
+import { FOG_FLATTEN, FOG_GLSL, FOG_VEILED, GRADE_GLSL, NOISE_GLSL, UNLIT_END, noiseTexture } from './terrainMaterial.ts';
 import { NOISE_SIZE } from './fineNoise.ts';
 
 // The water surface: a translucent sheet at the water level over the carved
@@ -33,7 +33,9 @@ export const SKY_COLOR = new THREE.Color(0.62, 0.76, 0.92);
 
 export function makeWaterMaterial(): WaterMaterial {
   // A dim specular: a small sun glint, not a blinding disc.
-  const mat = new THREE.MeshPhysicalMaterial({ roughness: 0.1, metalness: 0, specularIntensity: 0.7, transparent: true, depthWrite: false });
+  // (A hair toward the eye in depth: where it comes down onto the ground at the unknown's
+  // edge the two lie in one place, and it is the water that shows, not now one, now the other.)
+  const mat = new THREE.MeshPhysicalMaterial({ roughness: 0.1, metalness: 0, specularIntensity: 0.7, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   const uTime = { value: 0 };
   const uGrid = { value: 0 };
   const uView = { value: 0 };
@@ -67,7 +69,13 @@ export function makeWaterMaterial(): WaterMaterial {
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vSrc = wsrc; vStep = wstep;
         vDepth = depth; vTint = tint; vFlow = flow; vRing = ring; vFog = unexplored; vDim = dim;
-        vObjPos = position;`);
+        vObjPos = position;
+        // (Into the unknown it comes down to the vellum's level with the ground under it:
+        // FOG_FLATTEN. Wholly in the unknown its vertices lie a little under that ground:
+        // out of sight there, so not drawn over it everywhere; toward the known it rises
+        // through the ground, vellum through vellum, with no edge in the air.)
+        ${FOG_FLATTEN}
+        if (unexplored >= 1.0) transformed *= 0.999;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uTime;
@@ -86,8 +94,10 @@ export function makeWaterMaterial(): WaterMaterial {
         varying vec3 vObjPos;
         float tLod;
         float foam;
+        float gridLine;
         ${NOISE_GLSL}
         ${GRADE_GLSL}
+        ${FOG_GLSL}
         // The waves' height at P (world units), for the surface's normal: on
         // a river, ripples carried downstream (two phases, so the pattern
         // never stretches), short and steep, the current's chop; on still
@@ -118,6 +128,17 @@ export function makeWaterMaterial(): WaterMaterial {
           return h;
         }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
+        // In the unknown the water is the map's vellum and nothing else, as the ground under
+        // it is (terrainMaterial.ts), down on that ground: drawn all the same, with no edge
+        // anywhere to end at above the ground, a lip to look under. Unlit, and none of the
+        // water worked out.
+        float fwRing = fwidth(vRing);
+        if (vFog >= ${FOG_VEILED}) {
+          gridLine = (1.0 - smoothstep(0.0, fwRing * 1.5, 1.0 - vRing)) * (1.0 - smoothstep(0.05, 0.16, fwRing));
+          vec3 outgoingLight = fogVellum();
+          diffuseColor.a = 1.0;
+          ${UNLIT_END}
+        }
         {
           // Under the ground (past the waterline): the ground hides it anyway.
           if (vDepth < 0.0) discard;
@@ -164,9 +185,11 @@ export function makeWaterMaterial(): WaterMaterial {
           alpha = max(alpha, foam);
 
           // Hex grid, drawn on the surface where the ground's would be hidden.
-          float fw = fwidth(vRing);
+          float fw = fwRing;
           float grid = (1.0 - smoothstep(0.0, fw * 1.5, 1.0 - vRing)) * (1.0 - smoothstep(0.05, 0.16, fw));
           col *= 1.0 - 0.15 * grid * uGrid;
+          // (The vellum's own lines, as the ground under water inks them: from half way into the unknown.)
+          gridLine = grid * step(0.5, vFog);
 
           // Remembered but not in sight: grayed and darker, like the ground.
           col = mix(col, vec3(dot(col, vec3(0.333))), 0.6 * vDim) * (1.0 - 0.5 * vDim);
@@ -198,9 +221,18 @@ export function makeWaterMaterial(): WaterMaterial {
           vec3 sky = mix(uSky * 0.85, uSky * vec3(0.2, 0.32, 0.55), smoothstep(0.0, 0.6, elev));
           // (Never all sky: far off, seen flat, the water keeps its own colour under the sheen.)
           outgoingLight = grade(mix(outgoingLight, sky, min(0.45, fres * 1.4)), 0.95);
-          diffuseColor.a = max(diffuseColor.a, min(1.0, fres * 2.2)) * (1.0 - smoothstep(0.0, 0.5, vFog));
+          diffuseColor.a = max(diffuseColor.a, min(1.0, fres * 2.2));
+          // Into the unknown the water turns to the map's vellum, as the land
+          // does (terrainMaterial.ts fogVellum: the same to the pixel), and
+          // opaque: it never fades to show its bed, a sheet ending in the air.
+          if (vFog > 0.001) {
+            float veil = smoothstep(0.0, ${FOG_VEILED}, vFog);
+            outgoingLight = mix(outgoingLight, fogVellum(), veil);
+            diffuseColor.a = mix(diffuseColor.a, 1.0, veil);
+          }
         }
-        #include <opaque_fragment>`);
+        #include <opaque_fragment>`)
+      .replaceAll('#include <opaque_fragment_unlit>', '#include <opaque_fragment>');
   };
   return { material: mat, setTime: (s) => { uTime.value = s; }, setGrid: (on) => { uGrid.value = on ? 1 : 0; }, setView: (m) => { uView.value = m; } };
 }
@@ -213,22 +245,27 @@ export function makeWaterMaterial(): WaterMaterial {
 // hides them as the surface would: past the shallows only, WATER_OCCLUDER_SUNK
 // under the surface (its twin drawn that much smaller: the water and the
 // borders lying on it stand clear above it, the bed of water that deep
-// below), and not under the fog of war (no water is drawn there). Only
+// below), into the fog of war too (the water there is its vellum, as opaque). Only
 // while the view is near enough to tilt toward a horizon (render.ts):
 // from afar there is none to see past, and so thin a gap would flicker.
 export const WATER_OCCLUDER_FROM = 0.0008, WATER_OCCLUDER_SUNK = 0.0004;
 export function makeWaterOccluder(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     colorWrite: false,
+    // (Where the surface goes at the unknown's edge, as the water's own vertex shader has it.)
     vertexShader: /* glsl */ `
       attribute float depth;
       attribute float unexplored;
       varying float vDepth;
-      varying float vFog;
-      void main() { vDepth = depth; vFog = unexplored; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      void main() {
+        vDepth = depth;
+        vec3 transformed = position;
+        ${FOG_FLATTEN}
+        if (unexplored >= 1.0) transformed *= 0.999;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+      }`,
     fragmentShader: /* glsl */ `
       varying float vDepth;
-      varying float vFog;
-      void main() { if (vDepth < ${WATER_OCCLUDER_FROM} || vFog > 0.25) discard; gl_FragColor = vec4(0.0); }`,
+      void main() { if (vDepth < ${WATER_OCCLUDER_FROM}) discard; gl_FragColor = vec4(0.0); }`,
   });
 }
