@@ -38,6 +38,7 @@ import { mulberry32, makePerlin } from './rng.ts';
 import { USE, WONDERS, type EraIndex } from './cities.ts';
 import { farGeometry, makeFloraDepthMaterial, makePropMaterial, makeRoamDepthMaterial, instanceGeometry } from './propMaterial.ts';
 import { GpuTimer } from './gpuTimer.ts';
+import { DevViews, devEnabled } from './devViews.ts';
 import { Billboards, type Billboard } from './billboards.ts';
 import { resourceDef } from './resources.ts';
 import { unitIcon, resourceIcon } from './icons.ts';
@@ -140,7 +141,7 @@ interface PlacedProp {
 // Reference tile spacing (radians) that unit/city sizes were tuned for.
 const REF_EDGE = 0.07;
 
-export type DebugView = 'normal' | 'height' | 'water' | 'paint' | 'strategic';
+export type DebugView = 'normal' | 'height' | 'water' | 'paint' | 'strategic' | 'overdraw' | 'quads';
 
 // A banana tile's trees (canopy and understory): a third of them are bananas (the only place they grow).
 const BANANA_IN: ReadonlySet<Layer> = new Set<Layer>(['Canopy', 'Understory']);
@@ -441,6 +442,8 @@ export class GlobeRenderer {
   private readonly abort = new AbortController();
   private readonly fpsEl: HTMLElement | null = document.getElementById('fps');
   private gpuTimer!: GpuTimer;
+  // The developer's views of the frame's cost (devViews.ts): with ?dev only.
+  private dev: DevViews | null = null;
   private fpsFrames = 0;
   private fpsWork = 0;
   private fpsTris = 0;
@@ -462,6 +465,8 @@ export class GlobeRenderer {
     // far off, into `flat` and copied to it (MSAA_BELOW_PX).)
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.gpuTimer = new GpuTimer(this.renderer.getContext() as WebGL2RenderingContext);
+    // (Before any shader is compiled: it wraps them all.)
+    if (devEnabled()) this.dev = new DevViews(this.renderer);
     // The ground's material textures, compressed for this GPU (they fill in once loaded).
     loadGroundTextures(this.renderer);
     // Full Retina sharpness (up to 2 pixels per CSS pixel; setResolution).
@@ -514,6 +519,7 @@ export class GlobeRenderer {
       if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
       if ((e.key === 'v' || e.key === 'V') && (this.allowWalk || this.walk.active)) this.setWalking(!this.walk.active);
       else if (e.key === 'h' || e.key === 'H') this.setGrid(!this.grid);
+      else if ((e.key === 'o' || e.key === 'O') && this.dev) this.setView(this.view === 'overdraw' ? 'quads' : this.view === 'quads' ? 'normal' : 'overdraw');
       else if (e.key === 'Escape' && this.walk.active) this.setWalking(false);
     }, { signal: this.abort.signal });
     this.stars = new THREE.PointsMaterial({ color: 0xaab4cc, size: 1.4, sizeAttenuation: false, fog: false, transparent: true });
@@ -899,8 +905,18 @@ export class GlobeRenderer {
   // water (colored by source, steps in red) or the painting's tiles (each
   // tile's painted land, edges drawn, no water). Props and clouds are hidden.
   view: DebugView = 'normal';
+  // (What the land itself is drawn as: the view, or the normal one under a view of the frame's cost.)
+  private land: DebugView = 'normal';
+  // (And the frame's cost, the world drawn as ever under it: devViews.ts, where they are installed.)
+  get costViews(): boolean { return this.dev !== null; }
   setView(mode: DebugView): void {
-    this.view = mode;
+    if (mode === 'overdraw' || mode === 'quads') {
+      if (!this.dev) return;
+      this.dev.set(mode);
+      this.view = mode;
+      mode = 'normal';
+    } else { this.dev?.set('off'); this.view = mode; }
+    this.land = mode;
     const m = mode === 'normal' ? 0 : mode === 'height' ? 1 : mode === 'water' ? 2 : mode === 'paint' ? 3 : 4;
     this.terrainMat.setView(m);
     this.waterMat.setView(m);
@@ -967,7 +983,7 @@ export class GlobeRenderer {
   }
   setClouds(on: boolean): void {
     this.clouds = on;
-    this.weather.group.visible = on && this.view === 'normal';
+    this.weather.group.visible = on && this.land === 'normal';
   }
 
   setGrid(on: boolean): void {
@@ -1611,7 +1627,7 @@ export class GlobeRenderer {
     this.frustum.setFromProjectionMatrix(this.projView.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     // Small props vanish when they would be under a pixel or so.
     const altitude = (dist - 1) / this.scale;
-    const lensView = this.view === 'normal' || this.view === 'strategic';
+    const lensView = this.land === 'normal' || this.land === 'strategic';
     this.resourcesGroup.visible = this.resourcesOn && lensView;
     this.yieldBadges.mesh.visible = this.yieldsOn && lensView;
     if (this.yieldBadges.mesh.visible) this.updateYields();
@@ -1624,11 +1640,11 @@ export class GlobeRenderer {
       this.chunkSphere.radius = 2 * Math.sin(Math.min(chunk.radius, Math.PI / 2) / 2) + this.maxLift + 0.01;
       const seen = camDir.angleTo(chunk.dir) < horizon + chunk.radius && this.frustum.intersectsSphere(this.chunkSphere);
       // (Roads and bridges only in the normal view: the debug views show the land.)
-      for (const mesh of chunk.surface) mesh.visible = seen && (this.view === 'normal' || mesh.userData['overlay'] !== true);
+      for (const mesh of chunk.surface) mesh.visible = seen && (this.land === 'normal' || mesh.userData['overlay'] !== true);
       // (Its trees go far when even its nearest are under FAR_PX tall.)
       const away = cam.distanceTo(this.chunkSphere.center) - this.chunkSphere.radius;
       for (const mesh of chunk.meshes.values()) {
-        const show = this.view === 'normal' && seen && altitude < (mesh.userData['hideAbove'] as number)
+        const show = this.land === 'normal' && seen && altitude < (mesh.userData['hideAbove'] as number)
           && (mesh.userData['crop'] !== true || dist - 1 < this.cropFar.value);
         const twin = mesh.userData['far'] as THREE.InstancedMesh | undefined;
         const far = away > farDist * ((mesh.userData['farAt'] as number | undefined) ?? 1);
@@ -1637,7 +1653,7 @@ export class GlobeRenderer {
         mesh.visible = show && !gone && !(twin && far);
         if (twin) twin.visible = show && far && !(chunk.farHouses && mesh.userData['farAt'] === HOUSE_FAR);
       }
-      if (chunk.farHouses) chunk.farHouses.visible = this.view === 'normal' && seen && away > farDist * HOUSE_FAR;
+      if (chunk.farHouses) chunk.farHouses.visible = this.land === 'normal' && seen && away > farDist * HOUSE_FAR;
       chunk.near = seen && away <= farDist * HOUSE_FAR;
     }
   }
@@ -2779,7 +2795,7 @@ export class GlobeRenderer {
     this.camera.updateMatrixWorld();
     for (const b of [this.unitFlags, this.cityLabels, this.resourceBadges, this.yieldBadges]) if (b.mesh.visible) b.update(this.camera);
     this.smoke.update(now / 1000, this.renderer.domElement.height / (2 * Math.tan((this.camera.fov * Math.PI) / 360)));
-    this.smoke.points.visible = this.view === 'normal';
+    this.smoke.points.visible = this.land === 'normal';
     this.waterMat.setTime(now / 1000);
     // Clouds show from orbit and overhead when walking, never over the board (CLOUDS_FROM).
     const fog = this.scene.fog as THREE.FogExp2;
@@ -2796,7 +2812,7 @@ export class GlobeRenderer {
     // (The categories hidden from the counter's table: left out of this frame.)
     const hid: THREE.Object3D[] = [];
     if (this.hiddenStats.size) this.scene.traverse((o) => { if (o.visible && this.hiddenStats.has(o.userData['stat'])) { o.visible = false; hid.push(o); } });
-    const tris = this.draw(this.msaaOn);
+    const tris = this.dev && this.dev.view !== 'off' ? this.dev.render(this.scene, this.camera) : this.draw(this.msaaOn);
     for (const o of hid) o.visible = true;
     this.gpuTimer.end();
     this.countFrame(performance.now() - t0, tris);
@@ -2830,7 +2846,9 @@ export class GlobeRenderer {
     const fps = (this.fpsFrames * 1000) / (now - this.fpsSince);
     // The last frame's triangles by category (what no hook saw yet: other).
     const gpu = this.gpuTimer.ms;
-    const head = `${this.statsOpen ? '▾' : '▸'} ${fps.toFixed(0)} fps · ${(this.fpsWork / this.fpsFrames).toFixed(1)} ms CPU${gpu === null ? '' : ` · ${gpu.toFixed(1)} ms GPU`} · ${fmtTris(this.fpsTris)} tris`;
+    let head = `${this.statsOpen ? '▾' : '▸'} ${fps.toFixed(0)} fps · ${(this.fpsWork / this.fpsFrames).toFixed(1)} ms CPU${gpu === null ? '' : ` · ${gpu.toFixed(1)} ms GPU`} · ${fmtTris(this.fpsTris)} tris`;
+    const dv = this.dev && this.dev.view !== 'off' ? this.dev : null;
+    if (dv) head += dv.view === 'overdraw' ? ` · overdraw ×${(dv.stats?.overdraw ?? 0).toFixed(2)}` : ` · quads ×${(dv.stats?.quads ?? 0).toFixed(2)}`;
     if (!this.statsOpen) this.fpsEl.textContent = head;
     else {
       const rows = [...this.statTris].filter(([k, v]) => v > 0 || this.hiddenStats.has(k)).sort((a, b) => b[1] - a[1]);

@@ -317,7 +317,7 @@ view.onTileClick = (t, button) => {
 view.onTileHover = (t) => { hover = t; overlay(); renderTile(); };
 
 // Debug views, clouds.
-const VIEWS: DebugView[] = ['normal', 'height', 'water', 'paint'];
+const VIEWS: DebugView[] = ['normal', 'height', 'water', 'paint', 'overdraw', 'quads'];
 const setView = (m: DebugView) => {
   view.setView(m);
   document.querySelectorAll<HTMLButtonElement>('#views [data-view]').forEach((b) => b.classList.toggle('active', b.dataset['view'] === m));

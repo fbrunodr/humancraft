@@ -221,7 +221,7 @@ function startGame(game: Game): void {
   // debug ones (height map with contours, water by source, the painting's
   // tiles), from the menu or with J.
   const VIEWS: DebugView[] = ['normal', 'height', 'water', 'paint'];
-  const VIEW_NAME: Record<DebugView, string> = { normal: 'The world', strategic: 'Strategic', height: 'Debug: heights', water: 'Debug: water', paint: 'Debug: painted tiles' };
+  const VIEW_NAME: Record<DebugView, string> = { normal: 'The world', strategic: 'Strategic', height: 'Debug: heights', water: 'Debug: water', paint: 'Debug: painted tiles', overdraw: 'Debug: overdraw', quads: 'Debug: quad waste' };
   const setView = (m: DebugView) => { view.setView(m); drawLenses(); };
   addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -280,7 +280,7 @@ function startGame(game: Game): void {
       <span class="label">Interface</span>
       <div class="opts">
         <label class="opt">Frame rate counter <input type="checkbox" data-set="fps" ${fpsBox.classList.contains('hidden') ? '' : 'checked'}></label>
-        <label class="opt">View of the land <select data-set="view">${(Object.keys(VIEW_NAME) as DebugView[]).map((v) => `<option value="${v}" ${v === view.view ? 'selected' : ''}>${VIEW_NAME[v]}</option>`).join('')}</select></label>
+        <label class="opt">View of the land <select data-set="view">${(Object.keys(VIEW_NAME) as DebugView[]).filter((v) => view.costViews || (v !== 'overdraw' && v !== 'quads')).map((v) => `<option value="${v}" ${v === view.view ? 'selected' : ''}>${VIEW_NAME[v]}</option>`).join('')}</select></label>
       </div>${back}`;
     } else if (page === 'controls') {
       body = `${head('Controls')}<div class="keys">${KEYS.map(([k, what]) => `<span>${k}</span><span>${what}</span>`).join('')}</div>${back}`;
