@@ -244,7 +244,7 @@ const SHADOW_MAX_HALF = 1.15;
 // degrees by the distance `sunFar` (from afar the whole side in view stays
 // lit); plenty of the sky's blue fill, so shade is soft and leans
 // blue-grey, never black (all chosen by eye).
-const LIGHT = { sunColor: 0xffe9cc, sun: 1.6, sunHeight: 30, sunHigh: 40, sunLow: 0.35, sunFar: 1.3, fill: 1.6, fillSky: 0xd9e9fc, fillGround: 0x7d6f52 };
+const LIGHT = { sunColor: 0xffe9cc, sun: 1.85, sunHeight: 30, sunHigh: 40, sunLow: 0.35, sunFar: 1.3, fill: 1.25, fillSky: 0xd9e9fc, fillGround: 0x6a5a40 };
 // The evening sky (sky.ts) is the view from near the ground: all of it up
 // to the camera distance SKY_NEAR, easing to the day's blue by SKY_FAR
 // (from orbit the planet's rim, its haze and its seas' reflections stay
