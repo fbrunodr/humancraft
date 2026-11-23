@@ -5,7 +5,7 @@ import { GlobeCamera } from './camera.ts';
 import { HUMAN, type Game, type Unit, type City } from './game.ts';
 import { GROUND_COVERS, SEA_TINT, SNOW, tileLook, type GroundCover, type TileLook } from './look.ts';
 import { buildTerrainMesh, locate, newSample, type TerrainMesh } from './terrainMesh.ts';
-import { grassPatch, makeTerrainMaterial, makeTerrainDepthMaterial, setTerrainHoles, holeFragment, MAX_HOLES, type TerrainHole, paintViewColor, makeTable, FAN_ROWS, TILE_ROWS, IMPROVEMENT_CODE, BURNT_CODE, CROP_CODE, STAGE_STEP, ROAD_DIRT, ROAD_GRAIN, type TerrainMaterial } from './terrainMaterial.ts';
+import { makeTerrainMaterial, makeTerrainDepthMaterial, setTerrainHoles, holeFragment, MAX_HOLES, type TerrainHole, paintViewColor, makeTable, FAN_ROWS, TILE_ROWS, IMPROVEMENT_CODE, BURNT_CODE, CROP_CODE, STAGE_STEP, ROAD_DIRT, ROAD_GRAIN, type TerrainMaterial } from './terrainMaterial.ts';
 import { makeSmoke, type Emitter, type Smoke } from './smoke.ts';
 import { buildPaintData, fanCoords, fanFrames, paintAt, paintDelta, softAt, warpAt, FAN_COORDS, FINE_MAX, FINE_WAVELENGTH, type PaintData, type FanFrame } from './paint.ts';
 import { buildRelief, CONE_RADIUS, CRATER, CRATER_DEPTH, type Relief } from './relief.ts';
@@ -79,8 +79,28 @@ const HUE_JITTER = 0.12;
 const LEAF_VARY = [0.07, 0.3, 0.4] as const;
 // No turf where the ground is steeper than this (rise over run) or higher (world units over sea level): rock shows there.
 const TURF_ROCK = [0.3, 0.0098] as const;
+// The grass density of the world at a point (its direction, in tile radii):
+// a slow noise, passed through its own measured distribution so that it is
+// spread evenly over 0 to 1: the share of the land where it is over a
+// threshold x is 1 - x.
+const GRASS_NOISE = (x: number, y: number, z: number) => 0.55 * tFbm(x / 1.9 + 3.3, y / 1.9 + 3.3, z / 1.9 + 3.3, 3) + 0.45 * tFbm(x / 0.42 + 8.1, y / 0.42 + 8.1, z / 0.42 + 8.1, 3);
+const GRASS_CDF = ((): Float32Array => {
+  const rand = mulberry32(0x6ea55), v = new Float32Array(8192);
+  for (let i = 0; i < v.length; i++) v[i] = GRASS_NOISE(rand() * 400, rand() * 400, rand() * 400);
+  return v.sort();
+})();
+function grassDensity(x: number, y: number, z: number): number {
+  const n = GRASS_NOISE(x, y, z);
+  let lo = 0, hi = GRASS_CDF.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (GRASS_CDF[mid]! < n) lo = mid + 1; else hi = mid; }
+  return lo / GRASS_CDF.length;
+}
+// The most of a tile that grass covers (the lowest threshold of the grass density: 1 less this).
+const GRASS_MOST = 0.75;
 // The canopy trees to a tile that leave no room for grass under them (grassCover).
 const GRASS_WOODS = 150;
+// No turf on a shore lower than this over its water (world units): the beach's sand reaches about so high (terrainMaterial.ts).
+const TURF_BEACH = 0.0016;
 // How many clumps of turf a tile of grass carries (placeTurf).
 const TURF = 520;
 // How much larger than the catalog's models the canopy's trees are drawn.
@@ -610,7 +630,6 @@ export class GlobeRenderer {
       for (const v of this.terrain.tileVerts[t]) snow[v] = Math.min(snow[v], line);
     }
     this.vegetation = new Vegetation(g.globe, g.map, g.flora, L, this.relief.base, this.relief.peak, params.r0, g.seed);
-    { const td = this.tileTex.image.data as Float32Array; for (let t = 0; t < N; t++) td[(t * TILE_ROWS + 20) * 4] = this.grassCover(t); this.tileTex.needsUpdate = true; }
     ;[this.vertSlope, this.vertCoast, this.vertInland] = slopeAndShore(this.terrain, coast!);
     // Forest floors sit in the canopy's shade.
     for (let t = 0; t < N; t++) {
@@ -1084,8 +1103,6 @@ export class GlobeRenderer {
     // (How its ground answers the seasons: seasons.ts.)
     const season = groundSeason(g.biome[t]!, g.feature[t] ?? null, g.relief[t] === 'mountains');
     td.set([season.cold, season.rain, season.russet, season.snow], o + 19 * 4);
-    // (Its share of grass: once the vegetation is known, below in the constructor; again whenever the look changes.)
-    if (this.vegetation) td[o + 20 * 4] = this.grassCover(t);
     this.tileTex.needsUpdate = true;
   }
 
@@ -1399,12 +1416,13 @@ export class GlobeRenderer {
 
   // The grass itself: a carpet of clumps of fine blades (the catalog's turf)
   // over the painted land of a wild tile whose ground is grass or dry
-  // grass, on the ground's patches (up to TURF of them to a tile), each in the colour of the ground under it (the tile's, graded
-  // and mottled as terrainMaterial.ts groundColor has it), so the blades
+  // grass, where the world's grass density is over the tile's threshold
+  // (up to TURF of them to a tile), each in the colour of the ground under it (the tile's, graded as
+  // terrainMaterial.ts groundColor has it), so the blades
   // rise out of the ground with no edge. Not on mountains, in water, nor
   // on roads.
-  // How much of a tile's ground lies under patches of grass (the shader
-  // paints them, the turf stands on them): nearly all of open grassland
+  // How much of a tile's ground is under grass (its threshold of the
+  // world's grass density is 1 less this, placeTurf): nearly all of open grassland
   // and of a floodplain, less the more trees stand on it (a forest's floor
   // keeps a patch here and there, in its glades), little on ground that is
   // not grass.
@@ -1413,8 +1431,9 @@ export class GlobeRenderer {
     const main = GROUND_COVERS.reduce((a, k) => ((cover[k] ?? 0) > (cover[a] ?? 0) ? k : a));
     if (g.isWater(t)) return 0;
     const open = Math.max(0, 1 - this.vegetation.woods(t) / GRASS_WOODS);
-    const base = g.feature[t] === 'floodplain' ? 0.95 : main === 'grass' || main === 'dry' ? 0.9 : 0.3;
-    return Math.max(0.06, base * open);
+    // (At most GRASS_MOST of a tile: its threshold never under 1 less that.)
+    const base = g.feature[t] === 'floodplain' ? GRASS_MOST : main === 'grass' || main === 'dry' ? 0.95 * GRASS_MOST : 0.32 * GRASS_MOST;
+    return Math.max(0.05, base * open);
   }
 
   private placeTurf(t: number, out: PlacedProp[]): void {
@@ -1431,7 +1450,7 @@ export class GlobeRenderer {
     const k = tile.corners.length, per = Math.round(TURF / k), r0 = this.paint.params.r0;
     const rand = mulberry32(t * 2654435761 + 77);
     const q = new THREE.Quaternion(), turn = new THREE.Quaternion(), sc = new THREE.Vector3();
-    const co = new Float32Array(FAN_COORDS), delta = [0, 0, 0, 0], smp = newSample();
+    const co = new Float32Array(FAN_COORDS), delta = [0, 0, 0, 0], smp = newSample(), shore = this.terrain.fields.ground['shore']!;
     const ss = (a: number, b: number, x: number) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
     for (let i = 0; i < k; i++) {
       const fanId = this.paint.fanStart[t] + i, fan = this.paint.fans[fanId]!;
@@ -1440,11 +1459,6 @@ export class GlobeRenderer {
         if (wa + wb > 1) { wa = 1 - wa; wb = 1 - wb; }
         const size = 0.8 + 0.6 * rand(), spin = rand(), tint = rand(), keep = rand();
         const p = this.terrain.samplePoint(t, i, wa, wb), d = p.clone().normalize();
-        // The ground's mottle here (terrainMaterial.ts groundColor): the
-        // grass stands on its patches, the straw ones and the lush ones,
-        // thick at their hearts and thinning to their edges; the plain
-        // ground between them is left bare.
-        const lie = 0.55 * tFbm(p.x / (1.9 * r0) + 3.3, p.y / (1.9 * r0) + 3.3, p.z / (1.9 * r0) + 3.3, 3) + 0.45 * tFbm(p.x / (0.42 * r0) + 8.1, p.y / (0.42 * r0) + 8.1, p.z / (0.42 * r0) + 8.1, 3);
         // (Whose painted land this is: the tile whose painting weighs most here, not the hexagon's.)
         fanCoords(this.frames[fanId]!, fan, paintDelta(this.paint.params, d.x, d.y, d.z, delta), d.x, d.y, d.z, co);
         const ps = paintAt(this.paint, fanId, co);
@@ -1452,14 +1466,21 @@ export class GlobeRenderer {
         for (let c = 1; c < 4; c++) if (ps.w[c]! > ps.w[best]!) best = c;
         const u = fan.ids[best]!;
         if (!grassy(u)) continue;
-        const { straw, lush } = grassPatch(lie, this.grassCover(u));
-        if (keep > Math.max(ss(0.25, 0.85, straw), ss(0.25, 0.85, lush))) continue;
+        // Grass where the world's grass density (grassDensity: smooth, evenly spread over 0 to 1)
+        // is over the tile's threshold: its share of grass is the share of its ground over it,
+        // and the grass runs on unbroken from tile to tile. (Thinning over a narrow edge.)
+        const dens = grassDensity(p.x / r0, p.y / r0, p.z / r0), thr = 1 - this.grassCover(u);
+        if (keep > ss(thr - 0.04, thr + 0.04, dens)) continue;
+        // (Its colour a little strawier in places, slowly: the grass's own, not the ground's.)
+        const straw = 0.45 * ss(0.45, 0.7, tFbm(p.x / (1.3 * r0) + 5.9, p.y / (1.3 * r0) + 5.9, p.z / (1.3 * r0) + 5.9, 2)), lush = 0;
         const lv = this.terrain.at(t, i, wa, wb);
         if (lv.water > lv.ground) continue;
         // (Not on rock: the shader bares it where the ground is steep or high, terrainMaterial.ts.)
         if (lv.ground - 1 > TURF_ROCK[1]) continue;
         this.terrain.topo.sample(t, i, wa, wb, smp);
         if (smp.w[0]! * this.vertSlope[smp.v[0]!]! + smp.w[1]! * this.vertSlope[smp.v[1]!]! + smp.w[2]! * this.vertSlope[smp.v[2]!]! > TURF_ROCK[0]) continue;
+        // (Nor on a beach's sand: the strip the shader sands along a shore, a little over the water.)
+        if (lv.ground - lv.water < TURF_BEACH && smp.w[0]! * shore[smp.v[0]!]! + smp.w[1]! * shore[smp.v[1]!]! + smp.w[2]! * shore[smp.v[2]!]! > 0.1) continue;
         if (!this.cityProps.offRoads(d)) continue;
         // (Its colour: the ground's there, graded (gGrade) and mottled as the shader has it.)
         const c = this.baseColors[u]!, l0 = 0.3 * c.r + 0.55 * c.g + 0.15 * c.b;
