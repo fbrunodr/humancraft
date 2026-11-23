@@ -39,6 +39,7 @@ const FURROW_REPEAT = 0.045;
 //                           along water, the painting deciding there; none:
 //                           0, 0, -1, 0)
 //  19 cold, rain, russet, snow   how its ground answers the seasons (seasons.ts GroundSeason)
+//  20 grass                  how much of its ground lies under patches of grass (GRASS_PATCH; render.ts grassCover)
 // Fan table rows (FAN_ROWS texels):
 //   0 ids (t, A, B, C)
 //   1 rounding of edges i-1, i, i+1 and A|B
@@ -83,7 +84,18 @@ export function paintViewColor(biome: BiomeKey, feature: FeatureKey | null, reli
 }
 
 export const TEX_W = 2048;
-export const TILE_ROWS = 20;
+// The ground's patches of grass (groundColor's mottle; the turf stands on
+// them, render.ts placeTurf): a slow noise field, about 0.5 in the mean,
+// is a lush patch where it lies under a level and a straw one over
+// another; the levels close in on the mean as the tile's share of grass
+// goes from 0 to 1 (bare of patches, to all patch), each edge `edge` wide.
+export const GRASS_PATCH = { lush: ['0.33', '0.515'], straw: ['0.69', '0.515'], edge: '0.06' } as const;
+export function grassPatch(lie: number, cover: number): { straw: number; lush: number } {
+  const ss = (a: number, b: number, x: number) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+  const e = Number(GRASS_PATCH.edge), at = (p: readonly [string, string]) => Number(p[0]) + (Number(p[1]) - Number(p[0])) * cover;
+  return { straw: ss(-e, e, lie - at(GRASS_PATCH.straw)), lush: 1 - ss(-e, e, lie - at(GRASS_PATCH.lush)) };
+}
+export const TILE_ROWS = 21;
 // How far a peak's snowline comes down in midwinter and climbs in midsummer (world units: a peak stands some 0.013 over its foot).
 const SNOWLINE_SWING = '0.0030';
 // A dirt road's colour (render.ts).
@@ -197,6 +209,7 @@ vec4 paintWeights(int fan, vec3 P, vec4 ids, out vec3 sEdge, out vec4 soft) {
 // normal_fragment_maps.
 const GROUND_GLSL = /* glsl */ `
 vec3 gN;
+float gCover; // the share of the ground here under patches of grass (the tiles' row 20)
 vec3 gQ, gBw;
 vec3 gQx, gQy; // gQ's change to the next pixel right and up (worked out once, outside every branch)
 float gTpp; // ground texels per pixel at the usual scale
@@ -262,6 +275,35 @@ vec3 groundColor(vec3 c, vec3 soilC, vec4 s0, vec4 s1, vec4 s2, vec3 P) {
     col += k * (i == L - 1 ? tone : gGrade(tone));
     gN += k * n;
   }
+  // The land's own mottle, over its growing covers (grass, dry grass, moss,
+  // litter): broad patches gone to straw and others lush and dark, as a
+  // meadow lies, and a finer dapple of tufts within them. No two fields
+  // the same green.
+  float growing = clamp((wt[2] + wt[3] + wt[4] + wt[5]) / total, 0.0, 1.0);
+  if (growing > 0.01) {
+    float broad = tFbm(P / (1.9 * uR0) + 3.3, 3), mid = tFbm(P / (0.42 * uR0) + 8.1, 3);
+    float lie = 0.55 * broad + 0.45 * mid;
+    // (How much of the land the patches take: the tile's share of grass, gCover.)
+    float straw = smoothstep(-${GRASS_PATCH.edge}, ${GRASS_PATCH.edge}, lie - mix(${GRASS_PATCH.straw[0]}, ${GRASS_PATCH.straw[1]}, gCover)), lush = 1.0 - smoothstep(-${GRASS_PATCH.edge}, ${GRASS_PATCH.edge}, lie - mix(${GRASS_PATCH.lush[0]}, ${GRASS_PATCH.lush[1]}, gCover));
+    float lum = dot(col, vec3(0.3, 0.55, 0.15));
+    vec3 m = mix(col, lum * vec3(1.7, 1.42, 0.62), 0.7 * straw);
+    m = mix(m, col * vec3(0.6, 0.84, 0.55), 0.8 * lush);
+    // Its tufts, painted: clumps of grass a shade lighter and strawier at
+    // their tips, each with the dark of its own foot beside it (the same
+    // clumps read a little way toward the sun), thick in places and thin
+    // in others; and a finer grain of blades over all.
+    float tuftF = 1.0 / (0.0075 * uR0), show = tFade(tuftF);
+    if (show > 0.01) {
+      vec3 q = P * tuftF;
+      float thick = 0.25 * (tNoise(q * 0.21 + 4.4) - 0.5);
+      float clump = smoothstep(0.48, 0.7, 0.6 * tNoise(q) + 0.4 * tNoise(q * 2.3 + 7.0) + thick), foot = smoothstep(0.48, 0.7, 0.6 * tNoise(q + 0.5 * normalize(P)) + 0.4 * tNoise(q * 2.3 + 7.0 + 1.1 * normalize(P)) + thick);
+      float blades = tNoise(q * 3.1 + 2.0) - 0.5;
+      vec3 tip = mix(m, dot(m, vec3(0.3, 0.55, 0.15)) * vec3(1.5, 1.4, 0.8), 0.35) * 1.22;
+      m = mix(m, tip, show * clump * 0.7);
+      m *= 1.0 - show * (0.26 * foot * (1.0 - clump) - 0.16 * blades);
+    }
+    col = mix(col, m, growing);
+  }
   return col;
 }
 `;
@@ -271,14 +313,6 @@ vec3 groundColor(vec3 c, vec3 soilC, vec4 s0, vec4 s1, vec4 s2, vec3 P) {
 // clearings, paddies). Masks come from the soft painting weights plus noise,
 // so their edges are organic like the painting's, never hexes.
 const CITY_GLSL = /* glsl */ `
-// A floodplain's old beds (see the shader's floodplains): the distance from
-// a bed, less where a bead swells it: < 0 in a pool.
-float floodBed(vec3 P) {
-  vec3 q = P / (0.6 * uR0);
-  float n = tFbm(q + 0.8 * vec3(tNoise(q * 1.3 + 2.3), tNoise(q * 1.3 + 7.1), tNoise(q * 1.3 + 4.7)), 3);
-  float bead = tFbm(P / (0.12 * uR0) + 9.7, 2);
-  return abs(n - 0.45) - 0.05 * smoothstep(0.45, 0.7, bead);
-}
 float cHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 // Rectangular plots in a local tangent frame (size in tile radii); plots of a
 // region share one of three orientations. Returns the plot's hash; f is the
@@ -610,6 +644,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
           vec4 soft;
           vec4 w = paintWeights(fan, P, ids, sEdge, soft);
           vec4 m0 = vec4(0.0), m1 = vec4(0.0), m2 = vec4(0.0), m3 = vec4(0.0), m4 = vec4(0.0), m19 = vec4(0.0);
+          float m20 = 0.0;
           vec4 g0 = vec4(0.0), g1 = vec4(0.0), g2 = vec4(0.0);
           // Land blends softly into land: its color and ground material take
           // the unsharpened weights, so biomes fade into each other over
@@ -627,7 +662,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
               vec4 r0 = tileRow(tt, 0), r4 = tileRow(tt, 4), r10 = tileRow(tt, 10), r11 = tileRow(tt, 11), r12 = tileRow(tt, 12);
               if (w[k] > 0.001) {
                 m0 += w[k] * r0; m1 += w[k] * tileRow(tt, 1); m2 += w[k] * tileRow(tt, 2);
-                m3 += w[k] * tileRow(tt, 3); m4 += w[k] * r4; m19 += w[k] * tileRow(tt, 19);
+                m3 += w[k] * tileRow(tt, 3); m4 += w[k] * r4; m19 += w[k] * tileRow(tt, 19); m20 += w[k] * tileRow(tt, 20).x;
                 g0 += w[k] * r10; g1 += w[k] * r11; g2 += w[k] * r12;
               }
               float land = 1.0 - step(0.9, r0.a);
@@ -638,7 +673,7 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
             }
           }
           float wsum = w.x * step(0.001, w.x) + w.y * step(0.001, w.y) + w.z * step(0.001, w.z) + w.w * step(0.001, w.w);
-          m0 /= wsum; m1 /= wsum; m2 /= wsum; m3 /= wsum; m4 /= wsum; m19 /= wsum;
+          m0 /= wsum; m1 /= wsum; m2 /= wsum; m3 /= wsum; m4 /= wsum; m19 /= wsum; gCover = m20 / wsum;
           g0 /= wsum; g1 /= wsum; g2 /= wsum;
           if (ls > 0.001) {
             float k = landShare / wsum;
@@ -688,26 +723,6 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
 
           // River banks: greener, damper ground beside the water.
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.2, 0.035) * vShade, vBank * 0.55 * dry * (1.0 - snowCover));
-
-          // Floodplains: damp hollows the floods leave, pools strung along
-          // the river's old beds (a contour of a slow warped noise, broken
-          // into beads by another), a little darker and damper than the lush
-          // ground round them. Not where the tile is worked or built on.
-          if (g2.w > 0.01) {
-            float built = 0.0;
-            for (int k = 0; k < 4; k++) if (soft[k] > 0.001) { vec4 r5 = tileRow(int(ids[k]), 5); if (r5.x > 0.5 || r5.z > 0.5) built += soft[k]; }
-            float keep = smoothstep(0.65, 0.9, g2.w) * (1.0 - built) * dry * (1.0 - snowCover);
-            if (keep > 0.0) {
-            float d = floodBed(P);
-            // (Its change over a pixel by hand, where a pool's edge may lie: no fwidth in a branch.)
-            float fw = 1e-5;
-            if (d > -0.006) fw = max(abs(floodBed(P + tPx) - d) + abs(floodBed(P + tPy) - d), 1e-5);
-            float pool = 1.0 - smoothstep(-0.006, -0.006 + 1.5 * fw, d);
-            float damp = 1.0 - smoothstep(-0.006, 0.02, d);
-            float hollow = (0.32 * pool + 0.12 * damp) * keep;
-            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.78, 0.6), hollow * 2.0);
-            }
-          }
 
           // Dunes and sand ripples: warped ripples.
           duneWave = 0.0;

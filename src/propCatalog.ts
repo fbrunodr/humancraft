@@ -111,6 +111,16 @@ function frond(at: THREE.Vector3, ang: number, len: number, _w: number, tilt: nu
   return flatLeaf(part(g, color));
 }
 
+// An upright card of fine grass blades (propMaterial.ts: cardUv z 6, the
+// turf), `w` wide and `h` tall, turned `ang` about the upright, leaning well out (so it shows its blades from above too, not an edge).
+function turfCard(w: number, h: number, ang: number, color: number, lean = 1.1) {
+  const c = Math.cos(ang) * w / 2, s = -Math.sin(ang) * w / 2, lx = Math.sin(ang) * h * lean, lz = Math.cos(ang) * h * lean;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([-c, 0, -s, c, 0, s, c + lx, h, s + lz, -c, 0, -s, c + lx, h, s + lz, -c + lx, h, -s + lz], 3));
+  g.setAttribute('cardUv', new THREE.Float32BufferAttribute([0, 0, 6, 1, 0, 6, 1, 1, 6, 0, 0, 6, 1, 1, 6, 0, 1, 6], 3));
+  return flatLeaf(part(g, color));
+}
+
 // A rosette of stiff leaves at `at` (Joshua and dragon trees): `n` short
 // sword-like leaves (blade cards) splaying up and out.
 const rosette = (at: THREE.Vector3, n: number, len: number, color: number, turn = 0) =>
@@ -199,9 +209,10 @@ export const CATALOG = {
     ...tier(0.002, 0.0055, 6, p.leaf, { y: 0.0088 }),
   ] },
   pine: { name: 'Pine', layer: 'Canopy', leaf: 0x4c7a3e, build: (p) => [
-    cyl(0.0006, 0.0004, 0.0095, 3, 0x8a5a3a),
-    oct(0.0032, p.leaf, { y: 0.0095, x: 0.0008, sy: 0.55 }),
-    oct(0.0024, p.leaf, { y: 0.0112, x: -0.0011, z: 0.0006, sy: 0.6 }),
+    cyl(0.0007, 0.0005, 0.0085, 3, 0x73503a),
+    oct(0.0042, p.leaf, { y: 0.0088, x: 0.0008, sy: 0.6 }),
+    oct(0.0034, p.leaf, { y: 0.0108, x: -0.0011, z: 0.0006, sy: 0.62 }),
+    oct(0.003, p.leaf, { y: 0.0072, x: -0.0014, z: -0.0012, sy: 0.55 }),
   ] },
   stonePine: { name: 'Stone pine', layer: 'Canopy', leaf: 0x557d3a, build: (p) => [
     seg(V(0, 0, 0), V(0.0008, 0.0072, 0), 0.0006, 0.0004, 3, 0x8a5a3a),
@@ -416,6 +427,11 @@ export const CATALOG = {
   ] },
   grassTuft: { name: 'Grass tuft', layer: 'Ground', leaf: 0x8fae55, build: (p) =>
     Array.from({ length: 5 }, (_, i) => blade(Math.cos(ring(5, i)) * 0.0004, Math.sin(ring(5, i)) * 0.0004, ring(5, i, 0.4), 0.0006, 0.0022 + 0.0004 * (i % 2), 0.0006, p.leaf)) },
+  // The grass itself, as a carpet (render.ts placeTurf): a clump of crossed
+  // cards of fine blades, many to a tile, each in the colour of the ground
+  // it stands on; no part of any biome's mix.
+  turf: { name: 'Turf', layer: 'Ground', leaf: 0x86a34e, build: (p) =>
+    [0, 1, 2].map((i) => turfCard(0.0062, 0.002, (i * Math.PI) / 3 + 0.2, p.leaf)) },
   tallGrass: { name: 'Tall grass', layer: 'Ground', leaf: 0xc8b060, build: (p) =>
     Array.from({ length: 7 }, (_, i) => blade(Math.cos(ring(7, i)) * 0.0006, Math.sin(ring(7, i)) * 0.0006, ring(7, i, 0.2), 0.0007, 0.0042 + 0.0008 * (i % 3), 0.0012, p.leaf)) },
   // Pampas grass: a green tussock, its cream plumes standing over it on their stalks.
@@ -447,10 +463,8 @@ export const CATALOG = {
     ...Array.from({ length: 3 }, (_, i) => tet(0.00045, p.accent, { x: Math.cos(ring(3, i)) * 0.0006, y: 0.0028, z: Math.sin(ring(3, i)) * 0.0006 })),
   ] },
   reeds: { name: 'Reeds', layer: 'Ground', leaf: 0xa9b85e, water: wade(0.0007), build: (p) =>
-    [[0, 0], [0.0018, 0.0009], [-0.0015, 0.0013], [0.0008, -0.0018], [-0.0017, -0.0009], [0.002, -0.0006]].map(([x, z], i) => {
-      const h = 0.0075 + 0.002 * (i % 3);
-      return cone(0.0005, h, 4, i % 2 ? 0xbcc56c : p.leaf, { x, z });
-    }) },
+    // (Tall grass, as the turf is made: crossed cards of fine blades, standing nearly upright.)
+    [0, 1, 2].map((i) => turfCard(0.0058, 0.0068 + 0.0012 * i, (i * Math.PI) / 3 + 0.4, p.leaf, 0.12)) },
   cattail: { name: 'Cattail', layer: 'Ground', leaf: 0x7d9a4a, accent: 0x6a4a2a, water: wade(0.0006), build: (p) => {
     const st = [[0, 0, 0.0062], [0.0011, 0.0006, 0.0052], [-0.0009, 0.0009, 0.0056], [0.0003, -0.0011, 0.0048]];
     return [

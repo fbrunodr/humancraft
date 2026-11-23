@@ -231,6 +231,8 @@ const FLORA_SEASON = `
   #endif`;
 // (A leaf card's clump gone, where the crown is bare: `bare` of them.)
 const BARE_CUT = (bare: string) => `(${bare} > 0.01 && vCard.z < 1.5 && fract(sin(dot(floor(vCard.xy * 9.0), vec2(12.9898, 78.233))) * 43758.5453) < ${bare})`;
+// How far the turf is drawn, of the crops' distance (uCropFar).
+const TURF_FAR = '1.0';
 const FLORA_VERTEX = `
   vBark = vec4(position, leafMask);
   #ifdef USE_INSTANCING
@@ -244,7 +246,15 @@ const FLORA_VERTEX = `
       // (Seen from far, a crown is one solid: a bare one a good deal smaller.)
       if (leafMask > 0.5 && cardUv.z < 0.5) transformed.xz *= 1.0 - 0.45 * vBare;
       transformed.xz += sway * transformed.y * ${WIND.toFixed(3)} * gust * vec2(1.0, 0.6);
-      if (cardUv.z > 1.5) {
+      if (cardUv.z > 5.5) {
+        // Turf (the grass's carpet): each clump goes at a distance of its
+        // own, shrinking into the ground over the last of it, so the
+        // carpet thins out evenly with distance and none of it pops: all
+        // of it up to a quarter of the way, the last at TURF_FAR.
+        float own = mix(0.5, 1.0, fract(sin(ph * 0.731) * 43758.5453));
+        float far = distance((modelMatrix * vec4(o, 1.0)).xyz, uEye) / (uCropFar * ${TURF_FAR} * own);
+        transformed *= 1.0 - smoothstep(0.55, 1.0, far);
+      } else if (cardUv.z > 1.5) {
         float far = distance((modelMatrix * vec4(o, 1.0)).xyz, uEye) / uCropFar;
         transformed *= 1.0 - smoothstep(0.6, 1.0, far);
       }
@@ -284,7 +294,7 @@ const floraUniforms = (f: FloraUniforms): Record<string, THREE.IUniform> => ({
 export const CARD_TEXEL = `
   uniform sampler2D uLeaves; uniform sampler2D uBlades; uniform sampler2D uFronds; uniform sampler2D uNeedles; uniform sampler2D uFences;
   vec4 cardTexel(vec3 card) {
-    vec4 lt = card.z > 4.5 ? texture2D(uFences, card.xy) : card.z > 3.5 ? texture2D(uNeedles, card.xy) : card.z > 2.5 ? texture2D(uFronds, card.xy) : card.z > 1.5 ? texture2D(uBlades, card.xy) : texture2D(uLeaves, card.xy);
+    vec4 lt = card.z > 5.5 ? texture2D(uBlades, card.xy) : card.z > 4.5 ? texture2D(uFences, card.xy) : card.z > 3.5 ? texture2D(uNeedles, card.xy) : card.z > 2.5 ? texture2D(uFronds, card.xy) : card.z > 1.5 ? texture2D(uBlades, card.xy) : texture2D(uLeaves, card.xy);
     vec2 dx = dFdx(card.xy) * ${LEAF_TEX}.0, dy = dFdy(card.xy) * ${LEAF_TEX}.0;
     lt.a *= 1.0 + 0.3 * max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))), 0.0);
     return lt;
@@ -603,7 +613,17 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
         if (vBark.w < 0.5 && abs(vCard.z) < 0.5) diffuseColor.rgb *= barkShade(vBark.xyz);
         // A leaf card: its leaves cut out of it; seen edge-on it thins out
         // and goes (no hard edges).
-        if (vCard.z > 0.5) {
+        if (vCard.z > 5.5) {
+          // Turf: blades of grass that rise out of the ground they stand on.
+          // Its foot is not drawn but thins away into the ground under it
+          // (a blade's share of the pixels, and less toward the foot: taken
+          // or left pixel by pixel), so no clump has an edge; its tips are
+          // lighter and a little strawier than its foot.
+          vec4 lt = texture2D(uBlades, vCard.xy);
+          float keep = lt.a * smoothstep(0.0, 0.38, vCard.y) * 1.25;
+          if (keep < 0.08 + 0.92 * fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;
+          diffuseColor.rgb *= mix(vec3(1.12), vec3(1.75, 1.62, 1.15), smoothstep(0.1, 1.0, vCard.y));
+        } else if (vCard.z > 0.5) {
           vec4 lt = cardTexel(vCard);
           vec3 fn = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
           float facing = abs(dot(fn, normalize(vViewPosition)));

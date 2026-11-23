@@ -61,6 +61,13 @@ interface Mix { density: number; entries: Entry[] }
 
 export const FEATURE_SHARE = 0.8;
 const HILL_DENSITY = 0.8;
+// How many times the catalog's canopy trees a mix carries (the rest of it as it is): forests stand close, crown to crown.
+export const TREE_DENSITY = 1.5;
+const wooded = (m: Mix): Mix => {
+  const all = m.entries.reduce((a, e) => a + e[1], 0), trees = m.entries.reduce((a, e) => a + (CATALOG[e[0]].layer === 'Canopy' ? e[1] : 0), 0);
+  if (all <= 0 || trees <= 0) return m;
+  return { density: m.density * (1 + (TREE_DENSITY - 1) * trees / all), entries: m.entries.map(([k, sh, l, z]) => [k, CATALOG[k].layer === 'Canopy' ? sh * TREE_DENSITY : sh, l, z] as const) };
+};
 const CONIFERS: ReadonlySet<CatalogKind> = new Set(['fir', 'spruce', 'pine', 'larch', 'giantCedar', 'araucaria']);
 const TREES = (k: CatalogKind) => CATALOG[k].layer === 'Canopy' || CATALOG[k].layer === 'Understory';
 const BARE_FROM = 0.6;          // mountains: no props above this share of the peak
@@ -122,6 +129,7 @@ export class Vegetation {
         };
         this.hillSpan[t] = Math.max(1e-4, looks[t].height - base[t]);
       }
+      mix = wooded(mix);
       this.plain.push(mix);
       this.forest[t] = !mountain && mix.density >= 80 && canopyShare(mix.entries) >= 0.35 ? 1 : 0;
       const nbs = [t, ...globe.tiles[t].neighbors];
@@ -141,6 +149,8 @@ export class Vegetation {
 
   // Canopy trees per tile (forest floors are shaded).
   isForest(t: number): boolean { return this.forest[t] === 1; }
+  // How many canopy trees a flat tile of its mix carries.
+  woods(t: number): number { const m = this.plain[t]!; return m.density * canopyShare(m.entries); }
 
   // One landmark tree (×2.5) in about a third of forest tiles.
   hasAncientTree(t: number): boolean { return this.forest[t] === 1 && (Math.imul(t + 1, 2654435761) >>> 0) % 3 === 0; }

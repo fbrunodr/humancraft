@@ -74,6 +74,7 @@ export default defineConfig({
         main: resolve(import.meta.dirname, 'index.html'),
         gallery: resolve(import.meta.dirname, 'gallery.html'),
         worldView: resolve(import.meta.dirname, 'world_view.html'),
+        terrainGallery: resolve(import.meta.dirname, 'terrain_gallery.html'),
         cityLab: resolve(import.meta.dirname, 'city_lab.html'),
         citySamples: resolve(import.meta.dirname, 'city_samples.html'),
         mapEditor: resolve(import.meta.dirname, 'map_editor.html'),

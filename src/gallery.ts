@@ -278,8 +278,11 @@ type View = 'terrains' | 'catalog';
 type Cam = 'map' | 'close' | 'ground';
 const terrainKeys = [...TERRAINS.keys()];
 const hashParts = location.hash.slice(1).split('/');
+// (The terrains are shown from real worlds now, as the game draws them: terrainGallery.ts. This page keeps the catalog;
+// its own board of terrains, drawn by its own means, had drifted from the game and is no longer reached.)
+if (hashParts[0] !== 'catalog' && hashParts[0] !== 'board') location.replace('terrain_gallery.html');
 const state = {
-  view: (hashParts[0] === 'catalog' ? 'catalog' : 'terrains') as View,
+  view: (hashParts[0] === 'board' ? 'terrains' : 'catalog') as View,
   terrain: ([...terrainKeys, 'resources'].includes(hashParts[1] as TerrainSetKey) ? hashParts[1] : terrainKeys[0]) as TerrainSetKey,
   focus: 0,
   seed: 1,
@@ -747,7 +750,7 @@ function setCam(c: Cam): void {
 
 // ---------- UI ----------
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]'))
-  b.addEventListener('click', () => { state.view = b.dataset['view'] as View; state.focus = 0; rebuild(true); });
+  b.addEventListener('click', () => { if (b.dataset['view'] === 'terrains') { location.href = 'terrain_gallery.html'; return; } state.view = b.dataset['view'] as View; state.focus = 0; rebuild(true); });
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-cam]'))
   b.addEventListener('click', () => setCam(b.dataset['cam'] as Cam));
 select.addEventListener('change', () => { state.terrain = select.value as TerrainSetKey; goToRow(); });

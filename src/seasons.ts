@@ -110,7 +110,7 @@ export const PLANT = { still: 0, cold: 1, dry: 2, grass: 3, rainGrass: 4, conife
 const PLANT_KIND: Partial<Record<CatalogKind, number>> = {
   beechMaple: PLANT.cold, oak: PLANT.cold, birch: PLANT.cold, willow: PLANT.cold, poplar: PLANT.cold, larch: PLANT.cold, baldCypress: PLANT.cold, berryBush: PLANT.cold, shrub: PLANT.cold,
   acacia: PLANT.dry, baobab: PLANT.dry,
-  grassTuft: PLANT.grass, tallGrass: PLANT.grass, pampasGrass: PLANT.grass, flowers: PLANT.grass, fernClump: PLANT.grass, cottonGrass: PLANT.grass, reeds: PLANT.grass, cattail: PLANT.grass,
+  grassTuft: PLANT.grass, turf: PLANT.grass, tallGrass: PLANT.grass, pampasGrass: PLANT.grass, flowers: PLANT.grass, fernClump: PLANT.grass, cottonGrass: PLANT.grass, reeds: PLANT.grass, cattail: PLANT.grass,
   fir: PLANT.conifer, spruce: PLANT.conifer, pine: PLANT.conifer, stonePine: PLANT.conifer, giantCedar: PLANT.conifer, cypress: PLANT.conifer, juniper: PLANT.conifer, araucaria: PLANT.conifer, kauri: PLANT.conifer,
 };
 // (In the lands of the rains, grass and trees follow them; a monsoon forest's trees shed in its dry season.)

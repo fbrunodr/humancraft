@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terrain gallery</title>
+    <style>
+      #entries { position: absolute; left: 12px; top: 92px; bottom: 12px; width: 250px; overflow-y: auto; pointer-events: auto; padding: 8px 6px; font-size: 12px; }
+      #entries h4 { margin: 10px 6px 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; }
+      #entries h4:first-child { margin-top: 2px; }
+      #entries button { display: block; width: 100%; text-align: left; padding: 3px 8px; margin: 1px 0; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; }
+      #entries button:hover { background: rgba(127, 127, 127, 0.22); }
+      #entries button.active { background: #5b7fe0; color: #fff; }
+      #entries button.away { opacity: 0.55; }
+      #entries button small { opacity: 0.7; }
+      #entries .stages { display: flex; gap: 2px; padding-left: 14px; }
+      #entries .stages button { width: auto; padding: 2px 7px; }
+      #about { position: absolute; left: 276px; bottom: 12px; max-width: 520px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud">
+      <div id="topbar">
+        <span id="civ">Terrain gallery</span>
+        <nav class="devnav"><a href="./">Game</a><a class="active" href="gallery.html">Gallery</a><a href="buildings.html">Buildings</a><a href="units.html">Units</a><a href="wonders.html">Wonders</a><a href="city_lab.html">City lab</a><a href="city_lab.html?stress" title="The worst case to measure: the large map packed with cities and units">Stress test</a><a href="city_samples.html">City samples</a><a href="world_view.html">World view</a><a href="map_editor.html">Map editor</a><a href="icons.html">Icons</a></nav>
+        <button id="catalog" title="Every prop and building on its own, enlarged">Catalog</button>
+        <label>Size <select id="size"></select></label>
+        <label>Seed <input id="seed" size="9" /></label>
+        <button id="generate" class="primary">Generate <kbd>Enter</kbd></button>
+        <span class="spacer"></span>
+        <span id="hint"></span>
+      </div>
+      <div id="entries" class="panel"></div>
+      <div id="about" class="panel hidden"></div>
+      <div id="tileinfo" class="panel hidden"></div>
+      <div id="side">
+        <div id="fps" class="panel">– fps</div>
+        <div id="views" class="panel">View <button data-view="normal" class="active">Normal</button><button data-view="paint">Paint</button><button data-view="overdraw">Overdraw</button><button data-view="quads">Quad waste</button> <kbd>J</kbd></div>
+        <details id="help" class="panel">
+          <summary>Controls</summary>
+          <div>Pick an entry to fly to a tile of it in this world · <kbd>←</kbd> <kbd>→</kbd> previous / next</div>
+          <div>An entry this world lacks (greyed) opens a world that has it</div>
+          <div>Drag: move · Wheel: zoom · Right-drag or <kbd>Shift</kbd>+drag: rotate and tilt · <kbd>T</kbd>/<kbd>G</kbd> tilt</div>
+        </details>
+      </div>
+    </div>
+    <script type="module" src="/src/terrainGallery.ts"></script>
+  </body>
+</html>

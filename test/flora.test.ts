@@ -35,8 +35,8 @@ describe('prop catalog', () => {
   });
 
   // (The giant cedar: the cool rainforests' tree, kept for when generated maps grow them, on cool wet coasts.)
-  it('every prop is used by some variant (bananas: by their resource, render.ts; the giant cedar: none yet)', () => {
-    const used = new Set<string>([...allVariants.flatMap((v) => v.mix.map(([k]) => k)), 'banana', 'giantCedar']);
+  it('every prop is used by some variant (bananas: by their resource, and turf, the carpet of grass: render.ts; the giant cedar: none yet)', () => {
+    const used = new Set<string>([...allVariants.flatMap((v) => v.mix.map(([k]) => k)), 'banana', 'turf', 'giantCedar']);
     expect(CATALOG_KINDS.filter((k) => !used.has(k))).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@ import { GlobeCamera } from './camera.ts';
 import { HUMAN, type Game, type Unit, type City } from './game.ts';
 import { GROUND_COVERS, SEA_TINT, SNOW, tileLook, type GroundCover, type TileLook } from './look.ts';
 import { buildTerrainMesh, locate, newSample, type TerrainMesh } from './terrainMesh.ts';
-import { makeTerrainMaterial, makeTerrainDepthMaterial, setTerrainHoles, holeFragment, MAX_HOLES, type TerrainHole, paintViewColor, makeTable, FAN_ROWS, TILE_ROWS, IMPROVEMENT_CODE, BURNT_CODE, CROP_CODE, STAGE_STEP, ROAD_DIRT, ROAD_GRAIN, type TerrainMaterial } from './terrainMaterial.ts';
+import { grassPatch, makeTerrainMaterial, makeTerrainDepthMaterial, setTerrainHoles, holeFragment, MAX_HOLES, type TerrainHole, paintViewColor, makeTable, FAN_ROWS, TILE_ROWS, IMPROVEMENT_CODE, BURNT_CODE, CROP_CODE, STAGE_STEP, ROAD_DIRT, ROAD_GRAIN, type TerrainMaterial } from './terrainMaterial.ts';
 import { makeSmoke, type Emitter, type Smoke } from './smoke.ts';
 import { buildPaintData, fanCoords, fanFrames, paintAt, paintDelta, softAt, warpAt, FAN_COORDS, FINE_MAX, FINE_WAVELENGTH, type PaintData, type FanFrame } from './paint.ts';
 import { buildRelief, CONE_RADIUS, CRATER, CRATER_DEPTH, type Relief } from './relief.ts';
@@ -38,6 +38,7 @@ import { mulberry32, makePerlin } from './rng.ts';
 import { USE, WONDERS, type EraIndex } from './cities.ts';
 import { farGeometry, makeFloraDepthMaterial, makePropMaterial, makeRoamDepthMaterial, instanceGeometry } from './propMaterial.ts';
 import { GpuTimer } from './gpuTimer.ts';
+import { tFbm } from './fineNoise.ts';
 import { DevViews, devEnabled } from './devViews.ts';
 import { Billboards, type Billboard } from './billboards.ts';
 import { resourceDef } from './resources.ts';
@@ -74,6 +75,16 @@ const MAX_LEAN = (6 * Math.PI) / 180;
 const HUE_JITTER = 0.12;
 // Camera altitude (globe radii, at the reference tile size) above which each
 // layer of props is too small to see and is not drawn.
+// How far a tree's or a shrub's leaves may differ from its kind's colour: hue (a turn) and saturation, in all; and how much lighter or darker (a share of its own lightness, in all).
+const LEAF_VARY = [0.07, 0.3, 0.4] as const;
+// No turf where the ground is steeper than this (rise over run) or higher (world units over sea level): rock shows there.
+const TURF_ROCK = [0.3, 0.0098] as const;
+// The canopy trees to a tile that leave no room for grass under them (grassCover).
+const GRASS_WOODS = 150;
+// How many clumps of turf a tile of grass carries (placeTurf).
+const TURF = 520;
+// How much larger than the catalog's models the canopy's trees are drawn.
+const TREE_SCALE = 1;
 const HIDE_ABOVE = { Canopy: Infinity, Accent: Infinity, Understory: 1.6, Ground: 0.8 } as const;
 const PROP_CHUNKS = 48;
 // Trees are drawn with their far models (farGeometry) once under this many
@@ -213,7 +224,7 @@ const SHADOW_MAX_HALF = 1.15;
 // degrees by the distance `sunFar` (from afar the whole side in view stays
 // lit); plenty of the sky's blue fill, so shade is soft and leans
 // blue-grey, never black (all chosen by eye).
-const LIGHT = { sunColor: 0xffe9cc, sun: 1.85, sunHeight: 30, sunHigh: 40, sunLow: 0.35, sunFar: 1.3, fill: 1.25, fillSky: 0xd9e9fc, fillGround: 0x6a5a40 };
+const LIGHT = { sunColor: 0xffe9cc, sun: 1.6, sunHeight: 30, sunHigh: 40, sunLow: 0.35, sunFar: 1.3, fill: 1.6, fillSky: 0xd9e9fc, fillGround: 0x7d6f52 };
 // The evening sky (sky.ts) is the view from near the ground: all of it up
 // to the camera distance SKY_NEAR, easing to the day's blue by SKY_FAR
 // (from orbit the planet's rim, its haze and its seas' reflections stay
@@ -599,6 +610,7 @@ export class GlobeRenderer {
       for (const v of this.terrain.tileVerts[t]) snow[v] = Math.min(snow[v], line);
     }
     this.vegetation = new Vegetation(g.globe, g.map, g.flora, L, this.relief.base, this.relief.peak, params.r0, g.seed);
+    { const td = this.tileTex.image.data as Float32Array; for (let t = 0; t < N; t++) td[(t * TILE_ROWS + 20) * 4] = this.grassCover(t); this.tileTex.needsUpdate = true; }
     ;[this.vertSlope, this.vertCoast, this.vertInland] = slopeAndShore(this.terrain, coast!);
     // Forest floors sit in the canopy's shade.
     for (let t = 0; t < N; t++) {
@@ -1072,6 +1084,8 @@ export class GlobeRenderer {
     // (How its ground answers the seasons: seasons.ts.)
     const season = groundSeason(g.biome[t]!, g.feature[t] ?? null, g.relief[t] === 'mountains');
     td.set([season.cold, season.rain, season.russet, season.snow], o + 19 * 4);
+    // (Its share of grass: once the vegetation is known, below in the constructor; again whenever the look changes.)
+    if (this.vegetation) td[o + 20 * 4] = this.grassCover(t);
     this.tileTex.needsUpdate = true;
   }
 
@@ -1316,6 +1330,8 @@ export class GlobeRenderer {
             if (keep >= Math.min(1, (veg.density(env) / spots) * vary)) continue;
             const picked = veg.pick(env, mulberry32(Math.floor(seed * 4294967296)), ancient && u === t);
             if (!picked) continue;
+            // (The grass is the turf's now, placeTurf: the old tufts of single blades are not placed.)
+            if (picked.kind === 'grassTuft' || picked.kind === 'tallGrass') continue;
             // (Bananas grow only where the resource is: a third of its trees.)
             const prop = g.resources[u] === 'bananas' && BANANA_IN.has(CATALOG[picked.kind].layer) && rand() < 1 / 3 ? { ...picked, kind: 'banana' as const, size: 1, leaf: undefined, ancient: false } : picked;
             // Flora yields to cities.
@@ -1353,7 +1369,8 @@ export class GlobeRenderer {
               const angle = prop.lean ? prop.leanAngle : tint * MAX_LEAN;
               q.premultiply(new THREE.Quaternion().setFromAxisAngle(d.clone().cross(lean).normalize(), angle));
             }
-            const size = (0.8 + 0.45 * sz) * prop.size;
+            // (Trees stand tall over the land, as a maquette's do: TREE_SCALE.)
+            const size = (0.8 + 0.45 * sz) * prop.size * (CATALOG[prop.kind].layer === 'Canopy' ? TREE_SCALE : 1);
             let stretch = 0.9 + 0.3 * tall;
             // Under water (kelp, coral): the top stays under the surface.
             if (catalogEntry(prop.kind).water?.kind === 'bed') {
@@ -1364,18 +1381,100 @@ export class GlobeRenderer {
             const shade = 0.82 + 0.36 * tint;
             const color = new THREE.Color(shade * (1 + (rand() - 0.5) * HUE_JITTER), shade * (1 + (rand() - 0.5) * HUE_JITTER), shade * (1 + (rand() - 0.5) * HUE_JITTER));
             const pos = d.clone().multiplyScalar(1 + prop.height);
+            const layer = CATALOG[prop.kind].layer, woody = layer === 'Canopy' || layer === 'Understory', fr = (x: number) => x - Math.floor(x);
             out.push({
               kind: prop.kind, color,
-              leaf: new THREE.Color(prop.leaf ?? CATALOG[prop.kind].leaf),
+              // (No two trees the same green: each crown's own hue, depth and lightness, a little off its kind's.)
+              leaf: woody ? new THREE.Color(prop.leaf ?? CATALOG[prop.kind].leaf).offsetHSL(LEAF_VARY[0] * (fr(seed * 97.13) - 0.5), LEAF_VARY[1] * (fr(seed * 31.7) - 0.5), 0).multiplyScalar(1 + LEAF_VARY[2] * (fr(seed * 53.9) - 0.5)) : new THREE.Color(prop.leaf ?? CATALOG[prop.kind].leaf),
               matrix: new THREE.Matrix4().compose(pos, q, sc.set(size, size * stretch, size)),
             });
           }
         }
       }
     }
+    this.placeTurf(t, out);
     this.propCache.set(t, out);
     return out;
   }
+
+  // The grass itself: a carpet of clumps of fine blades (the catalog's turf)
+  // over the painted land of a wild tile whose ground is grass or dry
+  // grass, on the ground's patches (up to TURF of them to a tile), each in the colour of the ground under it (the tile's, graded
+  // and mottled as terrainMaterial.ts groundColor has it), so the blades
+  // rise out of the ground with no edge. Not on mountains, in water, nor
+  // on roads.
+  // How much of a tile's ground lies under patches of grass (the shader
+  // paints them, the turf stands on them): nearly all of open grassland
+  // and of a floodplain, less the more trees stand on it (a forest's floor
+  // keeps a patch here and there, in its glades), little on ground that is
+  // not grass.
+  private grassCover(t: number): number {
+    const g = this.game, cover = this.looks[t]!.ground.cover;
+    const main = GROUND_COVERS.reduce((a, k) => ((cover[k] ?? 0) > (cover[a] ?? 0) ? k : a));
+    if (g.isWater(t)) return 0;
+    const open = Math.max(0, 1 - this.vegetation.woods(t) / GRASS_WOODS);
+    const base = g.feature[t] === 'floodplain' ? 0.95 : main === 'grass' || main === 'dry' ? 0.9 : 0.3;
+    return Math.max(0.06, base * open);
+  }
+
+  private placeTurf(t: number, out: PlacedProp[]): void {
+    const g = this.game;
+    // (Whose grass: a wild tile of grass or dry grass, no mountain, no water.)
+    const grassy = (u: number): boolean => {
+      const cover = this.looks[u]!.ground.cover;
+      const main = GROUND_COVERS.reduce((a, k) => ((cover[k] ?? 0) > (cover[a] ?? 0) ? k : a));
+      return (main === 'grass' || main === 'dry') && g.use[u] === USE.wild && g.relief[u] !== 'mountains' && !g.isWater(u);
+    };
+    const tile = g.tiles[t]!;
+    // (Its neighbours' painted land reaches onto its hexagon, and its own onto theirs.)
+    if (!grassy(t) && !tile.neighbors.some(grassy)) return;
+    const k = tile.corners.length, per = Math.round(TURF / k), r0 = this.paint.params.r0;
+    const rand = mulberry32(t * 2654435761 + 77);
+    const q = new THREE.Quaternion(), turn = new THREE.Quaternion(), sc = new THREE.Vector3();
+    const co = new Float32Array(FAN_COORDS), delta = [0, 0, 0, 0], smp = newSample();
+    const ss = (a: number, b: number, x: number) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+    for (let i = 0; i < k; i++) {
+      const fanId = this.paint.fanStart[t] + i, fan = this.paint.fans[fanId]!;
+      for (let n = 0; n < per; n++) {
+        let wa = rand(), wb = rand();
+        if (wa + wb > 1) { wa = 1 - wa; wb = 1 - wb; }
+        const size = 0.8 + 0.6 * rand(), spin = rand(), tint = rand(), keep = rand();
+        const p = this.terrain.samplePoint(t, i, wa, wb), d = p.clone().normalize();
+        // The ground's mottle here (terrainMaterial.ts groundColor): the
+        // grass stands on its patches, the straw ones and the lush ones,
+        // thick at their hearts and thinning to their edges; the plain
+        // ground between them is left bare.
+        const lie = 0.55 * tFbm(p.x / (1.9 * r0) + 3.3, p.y / (1.9 * r0) + 3.3, p.z / (1.9 * r0) + 3.3, 3) + 0.45 * tFbm(p.x / (0.42 * r0) + 8.1, p.y / (0.42 * r0) + 8.1, p.z / (0.42 * r0) + 8.1, 3);
+        // (Whose painted land this is: the tile whose painting weighs most here, not the hexagon's.)
+        fanCoords(this.frames[fanId]!, fan, paintDelta(this.paint.params, d.x, d.y, d.z, delta), d.x, d.y, d.z, co);
+        const ps = paintAt(this.paint, fanId, co);
+        let best = 0;
+        for (let c = 1; c < 4; c++) if (ps.w[c]! > ps.w[best]!) best = c;
+        const u = fan.ids[best]!;
+        if (!grassy(u)) continue;
+        const { straw, lush } = grassPatch(lie, this.grassCover(u));
+        if (keep > Math.max(ss(0.25, 0.85, straw), ss(0.25, 0.85, lush))) continue;
+        const lv = this.terrain.at(t, i, wa, wb);
+        if (lv.water > lv.ground) continue;
+        // (Not on rock: the shader bares it where the ground is steep or high, terrainMaterial.ts.)
+        if (lv.ground - 1 > TURF_ROCK[1]) continue;
+        this.terrain.topo.sample(t, i, wa, wb, smp);
+        if (smp.w[0]! * this.vertSlope[smp.v[0]!]! + smp.w[1]! * this.vertSlope[smp.v[1]!]! + smp.w[2]! * this.vertSlope[smp.v[2]!]! > TURF_ROCK[0]) continue;
+        if (!this.cityProps.offRoads(d)) continue;
+        // (Its colour: the ground's there, graded (gGrade) and mottled as the shader has it.)
+        const c = this.baseColors[u]!, l0 = 0.3 * c.r + 0.55 * c.g + 0.15 * c.b;
+        const base = [(l0 + (c.r - l0) * 0.62) * 1.06, l0 + (c.g - l0) * 0.62, (l0 + (c.b - l0) * 0.62) * 0.82] as const, lum = 0.3 * base[0] + 0.55 * base[1] + 0.15 * base[2];
+        const m = [1.7, 1.42, 0.62].map((s, j) => { const x = base[j]! + (lum * s - base[j]!) * 0.7 * straw; return x + (base[j]! * [0.6, 0.84, 0.55][j]! - x) * 0.8 * lush; });
+        q.setFromUnitVectors(UP, d).multiply(turn.setFromAxisAngle(UP, spin * Math.PI * 2));
+        const shade = 0.9 + 0.2 * tint;
+        out.push({
+          kind: 'turf', color: new THREE.Color(shade, shade, shade), leaf: new THREE.Color(m[0]!, m[1]!, m[2]!),
+          matrix: new THREE.Matrix4().compose(d.multiplyScalar(lv.ground), q, sc.set(size, size * (0.8 + 0.5 * tint), size)),
+        });
+      }
+    }
+  }
+
 
   // A prop's model: flora and catalog buildings made at the start (at prop
   // scale); a town lot made when first needed (in tile steps: its instances
@@ -1472,13 +1571,13 @@ export class GlobeRenderer {
           mesh = new THREE.InstancedMesh(instanceGeometry(this.geometryOf(kind), cap), isFloraKind(kind) || cards ? this.propMat : isRuralModelKind(kind) && isSmoothRural(kind) ? this.smoothMat : kind === 'wallSegment' || kind === 'wallGate' ? this.wallMat : this.buildingMat, cap);
           mesh.userData['hideAbove'] = isFloraKind(kind) ? HIDE_ABOVE[CATALOG[kind].layer] : Infinity;
           // (Crops hide once the camera is higher than they reach, cullProps.)
-          if (crop) mesh.userData['crop'] = true;
+          if (crop || kind === 'turf') mesh.userData['crop'] = true;
           if (isRuralModelKind(kind) && !cards) mesh.userData['goneAt'] = RURAL_GONE;
           // Everything casts shadows but the farms' crops (a sea of stalks
           // the eye reads as a field anyway); flora's cut to its leaves and
           // swaying with them (makeFloraDepthMaterial). Everything receives
           // them.
-          mesh.castShadow = !crop;
+          mesh.castShadow = !crop && kind !== 'turf';
           mesh.receiveShadow = true;
           if (isFloraKind(kind) || cards) mesh.customDepthMaterial = this.floraDepth;
           else if (isRuralModelKind(kind) && isSmoothRural(kind)) mesh.customDepthMaterial = this.roamDepth;
