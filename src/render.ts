@@ -83,7 +83,9 @@ const TURF_ROCK = [0.3, 0.0098] as const;
 // a slow noise, passed through its own measured distribution so that it is
 // spread evenly over 0 to 1: the share of the land where it is over a
 // threshold x is 1 - x.
-const GRASS_NOISE = (x: number, y: number, z: number) => 0.55 * tFbm(x / 1.9 + 3.3, y / 1.9 + 3.3, z / 1.9 + 3.3, 3) + 0.45 * tFbm(x / 0.42 + 8.1, y / 0.42 + 8.1, z / 0.42 + 8.1, 3);
+// (Broad: its swells a little over a tile across (a cell 1.3 tile radii: a swell and its trough, 1.3 tiles), so the land has stretches with grass and
+// stretches without, not a thinning all over; a little of a finer one, for ragged edges.)
+const GRASS_NOISE = (x: number, y: number, z: number) => 0.82 * tFbm(x / 1.3 + 3.3, y / 1.3 + 3.3, z / 1.3 + 3.3, 2) + 0.18 * tFbm(x / 0.5 + 8.1, y / 0.5 + 8.1, z / 0.5 + 8.1, 2);
 const GRASS_CDF = ((): Float32Array => {
   const rand = mulberry32(0x6ea55), v = new Float32Array(8192);
   for (let i = 0; i < v.length; i++) v[i] = GRASS_NOISE(rand() * 400, rand() * 400, rand() * 400);
@@ -1470,7 +1472,7 @@ export class GlobeRenderer {
         // is over the tile's threshold: its share of grass is the share of its ground over it,
         // and the grass runs on unbroken from tile to tile. (Thinning over a narrow edge.)
         const dens = grassDensity(p.x / r0, p.y / r0, p.z / r0), thr = 1 - this.grassCover(u);
-        if (keep > ss(thr - 0.04, thr + 0.04, dens)) continue;
+        if (keep > ss(thr - 0.025, thr + 0.025, dens)) continue;
         // (Its colour a little strawier in places, slowly: the grass's own, not the ground's.)
         const straw = 0.45 * ss(0.45, 0.7, tFbm(p.x / (1.3 * r0) + 5.9, p.y / (1.3 * r0) + 5.9, p.z / (1.3 * r0) + 5.9, 2)), lush = 0;
         const lv = this.terrain.at(t, i, wa, wb);
