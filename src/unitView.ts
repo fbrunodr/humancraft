@@ -5,7 +5,7 @@ import type { Billboard } from './billboards.ts';
 import type { ArchCiv } from './architecture.ts';
 import { unitDef, domainOf, type UnitKey } from './rules.ts';
 import { UNIT_CLASS, firesAtClose, returnFire, type AttackStyle, type Projectile } from './unitClasses.ts';
-import { CARRIER_DECK, IN_FLIGHT, UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
+import { CARRIER_DECK, IN_FLIGHT, UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, muzzleOf, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
 import { mulberry32 } from './rng.ts';
 import { clustered } from './lod.ts';
 import { HIP, GUN_L, GUN_R, elbowAt, handAt } from './people.ts';
@@ -1000,9 +1000,10 @@ export class UnitView {
       // (Or a foe that has come close: a charge against a gun line.)
       s.figures.forEach((g, i) => { const e = g.foeFig; if (!aims[i] && e && e.fall > now && (f.attack.close || e.up.distanceTo(g.up) < 2.5 * this.size)) aims[i] = e.pos.clone().addScaledVector(e.up, 0.45 * this.size); });
       // (From the air: at the ground under it, and from under the aircraft, not over it.)
-      const aloft = s.alt > 0, h = aloft ? this.env.ground(f.at) : null;
-      const { fire, land } = this.volleys.loose(s.figures.map((g) => g.pos.clone().addScaledVector(g.up, (aloft ? 0.15 : 0.75) * this.size)), f.at, this.env.step * 0.12, now, f.fired * 7 + s.unit.id, shot.kind, aims,
-        h ? f.at.length() * (1 + Math.max(h.ground, h.water)) : undefined);
+      // (A machine's shot leaves its muzzle: unitModels.ts muzzleOf.)
+      const aloft = s.alt > 0, h = aloft ? this.env.ground(f.at) : null, muzzle = s.unit.embarked ? null : muzzleOf(s.unit.type);
+      const { fire, land } = this.volleys.loose(s.figures.map((g) => (muzzle && !aloft ? g.pos.clone().addScaledVector(g.up, muzzle[0] * this.size).addScaledVector(g.head, muzzle[1] * this.size) : g.pos.clone().addScaledVector(g.up, (aloft ? 0.15 : 0.75) * this.size))), f.at, this.env.step * 0.12, now, f.fired * 7 + s.unit.id, shot.kind, aims,
+        h ? f.at.length() * (1 + Math.max(h.ground, h.water)) : undefined, muzzle !== null && !aloft);
       s.figures.forEach((g, i) => { if (g.fall > now) g.shot = fire[i] ?? now; });
       mine.forEach((g, k) => { const i = shooters[k % Math.max(1, shooters.length)]; const t = i === undefined ? undefined : land[i]; if (t !== undefined) g.fall = t; });
     }
@@ -1639,7 +1640,7 @@ export class Volleys {
   // (`level`: how far from the globe's middle the mark lies, when it is not
   // at the shooters' own height: what an aircraft lets fall lands on the
   // ground under it, not in the air beside it.)
-  loose(from: readonly THREE.Vector3[], at: THREE.Vector3, spread: number, now: number, seed: number, kind: Projectile = 'arrow', aims: readonly (THREE.Vector3 | null)[] = [], level?: number): { fire: number[]; land: number[] } {
+  loose(from: readonly THREE.Vector3[], at: THREE.Vector3, spread: number, now: number, seed: number, kind: Projectile = 'arrow', aims: readonly (THREE.Vector3 | null)[] = [], level?: number, atMuzzle = false): { fire: number[]; land: number[] } {
     const rand = mulberry32(seed * 9973 + 5), k = FLIGHT[kind];
     const up = this.flatUp ?? at.clone().normalize();
     const e = new THREE.Vector3(1, 0, 0).cross(up);
@@ -1659,7 +1660,8 @@ export class Volleys {
       this.arrows.push({ from: f.clone(), to, t0, dur, kind });
       // (A gun: its flash and smoke at the muzzle, a little way towards the mark.)
       if (kind === 'bullet' || kind === 'shell') {
-        const muzzle = f.clone().lerp(to, (0.35 * this.size) / Math.max(1e-6, f.distanceTo(to)));
+        // (Or at where it was loosed from itself, `atMuzzle`: a machine's own muzzle.)
+        const muzzle = atMuzzle ? f.clone() : f.clone().lerp(to, (0.35 * this.size) / Math.max(1e-6, f.distanceTo(to)));
         this.puff(muzzle, t0, 0.12, kind === 'shell' ? 0.7 : 0.4, kind === 'shell' ? 0.9 : 0.5, 1, 0xffc860, 0);
         this.puff(muzzle, t0 + 0.03, kind === 'shell' ? 2.6 : 1.8, kind === 'shell' ? 0.5 : 0.25, kind === 'shell' ? 1.8 : 1.0, 0.55, 0xe8e6e0, 0.25);
       }

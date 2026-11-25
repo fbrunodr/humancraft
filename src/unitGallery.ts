@@ -26,7 +26,7 @@ import { POLITICS } from './politics.ts';
 import { FORTIFY_BONUS, FORT_DEFENSE, combatStrength, fightRounds, matchup, statOf } from './game.ts';
 import { FORT_SIDE, modelGeometry } from './buildingCatalog.ts';
 import { FORT_FIT } from './cityProps.ts';
-import { HAIR_STYLES, UNIT_LOOK, colsOf, formationSlots, hairModel, headOffset, isMachine, rides, unitModel, variantOf, whirls, bowman, cuts, thrusts, draws, longArms, womenShare } from './unitModels.ts';
+import { HAIR_STYLES, UNIT_LOOK, colsOf, formationSlots, hairModel, headOffset, isMachine, muzzleOf, rides, unitModel, variantOf, whirls, bowman, cuts, thrusts, draws, longArms, womenShare } from './unitModels.ts';
 import { FIGHT, PLAYS, UnitView, Volleys, durOf, defendPlay, falls, figureLooks, makeUnitMaterial, playAt, playOf, prepareUnitGeometry, shareCorners, type Play, type ShownUnit } from './unitView.ts';
 import type { P2 } from './duel.ts';
 import { AFTER, armOf, dropOf, flingOf, legsOf, poseOf, poseTurn, rearShift, type Cue } from './unitAnim.ts';
@@ -370,9 +370,10 @@ function pose(now: number): void {
     if (!shot || t <= shot.t) continue;
     c.fired++;
     const out = playAt(c.play, t).out * c.play.charge * CHARGE_SHARE;
-    const up = 0.75 + (c.play.fly ?? 0) * playAt(c.play, t).out;
-    const from = placed.filter((p) => p.cell === c && !p.hair).map((p) => new THREE.Vector3(c.x - p.fx * c.facing + (c.target!.x - c.x) * out, up, c.z + p.fz * c.facing + (c.target!.z - c.z) * out));
-    volleys.loose(from, c.target, 1.2, now, c.seed * 3 + c.fired, shot.kind);
+    // (A machine's shot leaves its muzzle: unitModels.ts muzzleOf.)
+    const mz = muzzleOf(c.type), up = (mz ? mz[0] : 0.75) + (c.play.fly ?? 0) * playAt(c.play, t).out;
+    const from = placed.filter((p) => p.cell === c && !p.hair).map((p) => new THREE.Vector3(c.x - p.fx * c.facing + (c.target!.x - c.x) * out, up, c.z + (p.fz + (mz ? mz[1] : 0)) * c.facing + (c.target!.z - c.z) * out));
+    volleys.loose(from, c.target, 1.2, now, c.seed * 3 + c.fired, shot.kind, [], undefined, mz !== null);
   }
   volleys.update(now);
 }

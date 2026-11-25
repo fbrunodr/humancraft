@@ -692,116 +692,256 @@ function coatIt(g: THREE.BufferGeometry, coat: number): void {
 
 // ---- machines ----
 // Guns and tanks: no one walks, no skin or hair; a little of the owner's
-// colour on the carriage or hull. About a figure's height, longer.
-const IRON = 0x4a4d52, GUNMETAL = 0x2e3034, OLIVE = 0x5d6248;
-function cannon(heavy: boolean): THREE.BufferGeometry[] {
-  const wheel = (x: number) => shape(new THREE.CylinderGeometry(heavy ? 0.24 : 0.28, heavy ? 0.24 : 0.28, 0.06, 10, 1, false), heavy ? GUNMETAL : WOOD, { x, y: heavy ? 0.24 : 0.28, rz: Math.PI / 2 }, wheelSpin(heavy ? 0.24 : 0.28));
+// colour on the carriage or hull. About a figure's height, longer. Built
+// from a small kit (spoked and tyred wheels, tracks with their road wheels,
+// barrels with their rings, plates cut to a side's profile), as the ships
+// are from theirs; `FINE` off (seen from afar), the small parts are left out.
+const IRON = 0x4a4d52, GUNMETAL = 0x2e3034, OLIVE = 0x5d6248, OLIVE_DARK = 0x474b38, TYRE = 0x1c1c1e, TRACK = 0x26272a, RUNNER = 0x3c4036, GLASS = 0x1c2a33, ROPE = 0xb7a070, BRONZE = 0x8c6a36;
+// A plate or a block cut to a side's profile ([z, y] corners), `w` wide, its middle at x.
+const slab = (pts: readonly (readonly [number, number])[], w: number, color: number, x = 0, t?: Tag) =>
+  shape(new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([z, y]) => new THREE.Vector2(z, y))), { depth: w, bevelEnabled: false }).rotateY(-Math.PI / 2), color, { x: x + w / 2 }, t);
+// A drum across the model (its axle along x) at (x, y, z).
+const drum = (x: number, y: number, z: number, r: number, w: number, n: number, color: number, t?: Tag) => shape(new THREE.CylinderGeometry(r, r, w, n), color, { x, y, z, rz: Math.PI / 2 }, t);
+// A spoked wheel on the ground at x (its axle along x, at z): a felloe, eight spokes, a hub; it turns as the piece moves.
+function spoked(x: number, r: number, z = 0, color = WOOD, w = 0.05): THREE.BufferGeometry[] {
+  const t = wheelSpin(r, z);
+  if (!FINE) return [drum(x, r, z, r, w, 8, color, t)];
+  const rim = new THREE.LatheGeometry([[0.8 * r, -w / 2], [r, -w / 2], [r, w / 2], [0.8 * r, w / 2], [0.8 * r, -w / 2]].map(([a, b]) => new THREE.Vector2(a, b)), 10);
   return [
-    wheel(0.22), wheel(-0.22),
-    box(0.3, 0.14, 0.7, PAINT, { y: 0.32, z: -0.18, rx: -0.25 }, { team: true }),
-    shape(new THREE.CylinderGeometry(heavy ? 0.07 : 0.09, heavy ? 0.09 : 0.12, heavy ? 1.1 : 0.85, 8, 1, false), heavy ? OLIVE : IRON, { y: 0.5, z: 0.25, rx: Math.PI / 2 - (heavy ? 0.35 : 0.2) }),
-    ...(heavy ? [box(0.62, 0.36, 0.03, OLIVE, { y: 0.55, z: 0.02 })] : []),
+    shape(rim, color, { x, y: r, z, rz: Math.PI / 2 }, t),
+    ...[0, 1, 2, 3].map((k) => box(w * 0.45, 1.64 * r, 0.16 * r, color, { x, y: r, z, rx: (k * Math.PI) / 4 }, t)),
+    drum(x, r, z, 0.2 * r, w * 1.7, 6, IRON, t),
   ];
 }
+// A tyred wheel: the tyre, its steel disc a little proud of it.
+const tyred = (x: number, r: number, z = 0, w = 0.09, disc = OLIVE_DARK): THREE.BufferGeometry[] =>
+  [drum(x, r, z, r, w, 10, TYRE, wheelSpin(r, z)), ...(FINE ? [drum(x, r, z, 0.55 * r, w + 0.014, 6, disc, wheelSpin(r, z))] : [])];
+// A track: its loop (`len` long, `h` high, `w` wide, at x; its ends raised off the ground), and on its outer
+// side the road wheels along the ground and the two end wheels.
+function track(x: number, len: number, h: number, w: number, z = 0, roads = 5): THREE.BufferGeometry[] {
+  const L = len / 2, out = Math.sign(x) * (w / 2 + 0.006);
+  const loop = slab([[-L + 0.14, 0], [L - 0.16, 0], [L, 0.55 * h], [L - 0.08, h], [-L + 0.08, h], [-L, 0.6 * h]].map(([a, b]) => [a! + z, b!] as const), w, TRACK, x);
+  if (!FINE) return [loop];
+  const r = 0.3 * h, wheel = (zz: number, y: number, k: number) => shape(new THREE.CircleGeometry(k, 8), RUNNER, { x: x + out, y, z: zz + z, ry: Math.sign(x) * Math.PI / 2 }, wheelSpin(y, zz + z));
+  return [loop, ...Array.from({ length: roads }, (_, i) => wheel(-L + 0.2 + (i * (len - 0.44)) / (roads - 1), r + 0.01, r)), wheel(L - 0.1, 0.62 * h, 0.26 * h), wheel(-L + 0.1, 0.64 * h, 0.26 * h)];
+}
+// A gun's barrel from its breech end `at`, `len` long, raised `up` (radians) and tapering from r0 to r1: the tube,
+// and where along it (and how thick) its rings, muzzle swell or brake go (`rings`: [share of its length, radius, length]).
+function barrel(at: THREE.Vector3, len: number, up: number, r0: number, r1: number, color: number, rings: readonly (readonly [number, number, number])[] = [], n = 8, t?: Tag): THREE.BufferGeometry[] {
+  const d = V(0, Math.sin(up), Math.cos(up)), tube = (s: number, l: number, a: number, b: number, sides: number) => { const m = at.clone().addScaledVector(d, s + l / 2); return shape(new THREE.CylinderGeometry(b, a, l, sides), color, { x: m.x, y: m.y, z: m.z, rx: Math.PI / 2 - up }, t); };
+  return [tube(0, len, r0, r1, n), ...(FINE ? rings : rings.slice(-1)).map(([s, r, l]) => tube(s * len - l / 2, l, r, r, n))];
+}
+
+// A smoothbore cannon on its field carriage: two spoked wheels, the cheeks of the carriage running back into the
+// trail (painted), the barrel between them with its muzzle swell, reinforce and cascabel.
+function cannon(): THREE.BufferGeometry[] {
+  const cheek = (x: number) => slab([[0.16, 0.3], [0.16, 0.43], [-0.12, 0.41], [-0.8, 0.07], [-0.84, 0], [-0.74, 0], [-0.12, 0.27]], 0.05, PAINT, x, { team: true });
+  return [
+    ...spoked(0.27, 0.28), ...spoked(-0.27, 0.28), drum(0, 0.28, 0, 0.03, 0.5, 5, IRON),
+    cheek(0.1), cheek(-0.1), box(0.16, 0.05, 0.14, WOOD, { y: 0.1, z: -0.66 }),
+    ...barrel(V(0, 0.44, -0.24), 0.95, 0.14, 0.1, 0.068, IRON, [[0.02, 0.108, 0.05], [0.42, 0.09, 0.04], [0.97, 0.085, 0.06]]),
+    ...(FINE ? [ball(0.055, IRON, { y: 0.432, z: -0.3 }), drum(0, 0.47, 0.04, 0.03, 0.3, 5, IRON), box(0.03, 0.03, 0.34, IRON, { y: 0.2, z: -0.3, rx: 0.5 })] : []),
+  ];
+}
+// A field gun (the artillery): steel-tyred spoked wheels, a box trail to its spade (painted), a shield in two
+// folds with the gun through it, the barrel on its cradle with the recoil cylinder under it, the breech behind.
+function artillery(): THREE.BufferGeometry[] {
+  return [
+    ...spoked(0.3, 0.26, 0, GUNMETAL, 0.06), ...spoked(-0.3, 0.26, 0, GUNMETAL, 0.06), drum(0, 0.26, 0, 0.03, 0.56, 5, GUNMETAL),
+    slab([[0.1, 0.24], [0.1, 0.36], [-0.2, 0.34], [-0.95, 0.07], [-0.95, 0], [-0.86, 0], [-0.2, 0.22]], 0.16, PAINT, 0, { team: true }),
+    box(0.26, 0.16, 0.03, GUNMETAL, { y: 0.02, z: -0.97, rx: 0.4 }),
+    box(0.74, 0.34, 0.025, OLIVE, { y: 0.5, z: 0.06, rx: -0.08 }), box(0.74, 0.14, 0.025, OLIVE, { y: 0.73, z: 0.01, rx: -0.6 }),
+    ...(FINE ? [box(0.74, 0.12, 0.025, OLIVE, { y: 0.28, z: 0.1, rx: 0.5 })] : []),
+    box(0.16, 0.1, 0.5, OLIVE_DARK, { y: 0.45, z: 0.16, rx: -0.2 }),
+    ...barrel(V(0, 0.48, -0.26), 1.2, 0.2, 0.062, 0.05, OLIVE, [[0.1, 0.075, 0.2], [0.985, 0.058, 0.04]]),
+    ...barrel(V(0, 0.4, 0.0), 0.5, 0.2, 0.04, 0.04, GUNMETAL, [], 6),
+    box(0.15, 0.16, 0.14, GUNMETAL, { y: 0.47, z: -0.3, rx: -0.2 }),
+    ...(FINE ? [box(0.12, 0.03, 0.12, WOOD, { x: 0.17, y: 0.34, z: -0.34 }), box(0.12, 0.03, 0.12, WOOD, { x: -0.17, y: 0.34, z: -0.34 })] : []),
+  ];
+}
+// A tank of the middle of the century: tracks on their road wheels, fenders over them, a hull with a sloped
+// glacis (painted), a cast turret with its mantlet, cupola and hatch, a long gun.
 function tank(): THREE.BufferGeometry[] {
   return [
-    box(0.2, 0.3, 1.5, GUNMETAL, { x: 0.36, y: 0.16 }), box(0.2, 0.3, 1.5, GUNMETAL, { x: -0.36, y: 0.16 }),
-    box(0.62, 0.28, 1.36, PAINT, { y: 0.4 }, { team: true }),
-    box(0.46, 0.22, 0.56, OLIVE, { y: 0.65, z: -0.08 }),
-    shape(new THREE.CylinderGeometry(0.035, 0.04, 0.8, 6, 1, false), GUNMETAL, { y: 0.66, z: 0.55, rx: Math.PI / 2 }),
+    ...track(0.37, 1.56, 0.3, 0.2), ...track(-0.37, 1.56, 0.3, 0.2),
+    box(0.56, 0.2, 1.36, OLIVE_DARK, { y: 0.19 }),
+    slab([[-0.74, 0.3], [0.56, 0.3], [0.76, 0.36], [0.44, 0.56], [-0.56, 0.56], [-0.74, 0.47]], 0.6, PAINT, 0, { team: true }),
+    ...[1, -1].map((s) => box(0.24, 0.025, 1.5, OLIVE, { x: s * 0.38, y: 0.325 })),
+    shape(new THREE.CylinderGeometry(0.2, 0.27, 0.2, 8), OLIVE, { y: 0.66, z: -0.06, sz: 1.35 }),
+    box(0.3, 0.16, 0.12, OLIVE_DARK, { y: 0.66, z: 0.3 }),
+    ...barrel(V(0, 0.66, 0.34), 0.86, 0, 0.045, 0.036, GUNMETAL, [[0.97, 0.052, 0.07]]),
+    ...(FINE ? [
+      shape(new THREE.CylinderGeometry(0.075, 0.085, 0.07, 6), OLIVE_DARK, { x: -0.1, y: 0.795, z: -0.12 }),
+      box(0.14, 0.02, 0.14, OLIVE_DARK, { x: 0.11, y: 0.77, z: -0.1 }),
+      box(0.3, 0.12, 0.16, OLIVE, { y: 0.64, z: -0.42 }),
+      box(0.44, 0.02, 0.3, OLIVE_DARK, { y: 0.572, z: -0.4 }),
+      rod(V(-0.2, 0.76, -0.3), V(-0.2, 1.1, -0.34), 0.006, 0.004, 3, GUNMETAL),
+      box(0.05, 0.05, 0.3, WOOD, { x: 0.39, y: 0.365, z: -0.3 }),
+    ] : []),
   ];
 }
-// A catapult (a mangonel): a wheeled frame, the throwing arm cocked back
-// from its torsion bundle (painted: the owner's colour), a crossbar to stop
-// it; the arm swings in a fight.
+// A catapult (a mangonel): a timber frame on four plank wheels, uprights braced to it with the padded stop
+// across them (painted), the skein of rope the arm is sprung from, the arm cocked back, its cup empty,
+// a windlass behind; the arm swings in a fight.
 function catapult(): THREE.BufferGeometry[] {
   const arm: Tag = { limb: HIT(0.24, 1.3) };
+  const wheel = (s: number, z: number) => [drum(s * 0.29, 0.15, z, 0.15, 0.05, 8, WOOD, wheelSpin(0.15, z)), ...(FINE ? [drum(s * 0.29, 0.15, z, 0.045, 0.07, 5, IRON, wheelSpin(0.15, z))] : [])];
   return [
-    ...[1, -1].flatMap((s) => [box(0.06, 0.07, 1.0, WOOD, { x: s * 0.22, y: 0.2 }), shape(new THREE.CylinderGeometry(0.14, 0.14, 0.05, 6), WOOD, { x: s * 0.27, y: 0.14, z: 0.35, rz: Math.PI / 2 }, wheelSpin(0.14, 0.35)),
-      shape(new THREE.CylinderGeometry(0.14, 0.14, 0.05, 6), WOOD, { x: s * 0.27, y: 0.14, z: -0.35, rz: Math.PI / 2 }, wheelSpin(0.14, -0.35)), rod(V(s * 0.22, 0.22, 0.22), V(s * 0.22, 0.62, 0.18), 0.022, 0.02, 4, WOOD)]),
-    box(0.5, 0.06, 0.06, WOOD, { y: 0.2, z: 0.42 }), box(0.5, 0.06, 0.06, WOOD, { y: 0.2, z: -0.42 }),
-    rod(V(-0.25, 0.62, 0.18), V(0.25, 0.62, 0.18), 0.03, 0.03, 4, WOOD),
-    box(0.36, 0.1, 0.1, PAINT, { y: 0.19 }, { team: true }),
-    rod(V(0, 0.24, 0), V(0, 0.36, -0.62), 0.026, 0.02, 4, WOOD, arm), box(0.12, 0.05, 0.12, WOOD, { y: 0.36, z: -0.62 }, arm),
+    ...[1, -1].flatMap((s) => [
+      box(0.07, 0.08, 1.06, WOOD, { x: s * 0.22, y: 0.21 }), ...wheel(s, 0.36), ...wheel(s, -0.36),
+      rod(V(s * 0.22, 0.24, 0.2), V(s * 0.22, 0.66, 0.18), 0.03, 0.026, 4, WOOD),
+      rod(V(s * 0.22, 0.24, 0.5), V(s * 0.22, 0.6, 0.2), 0.02, 0.02, 4, WOOD),
+      ...(FINE ? [rod(V(s * 0.22, 0.24, -0.12), V(s * 0.22, 0.5, 0.17), 0.018, 0.018, 4, WOOD)] : []),
+    ]),
+    box(0.5, 0.07, 0.07, WOOD, { y: 0.21, z: 0.46 }), box(0.5, 0.07, 0.07, WOOD, { y: 0.21, z: -0.46 }),
+    box(0.52, 0.1, 0.09, PAINT, { y: 0.66, z: 0.18 }, { team: true }),
+    drum(0, 0.24, 0, 0.055, 0.4, 6, ROPE),
+    ...(FINE ? [drum(0, 0.3, -0.44, 0.04, 0.56, 5, WOOD), box(0.02, 0.16, 0.02, WOOD, { x: 0.27, y: 0.3, z: -0.44 }), box(0.02, 0.02, 0.16, WOOD, { x: -0.27, y: 0.3, z: -0.44 })] : []),
+    rod(V(0, 0.24, 0), V(0, 0.36, -0.6), 0.03, 0.022, 4, WOOD, arm),
+    shape(new THREE.CylinderGeometry(0.085, 0.05, 0.06, 6), WOOD, { y: 0.375, z: -0.64, rx: -0.2 }, arm),
   ];
 }
-// A counterweight trebuchet: a long base, A-frames to the axle, the long
-// arm cocked low behind, its counterweight box (painted) up in front; the
-// arm swings over in a fight.
+// A counterweight trebuchet: a long base of beams, a trestle either side braced fore and aft to the axle, the
+// long arm cocked low behind over its trough, the counterweight (painted, banded with iron)
+// hung from its short end, a windlass; the arm swings over in a fight.
 function trebuchet(): THREE.BufferGeometry[] {
   const arm: Tag = { limb: HIT(1.0, 1.5) };
   return [
-    ...[1, -1].flatMap((s) => [box(0.07, 0.08, 1.3, WOOD, { x: s * 0.3 }), rod(V(s * 0.3, 0.08, 0.5), V(s * 0.3, 1.0, 0), 0.03, 0.025, 4, WOOD), rod(V(s * 0.3, 0.08, -0.5), V(s * 0.3, 1.0, 0), 0.03, 0.025, 4, WOOD)]),
-    box(0.7, 0.07, 0.07, WOOD, { y: 0.04, z: 0.6 }), box(0.7, 0.07, 0.07, WOOD, { y: 0.04, z: -0.6 }),
-    rod(V(-0.34, 1.0, 0), V(0.34, 1.0, 0), 0.025, 0.025, 4, IRON),
-    rod(V(0, 1.28, 0.3), V(0, 0.3, -0.98), 0.03, 0.018, 4, WOOD, arm),
-    box(0.3, 0.26, 0.26, PAINT, { y: 1.02, z: 0.36 }, { team: true, ...arm }),
+    ...[1, -1].flatMap((s) => [
+      box(0.08, 0.09, 1.4, WOOD, { x: s * 0.32, y: 0.045 }),
+      rod(V(s * 0.32, 0.09, 0.52), V(s * 0.32, 1.02, 0), 0.034, 0.028, 4, WOOD), rod(V(s * 0.32, 0.09, -0.52), V(s * 0.32, 1.02, 0), 0.034, 0.028, 4, WOOD),
+      rod(V(s * 0.32, 0.09, 0), V(s * 0.32, 1.0, 0), 0.026, 0.024, 4, WOOD),
+      ...(FINE ? [rod(V(s * 0.32, 0.5, 0.28), V(s * 0.32, 0.5, -0.28), 0.018, 0.018, 4, WOOD)] : []),
+    ]),
+    box(0.74, 0.08, 0.08, WOOD, { y: 0.045, z: 0.64 }), box(0.74, 0.08, 0.08, WOOD, { y: 0.045, z: -0.64 }), box(0.74, 0.08, 0.08, WOOD, { y: 0.045 }),
+    box(0.14, 0.02, 1.0, WOOD, { y: 0.1, z: -0.5 }),
+    drum(0, 1.0, 0, 0.03, 0.76, 5, IRON),
+    ...(FINE ? [drum(0, 0.22, -0.6, 0.045, 0.7, 5, WOOD), box(0.02, 0.2, 0.02, WOOD, { x: 0.36, y: 0.22, z: -0.6 }), box(0.02, 0.02, 0.2, WOOD, { x: -0.36, y: 0.22, z: -0.6 })] : []),
+    rod(V(0, 1.28, 0.3), V(0, 0.3, -0.98), 0.04, 0.02, 4, WOOD, arm),
+    rod(V(0, 1.26, 0.3), V(0, 1.12, 0.36), 0.014, 0.014, 3, IRON, arm),
+    shape(new THREE.CylinderGeometry(0.14, 0.2, 0.3, 4), PAINT, { y: 0.97, z: 0.36, ry: Math.PI / 4 }, { team: true, ...arm }),
+    ...(FINE ? [box(0.3, 0.03, 0.3, IRON, { y: 0.9, z: 0.36 }, arm), box(0.25, 0.03, 0.25, IRON, { y: 1.05, z: 0.36 }, arm)] : []),
   ];
 }
-// A Gatling gun on its carriage: two wheels, the trail behind (painted),
-// the barrels' cluster and the breech with its hopper.
+// A Gatling gun on its carriage: two spoked wheels, the trail behind (painted), the cluster of barrels between
+// its plates, the brass breech with its magazine standing on it and the crank at its side.
 function gatling(): THREE.BufferGeometry[] {
+  const up = 0.06, at = V(0, 0.46, -0.02);
   return [
-    ...[1, -1].map((s) => shape(new THREE.CylinderGeometry(0.26, 0.26, 0.05, 8), WOOD, { x: s * 0.25, y: 0.26, rz: Math.PI / 2 }, wheelSpin(0.26))),
-    rod(V(-0.25, 0.26, 0), V(0.25, 0.26, 0), 0.025, 0.025, 4, IRON),
-    box(0.14, 0.08, 0.7, PAINT, { y: 0.18, z: -0.33, rx: 0.32 }, { team: true }),
-    box(0.17, 0.17, 0.2, IRON, { y: 0.42, z: -0.08 }), box(0.08, 0.12, 0.08, 0xb8964a, { y: 0.54, z: -0.08 }),
-    shape(new THREE.CylinderGeometry(0.065, 0.07, 0.6, 6), GUNMETAL, { y: 0.42, z: 0.3, rx: Math.PI / 2 }),
+    ...spoked(0.26, 0.27), ...spoked(-0.26, 0.27), drum(0, 0.27, 0, 0.028, 0.5, 5, IRON),
+    slab([[0.08, 0.24], [0.08, 0.34], [-0.1, 0.33], [-0.7, 0.07], [-0.74, 0], [-0.64, 0], [-0.1, 0.22]], 0.13, PAINT, 0, { team: true }),
+    box(0.06, 0.14, 0.06, IRON, { y: 0.38, z: 0.04 }),
+    ...(FINE ? Array.from({ length: 6 }, (_, i) => { const a = (i * Math.PI) / 3, o = V(0.045 * Math.cos(a), 0.045 * Math.sin(a), 0); return barrel(at.clone().add(o), 0.62, up, 0.016, 0.016, GUNMETAL, [], 4)[0]!; })
+      : barrel(at, 0.62, up, 0.06, 0.06, GUNMETAL, [], 6)),
+    ...barrel(at, 0.62, up, 0.02, 0.02, GUNMETAL, [[0.3, 0.068, 0.02], [0.98, 0.068, 0.025]], 6),
+    ...barrel(at.clone().add(V(0, -0.012, -0.24)), 0.25, up, 0.085, 0.085, BRONZE, [], 8),
+    box(0.05, 0.2, 0.07, BRONZE, { y: 0.63, z: -0.12 }),
+    ...(FINE ? [rod(V(0.085, 0.45, -0.16), V(0.17, 0.45, -0.16), 0.01, 0.01, 3, IRON), rod(V(0.17, 0.45, -0.16), V(0.17, 0.37, -0.16), 0.012, 0.012, 3, WOOD), box(0.2, 0.1, 0.12, WOOD, { y: 0.14, z: -0.5, rx: 0.4 })] : []),
   ];
 }
-// An anti-tank gun: low, on two tyred wheels, its shield plate (a band of
-// the owner's colour along the top), a long thin barrel, split trails.
+// An anti-tank gun: low, on two tyred wheels, split trails to their spades, a shield in three folds (a band of
+// the owner's colour along its top), a long barrel with a muzzle brake on its cradle.
 function antiTank(): THREE.BufferGeometry[] {
   return [
-    ...[1, -1].flatMap((s) => [shape(new THREE.CylinderGeometry(0.17, 0.17, 0.08, 8), 0x1e1e1e, { x: s * 0.27, y: 0.17, rz: Math.PI / 2 }, wheelSpin(0.17)), rod(V(s * 0.08, 0.24, -0.05), V(s * 0.34, 0.03, -0.75), 0.03, 0.025, 4, OLIVE)]),
-    box(0.62, 0.32, 0.025, OLIVE, { y: 0.24, z: 0.14, rx: -0.15 }), box(0.62, 0.05, 0.03, PAINT, { y: 0.55, z: 0.1, rx: -0.15 }, { team: true }),
-    box(0.16, 0.14, 0.3, OLIVE, { y: 0.3, z: 0.02 }),
-    shape(new THREE.CylinderGeometry(0.025, 0.032, 0.95, 6), GUNMETAL, { y: 0.37, z: 0.6, rx: Math.PI / 2 }),
+    ...tyred(0.29, 0.18), ...tyred(-0.29, 0.18),
+    ...[1, -1].flatMap((s) => [rod(V(s * 0.08, 0.24, -0.05), V(s * 0.36, 0.04, -0.8), 0.032, 0.026, 4, OLIVE), box(0.1, 0.12, 0.02, GUNMETAL, { x: s * 0.36, y: 0.03, z: -0.82, rx: 0.4 }),
+      box(0.2, 0.34, 0.02, OLIVE, { x: s * 0.33, y: 0.36, z: 0.09, rx: -0.15, ry: s * -0.5 })]),
+    box(0.44, 0.34, 0.02, OLIVE, { y: 0.36, z: 0.14, rx: -0.15 }), box(0.452, 0.045, 0.026, PAINT, { y: 0.55, z: 0.112, rx: -0.15 }, { team: true }),
+    box(0.14, 0.09, 0.56, OLIVE_DARK, { y: 0.3, z: 0.22 }),
+    ...barrel(V(0, 0.38, -0.2), 1.25, 0, 0.036, 0.026, GUNMETAL, [[0.06, 0.055, 0.16], [0.965, 0.046, 0.09]], 6),
+    box(0.12, 0.12, 0.1, GUNMETAL, { y: 0.38, z: -0.24 }),
+    ...(FINE ? [drum(0, 0.18, 0, 0.022, 0.5, 5, GUNMETAL), box(0.05, 0.1, 0.02, GUNMETAL, { x: -0.13, y: 0.5, z: 0.16, rx: -0.15 })] : []),
   ];
 }
-// A landship (the first tanks): tall rhomboid sides (painted: the tracks
-// run round them, dark along the bottom), the hull and cab between them, a
-// gun in a sponson on each flank.
+// A landship (the first tanks): tall rhomboid track frames the tracks run all the way round, their sides plated
+// (a band of the owner's colour along each), the hull and its cab between them, a gun in a sponson on each
+// flank, the exhaust on the roof.
 function landship(): THREE.BufferGeometry[] {
-  const side = new THREE.Shape([[-0.85, 0.3], [-0.62, 0.0], [0.6, 0.0], [0.9, 0.34], [0.62, 0.64], [-0.62, 0.64]].map(([z, y]) => new THREE.Vector2(z, y)));
-  // (The great rhomboid track frames in the hull's olive, a band of the owner's colour along each.)
-  const track = (x: number) => shape(new THREE.ExtrudeGeometry(side, { depth: 0.18, bevelEnabled: false }).rotateY(-Math.PI / 2), OLIVE, { x: x + (x > 0 ? 0.18 : 0) });
+  const rhomb: readonly (readonly [number, number])[] = [[-0.85, 0.3], [-0.62, 0], [0.6, 0], [0.9, 0.34], [0.62, 0.64], [-0.62, 0.64]];
+  const inner = rhomb.map(([z, y]) => [z * 0.93 + 0.004, 0.32 + (y - 0.32) * 0.8] as const);
   return [
-    track(0.2), track(-0.2),
-    ...[1, -1].map((s) => box(0.012, 0.08, 0.9, PAINT, { x: s * 0.381, y: 0.46, z: 0 }, { team: true })),
-    ...[1, -1].map((s) => box(0.2, 0.1, 1.24, GUNMETAL, { x: s * 0.29, z: -0.02 })),
-    box(0.42, 0.4, 1.0, OLIVE, { y: 0.14 }),
-    box(0.24, 0.14, 0.3, OLIVE, { y: 0.54, z: 0.1 }),
-    ...[1, -1].flatMap((s) => [box(0.12, 0.18, 0.3, OLIVE, { x: s * 0.44, y: 0.3, z: 0.05 }), shape(new THREE.CylinderGeometry(0.022, 0.025, 0.36, 5), GUNMETAL, { x: s * 0.47, y: 0.39, z: 0.3, rx: Math.PI / 2 })]),
+    ...[1, -1].flatMap((s) => [slab(rhomb, 0.18, TRACK, s * 0.29), slab(inner, 0.19, OLIVE, s * 0.29),
+      box(0.012, 0.07, 0.86, PAINT, { x: s * 0.3925, y: 0.47 }, { team: true }),
+      box(0.13, 0.2, 0.34, OLIVE, { x: s * 0.45, y: 0.31, z: 0.06 }), box(0.13, 0.03, 0.4, OLIVE_DARK, { x: s * 0.45, y: 0.425, z: 0.06 }),
+      ...barrel(V(s * 0.47, 0.31, 0.2), 0.34, 0, 0.026, 0.022, GUNMETAL, [], 5)]),
+    box(0.4, 0.42, 1.04, OLIVE, { y: 0.35 }),
+    box(0.26, 0.14, 0.3, OLIVE, { y: 0.63, z: 0.14 }),
+    ...(FINE ? [box(0.2, 0.03, 0.02, GLASS, { y: 0.65, z: 0.292 }), rod(V(0.08, 0.56, -0.2), V(0.08, 0.72, -0.2), 0.02, 0.02, 4, GUNMETAL), rod(V(-0.08, 0.56, -0.3), V(-0.08, 0.72, -0.3), 0.02, 0.02, 4, GUNMETAL),
+      box(0.3, 0.02, 0.4, OLIVE_DARK, { y: 0.568, z: -0.28 })] : []),
   ];
 }
 // ---- later machines ----
 // A field cannon: the cannon, smaller and lighter.
-const fieldCannon = () => cannon(false).map((g) => g.applyMatrix4(new THREE.Matrix4().makeScale(0.78, 0.78, 0.78)));
-// Wheels down a vehicle's sides (low six-sided drums, dark).
-const wheels = (xs: readonly number[], zs: readonly number[], r: number) => xs.flatMap((x) => zs.map((z) => shape(new THREE.CylinderGeometry(r, r, 0.08, 6), 0x1e1e1e, { x, y: r, z, rz: Math.PI / 2 }, wheelSpin(r, z))));
-// Modern armour: a low hull (painted), a flat turret, a long gun.
+const fieldCannon = () => cannon().map((g) => g.applyMatrix4(new THREE.Matrix4().makeScale(0.78, 0.78, 0.78)));
+// Modern armour: long and low, its tracks under side skirts (painted), a hull with a shallow glacis, a wedge
+// of a turret with a long gun (its bore evacuator half way along), a machine gun and smoke dischargers on it.
 function modernArmor(): THREE.BufferGeometry[] {
-  return [box(0.2, 0.22, 1.5, GUNMETAL, { x: 0.36, y: 0.11 }), box(0.2, 0.22, 1.5, GUNMETAL, { x: -0.36, y: 0.11 }),
-    box(0.66, 0.22, 1.2, PAINT, { y: 0.34, z: -0.05 }, { team: true }),
-    box(0.5, 0.16, 0.6, OLIVE, { y: 0.53, z: -0.12 }), shape(new THREE.CylinderGeometry(0.03, 0.035, 1.0, 6), GUNMETAL, { y: 0.55, z: 0.65, rx: Math.PI / 2 })];
+  return [
+    ...track(0.38, 1.62, 0.25, 0.2, 0, 6), ...track(-0.38, 1.62, 0.25, 0.2, 0, 6),
+    slab([[-0.78, 0.2], [0.52, 0.2], [0.8, 0.27], [0.36, 0.43], [-0.78, 0.43]], 0.6, OLIVE),
+    ...[1, -1].map((s) => box(0.03, 0.15, 1.36, PAINT, { x: s * 0.495, y: 0.215, z: -0.04 }, { team: true })),
+    slab([[-0.52, 0.44], [0.2, 0.44], [0.42, 0.5], [0.22, 0.62], [-0.52, 0.62]], 0.52, OLIVE_DARK),
+    ...[1, -1].map((s) => slab([[-0.5, 0.45], [0.14, 0.45], [0.3, 0.5], [0.14, 0.6], [-0.5, 0.6]], 0.1, OLIVE, s * 0.31)),
+    ...barrel(V(0, 0.53, 0.4), 1.12, 0, 0.042, 0.034, GUNMETAL, [[0.5, 0.055, 0.2], [0.985, 0.04, 0.03]]),
+    box(0.22, 0.12, 0.1, GUNMETAL, { y: 0.53, z: 0.4 }),
+    ...(FINE ? [
+      shape(new THREE.CylinderGeometry(0.07, 0.08, 0.05, 6), OLIVE, { x: -0.12, y: 0.645, z: -0.14 }), ...barrel(V(-0.12, 0.7, -0.12), 0.3, 0.04, 0.012, 0.01, GUNMETAL, [], 4),
+      ...[1, -1].map((s) => box(0.05, 0.05, 0.1, GUNMETAL, { x: s * 0.33, y: 0.56, z: 0.2, rx: -0.5 })),
+      box(0.4, 0.1, 0.14, OLIVE, { y: 0.52, z: -0.6 }), box(0.5, 0.015, 0.34, GUNMETAL, { y: 0.438, z: -0.56 }),
+    ] : []),
+  ];
 }
-// An armoured carrier (mechanized infantry): a boxy hull on wheels, its sides painted, a small turret.
+// An armoured carrier (mechanized infantry): a boat-nosed hull on six wheels, its upper sides sloped in
+// (painted), a small turret with its cannon, hatches on the roof, a door in its stern.
 function apc(): THREE.BufferGeometry[] {
-  return [...wheels([0.33, -0.33], [-0.45, 0, 0.45], 0.14), box(0.62, 0.36, 1.3, PAINT, { y: 0.32 }, { team: true }), box(0.6, 0.04, 0.3, OLIVE, { y: 0.48, z: 0.58, rx: 0.6 }),
-    box(0.22, 0.12, 0.24, OLIVE, { y: 0.56, z: -0.1 }), rod(V(0, 0.58, 0), V(0, 0.58, 0.4), 0.015, 0.015, 3, GUNMETAL)];
+  return [
+    ...[0.48, 0, -0.48].flatMap((z) => [...tyred(0.34, 0.15, z, 0.1), ...tyred(-0.34, 0.15, z, 0.1)]),
+    slab([[-0.7, 0.16], [0.5, 0.16], [0.74, 0.34], [-0.7, 0.34]], 0.56, OLIVE),
+    slab([[-0.7, 0.34], [0.74, 0.34], [0.5, 0.58], [-0.64, 0.58]], 0.66, PAINT, 0, { team: true }),
+    shape(new THREE.CylinderGeometry(0.11, 0.14, 0.11, 6), OLIVE, { y: 0.635, z: 0.08 }),
+    ...barrel(V(0, 0.64, 0.16), 0.42, 0.03, 0.018, 0.015, GUNMETAL, [[0.97, 0.022, 0.04]], 5),
+    ...(FINE ? [
+      box(0.5, 0.07, 0.02, GLASS, { y: 0.5, z: 0.592, rx: 0.78 }),
+      box(0.18, 0.015, 0.2, OLIVE_DARK, { x: 0.16, y: 0.586, z: -0.3 }), box(0.18, 0.015, 0.2, OLIVE_DARK, { x: -0.16, y: 0.586, z: -0.3 }),
+      box(0.3, 0.3, 0.015, OLIVE_DARK, { y: 0.36, z: -0.706 }),
+      ...[1, -1].map((s) => box(0.03, 0.05, 0.06, GUNMETAL, { x: s * 0.24, y: 0.42, z: 0.7 })),
+    ] : []),
+  ];
 }
-// Rocket artillery: a tracked chassis (painted) under a box of rockets tilted to the sky.
+// Rocket artillery: a tracked chassis with an armoured cab in front (painted), and on a turntable behind it
+// the launcher: a box of rockets raised to the sky, their tubes open at its face.
 function rocketArtillery(): THREE.BufferGeometry[] {
-  return [box(0.18, 0.2, 1.3, GUNMETAL, { x: 0.3, y: 0.1 }), box(0.18, 0.2, 1.3, GUNMETAL, { x: -0.3, y: 0.1 }), box(0.56, 0.2, 1.2, PAINT, { y: 0.3 }, { team: true }),
-    box(0.4, 0.2, 0.3, OLIVE, { y: 0.48, z: 0.4 }), box(0.46, 0.26, 0.8, OLIVE, { y: 0.62, z: -0.2, rx: -0.45 }),
-    ...[-0.12, 0, 0.12].map((x) => box(0.06, 0.06, 0.02, 0x1a1a1a, { x, y: 0.82, z: 0.17, rx: -0.45 }))];
+  const tilt = -0.5, at = V(0, 0.72, -0.22), fwd = V(0, Math.sin(-tilt), Math.cos(-tilt)), upv = V(0, Math.cos(-tilt), -Math.sin(-tilt));
+  return [
+    ...track(0.32, 1.4, 0.22, 0.18), ...track(-0.32, 1.4, 0.22, 0.18),
+    box(0.5, 0.14, 1.3, OLIVE_DARK, { y: 0.17 }), box(0.76, 0.03, 1.36, OLIVE, { y: 0.255 }),
+    slab([[0.2, 0.27], [0.68, 0.27], [0.68, 0.4], [0.56, 0.52], [0.2, 0.52]], 0.6, PAINT, 0, { team: true }),
+    ...(FINE ? [box(0.5, 0.1, 0.02, GLASS, { y: 0.455, z: 0.628, rx: 0.78 }), box(0.012, 0.1, 0.22, GLASS, { x: 0.303, y: 0.44, z: 0.4 }), box(0.012, 0.1, 0.22, GLASS, { x: -0.303, y: 0.44, z: 0.4 })] : []),
+    shape(new THREE.CylinderGeometry(0.2, 0.22, 0.08, 8), OLIVE_DARK, { y: 0.31, z: -0.3 }),
+    ...[1, -1].map((s) => box(0.05, 0.3, 0.12, OLIVE_DARK, { x: s * 0.2, y: 0.48, z: -0.3 })),
+    box(0.5, 0.3, 0.84, OLIVE, { x: at.x, y: at.y, z: at.z, rx: tilt }),
+    ...(FINE ? [-0.16, 0, 0.16].flatMap((x) => [-0.075, 0.075].map((u) => { const p = at.clone().addScaledVector(fwd, 0.424).addScaledVector(upv, u); return box(0.11, 0.1, 0.012, 0x151515, { x, y: p.y, z: p.z, rx: tilt }); })) : []),
+  ];
 }
-// A mobile SAM: a truck, its cab painted, two missiles on rails raised on the bed.
+// A mobile SAM: a truck on three axles, its cab painted, and on the bed a turntable with two missiles on their
+// rails raised to the sky, a radar's panel behind the cab.
 function mobileSAM(): THREE.BufferGeometry[] {
-  const missile = (x: number) => lp(hull([R([x, 0, -0.35], 0.04), R([x, 0, 0.3], 0.04), R([x, 0, 0.42], 0, 0)], 4, 0xe8e6e0, { side: [1, 0, 0] }), { y: 0.72, z: -0.15, rx: -0.6 });
-  return [...wheels([0.28, -0.28], [-0.45, 0.45], 0.13), box(0.56, 0.08, 1.3, OLIVE, { y: 0.26 }), box(0.56, 0.3, 0.36, PAINT, { y: 0.45, z: 0.45 }, { team: true }),
-    box(0.3, 0.12, 0.5, OLIVE, { y: 0.38, z: -0.2 }), missile(0.1), missile(-0.1)];
+  const tilt = -0.55;
+  const missile = (x: number) => [
+    lp(hull([R([x, 0, -0.42], 0.045), R([x, 0, 0.3], 0.045), R([x, 0, 0.46], 0, 0)], 5, 0xe8e6e0, { side: [1, 0, 0] }), { y: 0.78, z: -0.22, rx: tilt }),
+    ...(FINE ? [box(0.16, 0.012, 0.12, 0x9a2a22, { x, y: 0.585, z: -0.52, rx: tilt }), box(0.012, 0.16, 0.12, 0x9a2a22, { x, y: 0.585, z: -0.52, rx: tilt }), box(0.03, 0.03, 0.8, OLIVE_DARK, { x, y: 0.715, z: -0.2, rx: tilt })] : []),
+  ];
+  return [
+    ...[0.5, -0.16, -0.5].flatMap((z) => [...tyred(0.3, 0.14, z, 0.1), ...tyred(-0.3, 0.14, z, 0.1)]),
+    box(0.5, 0.07, 1.4, OLIVE_DARK, { y: 0.27 }),
+    slab([[0.3, 0.31], [0.72, 0.31], [0.72, 0.46], [0.62, 0.62], [0.3, 0.62]], 0.58, PAINT, 0, { team: true }),
+    ...(FINE ? [box(0.48, 0.12, 0.02, GLASS, { y: 0.545, z: 0.677, rx: 0.56 }), box(0.012, 0.11, 0.2, GLASS, { x: 0.293, y: 0.53, z: 0.48 }), box(0.012, 0.11, 0.2, GLASS, { x: -0.293, y: 0.53, z: 0.48 }),
+      box(0.3, 0.2, 0.02, OLIVE, { y: 0.78, z: 0.26, rx: -0.25 }), rod(V(0, 0.62, 0.28), V(0, 0.72, 0.27), 0.02, 0.02, 4, OLIVE_DARK)] : []),
+    box(0.6, 0.04, 0.9, OLIVE, { y: 0.325, z: -0.24 }),
+    shape(new THREE.CylinderGeometry(0.17, 0.2, 0.1, 8), OLIVE_DARK, { y: 0.395, z: -0.26 }),
+    box(0.1, 0.24, 0.14, OLIVE_DARK, { y: 0.52, z: -0.3 }),
+    ...missile(0.13), ...missile(-0.13),
+  ];
 }
 
 // ---- ships ----
@@ -1276,14 +1416,19 @@ function aircraft(type: UnitKey): THREE.BufferGeometry[] {
     ...tail(1.8, 0x6a6e66), ...gear];
 }
 
-// An anti-aircraft gun: twin barrels raised to the sky on a cross-footed
-// mount (a band of the owner's colour), its shield.
+// An anti-aircraft gun: four outriggers on their pads, a turntable, the mount between two side plates (a band
+// of the owner's colour over them), twin long barrels with flared muzzles raised to the sky, a shield either side.
 function antiAircraft(): THREE.BufferGeometry[] {
   return [
-    ...[0, Math.PI / 2].map((r) => box(1.0, 0.06, 0.1, OLIVE, { y: 0.03, ry: r })), shape(new THREE.CylinderGeometry(0.14, 0.18, 0.24, 6), OLIVE, { y: 0.12 }),
-    box(0.3, 0.2, 0.26, OLIVE, { y: 0.32 }), box(0.34, 0.05, 0.3, PAINT, { y: 0.44 }, { team: true }),
-    ...[1, -1].map((s) => rod(V(s * 0.06, 0.38, 0.05), V(s * 0.06, 0.95, 0.55), 0.022, 0.018, 4, GUNMETAL)),
-    box(0.4, 0.22, 0.02, OLIVE, { y: 0.42, z: 0.2, rx: -0.4 }),
+    ...[0, Math.PI / 2].map((r) => box(1.04, 0.05, 0.09, OLIVE, { y: 0.07, ry: r + Math.PI / 4 })),
+    ...(FINE ? [0, 1, 2, 3].map((k) => { const a = Math.PI / 4 + (k * Math.PI) / 2; return shape(new THREE.CylinderGeometry(0.06, 0.07, 0.04, 6), GUNMETAL, { x: 0.5 * Math.cos(a), y: 0.02, z: 0.5 * Math.sin(a) }); }) : []),
+    shape(new THREE.CylinderGeometry(0.2, 0.24, 0.12, 8), OLIVE_DARK, { y: 0.15 }),
+    ...[1, -1].map((s) => slab([[-0.16, 0.2], [0.16, 0.2], [0.1, 0.5], [-0.12, 0.5]], 0.03, OLIVE, s * 0.15)),
+    box(0.36, 0.035, 0.26, PAINT, { y: 0.515, z: -0.01 }, { team: true }),
+    box(0.2, 0.16, 0.34, OLIVE_DARK, { y: 0.42, z: 0.02, rx: -0.75 }),
+    ...[1, -1].flatMap((s) => barrel(V(s * 0.055, 0.44, 0.04), 0.86, 0.75, 0.026, 0.02, GUNMETAL, [[0.2, 0.034, 0.12], [0.97, 0.034, 0.06]], 6)),
+    ...[1, -1].map((s) => box(0.24, 0.3, 0.02, OLIVE, { x: s * 0.29, y: 0.46, z: 0.16, rx: -0.35, ry: s * -0.25 })),
+    ...(FINE ? [box(0.12, 0.1, 0.16, OLIVE_DARK, { x: 0.2, y: 0.26, z: -0.2 }), rod(V(-0.2, 0.5, 0), V(-0.2, 0.68, 0.06), 0.008, 0.008, 3, GUNMETAL), box(0.06, 0.06, 0.01, GUNMETAL, { x: -0.2, y: 0.7, z: 0.07, rx: -0.75 })] : []),
   ];
 }
 
@@ -1293,6 +1438,14 @@ const MACHINES: ReadonlySet<UnitKey> = new Set<UnitKey>(['catapult', 'trebuchet'
   'galley', 'trireme', 'galleass', 'cog', 'caravel', 'frigate', 'ironclad', 'cruiser', 'destroyer', 'battleship', 'submarine', 'carrier',
   'airship', 'fighter', 'jetFighter', 'bomber', 'heavyBomber', 'helicopter']);
 export const isMachine = (type: UnitKey): boolean => MACHINES.has(type);
+// Where a land machine's shot leaves it (its muzzle, or the head of what it throws: model units, [up, forward]
+// of where it stands; the field cannon's as its smaller model has it). Others shoot from a figure's hands (null).
+const MUZZLES: Partial<Record<UnitKey, readonly [number, number]>> = {
+  cannon: [0.57, 0.7], fieldCannon: [0.45, 0.55], artillery: [0.72, 0.92], gatlingGun: [0.5, 0.6], antiTank: [0.38, 1.05],
+  landship: [0.31, 0.54], tank: [0.66, 1.2], modernArmor: [0.53, 1.52], mechanizedInfantry: [0.65, 0.58],
+  antiAircraft: [1.03, 0.67], rocketArtillery: [0.93, 0.16], mobileSAM: [1.0, 0.18], catapult: [0.85, 0.2], trebuchet: [1.9, 0.2],
+};
+export const muzzleOf = (type: UnitKey): readonly [number, number] | null => MUZZLES[type] ?? null;
 
 // ---- hair ----
 // Hair, drawn apart from the figures (an instanced mesh per style, shared by
@@ -1501,8 +1654,8 @@ export function unitModel(type: UnitKey, civ: ArchCiv, variant = 0, female = fal
       case 'rifleman': return figure(gear, 'rifle', false, { helmet: true, female });
       case 'infantry': return figure(gear, 'selfLoader', false, { helmet: true, female, modern: true, pack: true });
       case 'cavalry': return rider(gear, HORSE[variant % HORSE.length]!, female, 'cavalry');
-      case 'cannon': return cannon(false);
-      case 'artillery': return cannon(true);
+      case 'cannon': return cannon();
+      case 'artillery': return artillery();
       case 'tank': return tank();
       case 'commander': return variant === 0 ? rider(gear, HORSE[0], female, 'officer') : figure(gear, 'banner', false, { helmet: true, female });
     }
