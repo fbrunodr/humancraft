@@ -16,7 +16,7 @@ import { WalkCamera } from './walk.ts';
 import { makeSky, makeHalo, installHaze, HAZE, HAZE_DENSITY, DISTANCE_HAZE, AIR } from './sky.ts';
 import { YEAR, yearTurn, landPhase, sunDistance, sunHeight, skyAt, newSky, groundSeason, plantSeason } from './seasons.ts';
 import { makeWeather, type Weather } from './weather.ts';
-import { buildPropGeometry, catalogEntry, CATALOG, CATALOG_KINDS, type CatalogKind, type Layer } from './propCatalog.ts';
+import { buildPropGeometry, catalogEntry, turfFarGeometry, CATALOG, CATALOG_KINDS, type CatalogKind, type Layer } from './propCatalog.ts';
 import { FLORA_KEEP } from './floraData.ts';
 import { BUILDING_KINDS, buildBuildingGeometry, type BuildingKind } from './buildingCatalog.ts';
 import { useOf } from './houseKit.ts';
@@ -79,25 +79,9 @@ const HUE_JITTER = 0.12;
 const LEAF_VARY = [0.07, 0.3, 0.4] as const;
 // No turf where the ground is steeper than this (rise over run) or higher (world units over sea level): rock shows there.
 const TURF_ROCK = [0.3, 0.0098] as const;
-// The grass density of the world at a point (its direction, in tile radii):
-// a slow noise, passed through its own measured distribution so that it is
-// spread evenly over 0 to 1: the share of the land where it is over a
-// threshold x is 1 - x.
-// (Broad: its swells a little over a tile across (a cell 1.3 tile radii: a swell and its trough, 1.3 tiles), so the land has stretches with grass and
-// stretches without, not a thinning all over; a little of a finer one, for ragged edges.)
-const GRASS_NOISE = (x: number, y: number, z: number) => 0.82 * tFbm(x / 1.3 + 3.3, y / 1.3 + 3.3, z / 1.3 + 3.3, 2) + 0.18 * tFbm(x / 0.5 + 8.1, y / 0.5 + 8.1, z / 0.5 + 8.1, 2);
-const GRASS_CDF = ((): Float32Array => {
-  const rand = mulberry32(0x6ea55), v = new Float32Array(8192);
-  for (let i = 0; i < v.length; i++) v[i] = GRASS_NOISE(rand() * 400, rand() * 400, rand() * 400);
-  return v.sort();
-})();
-function grassDensity(x: number, y: number, z: number): number {
-  const n = GRASS_NOISE(x, y, z);
-  let lo = 0, hi = GRASS_CDF.length;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (GRASS_CDF[mid]! < n) lo = mid + 1; else hi = mid; }
-  return lo / GRASS_CDF.length;
-}
-// The most of a tile that grass covers (the lowest threshold of the grass density: 1 less this).
+// Far off (where trees take their far models) one clump of turf in this many is drawn, in its far model: larger, a single card (propCatalog.ts turfFarGeometry).
+const TURF_FAR_EVERY = 4;
+// The most of a tile's candidate clumps of turf that are kept (grassCover).
 const GRASS_MOST = 0.75;
 // The canopy trees to a tile that leave no room for grass under them (grassCover).
 const GRASS_WOODS = 150;
@@ -106,7 +90,7 @@ const TURF_BEACH = 0.0016;
 // What grows at the water's edge but not on a beach's sand (placeProps).
 const BEACH_SHY: ReadonlySet<CatalogKind> = new Set(['reeds', 'cattail', 'papyrus']);
 // How many clumps of turf a tile of grass carries (placeTurf).
-const TURF = 520;
+const TURF = 300;
 // How much larger than the catalog's models the canopy's trees are drawn.
 const TREE_SCALE = 1;
 const HIDE_ABOVE = { Canopy: Infinity, Accent: Infinity, Understory: 1.6, Ground: 0.8 } as const;
@@ -1423,13 +1407,13 @@ export class GlobeRenderer {
 
   // The grass itself: a carpet of clumps of fine blades (the catalog's turf)
   // over the painted land of a wild tile whose ground is grass or dry
-  // grass, where the world's grass density is over the tile's threshold
+  // grass, as thick as the tile's share of grass has it (grassCover)
   // (up to TURF of them to a tile), each in the colour of the ground under it (the tile's, graded as
   // terrainMaterial.ts groundColor has it), so the blades
   // rise out of the ground with no edge. Not on mountains, in water, nor
   // on roads.
-  // How much of a tile's ground is under grass (its threshold of the
-  // world's grass density is 1 less this, placeTurf): nearly all of open grassland
+  // A tile's share of grass (the share of its candidate clumps kept,
+  // placeTurf): most of open grassland
   // and of a floodplain, less the more trees stand on it (a forest's floor
   // keeps a patch here and there, in its glades), little on ground that is
   // not grass.
@@ -1438,7 +1422,6 @@ export class GlobeRenderer {
     const main = GROUND_COVERS.reduce((a, k) => ((cover[k] ?? 0) > (cover[a] ?? 0) ? k : a));
     if (g.isWater(t)) return 0;
     const open = Math.max(0, 1 - this.vegetation.woods(t) / GRASS_WOODS);
-    // (At most GRASS_MOST of a tile: its threshold never under 1 less that.)
     const base = g.feature[t] === 'floodplain' ? GRASS_MOST : main === 'grass' || main === 'dry' ? 0.95 * GRASS_MOST : 0.32 * GRASS_MOST;
     return Math.max(0.05, base * open);
   }
@@ -1473,11 +1456,9 @@ export class GlobeRenderer {
         for (let c = 1; c < 4; c++) if (ps.w[c]! > ps.w[best]!) best = c;
         const u = fan.ids[best]!;
         if (!grassy(u)) continue;
-        // Grass where the world's grass density (grassDensity: smooth, evenly spread over 0 to 1)
-        // is over the tile's threshold: its share of grass is the share of its ground over it,
-        // and the grass runs on unbroken from tile to tile. (Thinning over a narrow edge.)
-        const dens = grassDensity(p.x / r0, p.y / r0, p.z / r0), thr = 1 - this.grassCover(u);
-        if (keep > ss(thr - 0.025, thr + 0.025, dens)) continue;
+        // As its trees are placed: each spot kept by the tile's own share of grass, evenly over
+        // its painted land, a little more here and less there (the trees' own gentle variation).
+        if (keep >= this.grassCover(u) * (0.85 + 0.3 * this.propNoise.fbm(p.x * 9, p.y * 9, p.z * 9, 2))) continue;
         // (Its colour a little strawier in places, slowly: the grass's own, not the ground's.)
         const straw = 0.45 * ss(0.45, 0.7, tFbm(p.x / (1.3 * r0) + 5.9, p.y / (1.3 * r0) + 5.9, p.z / (1.3 * r0) + 5.9, 2)), lush = 0;
         const lv = this.terrain.at(t, i, wa, wb);
@@ -1583,7 +1564,9 @@ export class GlobeRenderer {
       }
       // (Every kind this chunk shows now, or showed before: those get emptied.)
       for (const kind of new Set<PropKind>([...PROP_KINDS, ...lists.keys(), ...chunk.meshes.keys()])) {
-        const items = lists.get(kind) ?? [];
+        let items = lists.get(kind) ?? [];
+        // (The turf's far model is drawn for one clump in TURF_FAR_EVERY: those first, a share of every tile's.)
+        if (kind === 'turf') items = [...items.filter((_, i) => i % TURF_FAR_EVERY === 0), ...items.filter((_, i) => i % TURF_FAR_EVERY !== 0)];
         let mesh = chunk.meshes.get(kind);
         if (!mesh || mesh.instanceMatrix.count < items.length) {
           if (mesh) {
@@ -1597,9 +1580,10 @@ export class GlobeRenderer {
           // (Shrubs and fences of cards are drawn with it too, casting their shadows as trees do.)
           const cards = isRuralModelKind(kind) && isFloraRural(kind), crop = cards && isCropRural(kind);
           mesh = new THREE.InstancedMesh(instanceGeometry(this.geometryOf(kind), cap), isFloraKind(kind) || cards ? this.propMat : isRuralModelKind(kind) && isSmoothRural(kind) ? this.smoothMat : kind === 'wallSegment' || kind === 'wallGate' ? this.wallMat : this.buildingMat, cap);
-          mesh.userData['hideAbove'] = isFloraKind(kind) ? HIDE_ABOVE[CATALOG[kind].layer] : Infinity;
+          // (The turf belongs to its tile as its trees do: shown from as far.)
+          mesh.userData['hideAbove'] = kind === 'turf' ? Infinity : isFloraKind(kind) ? HIDE_ABOVE[CATALOG[kind].layer] : Infinity;
           // (Crops hide once the camera is higher than they reach, cullProps.)
-          if (crop || kind === 'turf') mesh.userData['crop'] = true;
+          if (crop) mesh.userData['crop'] = true;
           if (isRuralModelKind(kind) && !cards) mesh.userData['goneAt'] = RURAL_GONE;
           // Everything casts shadows but the farms' crops (a sea of stalks
           // the eye reads as a field anyway); flora's cut to its leaves and
@@ -1633,11 +1617,12 @@ export class GlobeRenderer {
         // towns' buildings (houses.ts houseFarGeometry: their details left
         // out), a little farther off (HOUSE_FAR).
         const house = isHouseKind(kind);
-        if (house || (isFloraKind(kind) && CATALOG[kind].layer === 'Canopy')) {
+        const turf = kind === 'turf';
+        if (house || turf || (isFloraKind(kind) && CATALOG[kind].layer === 'Canopy')) {
           let far = mesh.userData['far'] as THREE.InstancedMesh | undefined;
           if (!far) {
             const geo = new THREE.BufferGeometry();
-            for (const [name, attr] of Object.entries((house ? houseFarGeometry(kind) : this.farGeometryOf(kind as CatalogKind)).attributes)) geo.setAttribute(name, attr);
+            for (const [name, attr] of Object.entries((house ? houseFarGeometry(kind) : turf ? turfFarGeometry() : this.farGeometryOf(kind as CatalogKind)).attributes)) geo.setAttribute(name, attr);
             geo.setAttribute('leafTint', leaf);
             far = new THREE.InstancedMesh(geo, house ? this.buildingMat : this.propMat, mesh.instanceMatrix.count);
             if (house) mesh.userData['farAt'] = HOUSE_FAR;
@@ -1649,7 +1634,7 @@ export class GlobeRenderer {
             this.scene.add(far);
           }
           far.instanceColor = mesh.instanceColor;
-          far.count = mesh.count;
+          far.count = turf ? Math.ceil(mesh.count / TURF_FAR_EVERY) : mesh.count;
           far.boundingSphere = mesh.boundingSphere;
         }
       }

@@ -113,11 +113,11 @@ function frond(at: THREE.Vector3, ang: number, len: number, _w: number, tilt: nu
 
 // An upright card of fine grass blades (propMaterial.ts: cardUv z 6, the
 // turf), `w` wide and `h` tall, turned `ang` about the upright, leaning well out (so it shows its blades from above too, not an edge).
-function turfCard(w: number, h: number, ang: number, color: number, lean = 1.1) {
+function turfCard(w: number, h: number, ang: number, color: number, lean = 1.1, v0 = 0, v1 = 1) {
   const c = Math.cos(ang) * w / 2, s = -Math.sin(ang) * w / 2, lx = Math.sin(ang) * h * lean, lz = Math.cos(ang) * h * lean;
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute([-c, 0, -s, c, 0, s, c + lx, h, s + lz, -c, 0, -s, c + lx, h, s + lz, -c + lx, h, -s + lz], 3));
-  g.setAttribute('cardUv', new THREE.Float32BufferAttribute([0, 0, 6, 1, 0, 6, 1, 1, 6, 0, 0, 6, 1, 1, 6, 0, 1, 6], 3));
+  g.setAttribute('cardUv', new THREE.Float32BufferAttribute([0, v0, 6, 1, v0, 6, 1, v1, 6, 0, v0, 6, 1, v1, 6, 0, v1, 6], 3));
   return flatLeaf(part(g, color));
 }
 
@@ -560,6 +560,18 @@ export const catalogEntry = (k: CatalogKind): CatalogEntry => CATALOG[k];
 
 // Marks leaf parts: built with this color as the leaf, then recolored.
 const LEAF_PROBE = new THREE.Color(0x010203);
+
+// The turf's far model (render.ts: drawn for one clump in a few, where trees
+// take theirs): one small card, lying over (seen from above, a tuft's patch
+// of blades, no longer than it is wide: a long one read as a dash on the
+// land), showing the lower part of its blades:
+// thin toward its foot and no brighter than a near clump is on the whole
+// (the bright tips alone, on a card this size, stood out far more than the
+// grass they stand for). Two triangles.
+let turfFar: THREE.BufferGeometry | null = null;
+export function turfFarGeometry(): THREE.BufferGeometry {
+  return (turfFar ??= buildModel({ leaf: CATALOG.turf.leaf, layer: 'Ground', build: (p) => [turfCard(0.0046, 0.002, 0.2, p.leaf, 1.25, 0.03, 0.33)] }, 'turfFar'));
+}
 
 export function buildCatalogGeometry(kind: CatalogKind, palette?: Partial<Palette>): THREE.BufferGeometry {
   return buildModel(CATALOG[kind], kind, palette);

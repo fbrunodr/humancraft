@@ -231,8 +231,6 @@ const FLORA_SEASON = `
   #endif`;
 // (A leaf card's clump gone, where the crown is bare: `bare` of them.)
 const BARE_CUT = (bare: string) => `(${bare} > 0.01 && vCard.z < 1.5 && fract(sin(dot(floor(vCard.xy * 9.0), vec2(12.9898, 78.233))) * 43758.5453) < ${bare})`;
-// How far the turf is drawn, of the crops' distance (uCropFar).
-const TURF_FAR = '1.0';
 const FLORA_VERTEX = `
   vBark = vec4(position, leafMask);
   #ifdef USE_INSTANCING
@@ -246,14 +244,8 @@ const FLORA_VERTEX = `
       // (Seen from far, a crown is one solid: a bare one a good deal smaller.)
       if (leafMask > 0.5 && cardUv.z < 0.5) transformed.xz *= 1.0 - 0.45 * vBare;
       transformed.xz += sway * transformed.y * ${WIND.toFixed(3)} * gust * vec2(1.0, 0.6);
+      // (The turf is its tile's, as its trees are: shown from any distance, in a far model far off, render.ts.)
       if (cardUv.z > 5.5) {
-        // Turf (the grass's carpet): each clump goes at a distance of its
-        // own, shrinking into the ground over the last of it, so the
-        // carpet thins out evenly with distance and none of it pops: all
-        // of it up to a quarter of the way, the last at TURF_FAR.
-        float own = mix(0.5, 1.0, fract(sin(ph * 0.731) * 43758.5453));
-        float far = distance((modelMatrix * vec4(o, 1.0)).xyz, uEye) / (uCropFar * ${TURF_FAR} * own);
-        transformed *= 1.0 - smoothstep(0.55, 1.0, far);
       } else if (cardUv.z > 1.5) {
         float far = distance((modelMatrix * vec4(o, 1.0)).xyz, uEye) / uCropFar;
         transformed *= 1.0 - smoothstep(0.6, 1.0, far);
