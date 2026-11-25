@@ -39,16 +39,8 @@
     <div id="bar">
       <nav class="devnav"><a href="./">Game</a><a class="active" href="gallery.html">Gallery</a><a href="buildings.html">Buildings</a><a href="units.html">Units</a><a href="wonders.html">Wonders</a><a href="city_lab.html">City lab</a><a href="city_lab.html?stress" title="The worst case to measure: the large map packed with cities and units">Stress test</a><a href="city_samples.html">City samples</a><a href="world_view.html">World view</a><a href="map_editor.html">Map editor</a><a href="icons.html">Icons</a></nav>
       <span class="sep"></span>
-      <button data-view="terrains">Terrains</button>
-      <button data-view="catalog">Catalog</button>
-      <span class="sep"></span>
-      <select id="terrain" title="Terrain (← → to cycle)"></select>
-      <label><input type="checkbox" id="jitter" checked /> new jitter</label>
-      <label><input type="checkbox" id="groves" checked /> groves</label>
-      <button id="reroll" title="New random placement">Reroll</button>
-      <span class="sep"></span>
-      <label title="The turn of the year, of 32 ([ and ] step it): how each terrain looks through its seasons">Season <input type="range" id="season" min="0" max="31" step="1" value="11" /> <output id="seasonOut"></output></label>
-      <label title="The latitude the terrains are shown at: the seasons are stronger away from the equator">Latitude <select id="latitude"></select></label>
+      <button id="terrains" title="Every terrain, feature and resource, on real tiles of a generated world">Terrains</button>
+      <button class="active">Catalog</button>
       <span class="sep"></span>
       <button data-cam="map">Map view</button>
       <button data-cam="close">Close</button>

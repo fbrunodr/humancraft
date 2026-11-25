@@ -1,51 +1,23 @@
 import * as THREE from 'three';
-import { YEAR, LAG, landPhase, groundSeason, plantSeason, BIOME_SEASON, SEASON_GLSL, SEASON_COLORS } from './seasons.ts';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WorldLabel, clickableLabels, disposeLabels, type LabelLine } from './worldLabel.ts';
-import { makePropMaterial, makeRoamDepthMaterial, instanceGeometry } from './propMaterial.ts';
-import { ruralGeometry, ruralModelKind, isSmoothRural, isFloraRural, roamOf, wanderIn, wanderMax, RURAL_MODELS, type RuralModel } from './rural/models.ts';
-import { resourceLayout, RESOURCE_WILD, RESOURCE_WORKED, type ResourceLook } from './rural/resourceModels.ts';
-import { RESOURCES, RESOURCE_KEYS, RESOURCE_IMPROVEMENT, type ResourceKey } from './resources.ts';
-import { TECHS, TECH_KEYS, STAGE_TECHS } from './techs.ts';
-import { IMPROVEMENTS, type ImprovementKey } from './cities.ts';
-import { stageLook, waterLook, plotStage } from './rural/stages.ts';
-import { planFarm, layoutRural, largestRect, HOMESTEAD_SCALE, HOMESTEAD_LOT, type RuralInput, type RuralSite } from './rural/layout.ts';
-import { kitBoost, FIGURES, SPECIES_OF, KIT_BOOST, FISH_PER_SHOAL, SWIMMERS, type KitModel } from './rural/kit.ts';
+import { makePropMaterial, instanceGeometry } from './propMaterial.ts';
+import { ruralGeometry, ruralModelKind, isSmoothRural, isFloraRural, RURAL_MODELS, type RuralModel } from './rural/models.ts';
+import { FIGURES, SPECIES_OF, FISH_PER_SHOAL, SWIMMERS, type KitModel } from './rural/kit.ts';
 import { CREATURE_SCALE } from './creatures.ts';
-import { plotAt, cropIndex, CROP_PALETTE, PLOT_SIZES, PLANT_ROW_W, FARM_LANE } from './rural/plots.ts';
-import { ROAD_DIRT } from './terrainMaterial.ts';
-import { wearAt, wearSalt, wornNear, type WearKind } from './rural/wear.ts';
-import { valueNoise } from './paint.ts';
-import { areaLook, cropRegion, type CropRegion } from './rural/look.ts';
-import { rhoOf, INR, type Pt } from './town/geometry.ts';
-import { placedGeometry } from './buildingCatalog.ts';
-import { houseKind, WORKS_VARIANT } from './houses.ts';
-import { styleOf } from './architecture.ts';
 import { CATALOG, CATALOG_KINDS, buildCatalogGeometry, triangles, type CatalogKind } from './propCatalog.ts';
 import { BUILDINGS_CATALOG, BUILDING_KINDS, buildBuildingGeometry } from './buildingCatalog.ts';
-import { BIOME_FLORA, FEATURE_FLORA, FLORA_KEEP, realmsLabel, type Tint, type Variant } from './floraData.ts';
-import { BIOME_LOOK, FEATURE_LOOK } from './look.ts';
-import type { BiomeKey, FeatureKey } from './terrain.ts';
-import { biomeDef, featureDef } from './terrain.ts';
-import { makePerlin, mulberry32, type Rng } from './rng.ts';
 
-// Prop gallery (dev tool, /gallery.html). Two views:
-//   terrains  one board of every terrain at once: a row per biome and
-//             feature (floraData.ts), each of its variants a tile-sized hex
-//             patch (the plain mix, without the game's placement modifiers:
-//             hills, rivers, coasts...); then every resource (resources.ts)
-//             on its own land, as the game shows it (rural/resourceModels.ts)
-//   catalog   every prop and building on its own, enlarged
-// Sizes match the game: a tile edge of 0.07 at the reference scale, props
-// at render.ts's scale, the walk-mode eye height for the ground camera.
-// Everything is ×100 here.
+// The catalog (dev tool, /gallery.html#catalog): every prop, city building
+// and countryside model on its own, enlarged. (The terrains, with their
+// plants and resources as the game draws them, are the terrain gallery's:
+// terrainGallery.ts. This page's own board of them, drawn by its own means,
+// drifted from the game and was removed.) Everything is ×100 here.
+
+if (location.hash !== '#catalog') location.replace('terrain_gallery.html');
 
 const SC = 100;
-const R = 0.07 * SC;          // hex circumradius = tile edge
 const PROP = 0.414 * SC;     // render.ts: 1.5 × PROP_SIZE
-const EYE = 0.0011 * SC;      // walk.ts eye height
-const SPACING = 2.25 * R;
 const BUDGET = 40;
 
 const canvas = document.querySelector<HTMLCanvasElement>('#c')!;
@@ -80,30 +52,12 @@ scene.add(sun, sun.target);
 // The game's flora material (clump normals, leaf cards), at full saturation.
 // (Its clock: the leaves' sway, the beasts' walk.)
 const clock = { value: 0 };
-// The seasons (seasons.ts), on patches that lie on no globe: the turn of the year is set by hand, and each
-// terrain is shown at a latitude (its own, where it mostly grows, or one chosen for all), in the north.
-const yearPhase = { value: landPhase(11) };
-const OWN_LATITUDE: Record<string, number> = {
-  iceSheet: 80, tundra: 68, taiga: 58, coldDesert: 42, steppe: 46, prairie: 42, temperateForest: 48, temperateRainforest: 50, mediterranean: 36,
-  hotDesert: 25, savanna: 14, monsoonForest: 16, jungle: 3, marsh: 45, swamp: 32, mangrove: 8, bog: 60, floodplain: 30, oasis: 25,
-};
-// (A feature's seasons: those of a land it lies on.)
-const FEATURE_LAND: Record<string, BiomeKey> = { marsh: 'prairie', swamp: 'temperateForest', mangrove: 'jungle', bog: 'taiga', floodplain: 'prairie', oasis: 'hotDesert', reef: 'ocean', kelp: 'ocean' };
-let latitudeSet: number | null = null;
-// (The land whose patch is being built: its plants and ground take its seasons; none, they keep their summer.)
-let landNow: string | null = null;
-const landBiome = (land: string): BiomeKey => (land in BIOME_SEASON ? (land as BiomeKey) : FEATURE_LAND[land] ?? 'hotDesert');
-const landLatitude = (land: string): number => latitudeSet ?? OWN_LATITUDE[land] ?? 40;
-const landGround = (land: string) => groundSeason(landBiome(land), land in BIOME_SEASON ? null : (land as FeatureKey), false);
-const propMat = makePropMaterial(0, 1, undefined, { time: clock, year: yearPhase, flat: { value: 1 } });
-// The game's material for the countryside's models (and the resources');
-// the smooth one for the kit's people, animals and plants.
+const propMat = makePropMaterial(0, 1, undefined, { time: clock, flat: { value: 1 } });
+// The game's material for the countryside's models; the smooth one for the
+// kit's people, animals and plants.
 const ruralMat = makePropMaterial(0.32, 0.8);
 const smoothMat = makePropMaterial(0.25, 0.85, undefined, undefined, true, clock);
-const roamDepth = makeRoamDepthMaterial(clock);
 const matOf = (m: RuralModel) => (isFloraRural(ruralModelKind(m)) ? propMat : isSmoothRural(ruralModelKind(m)) ? smoothMat : ruralMat);
-// A tile step (center to center) in scene units: resource models are sized in them.
-const STEP = R * Math.sqrt(3);
 const world = new THREE.Group();
 scene.add(world);
 
@@ -117,143 +71,12 @@ const cached = (key: string, make: () => THREE.BufferGeometry) => {
 const catalogGeo = (kind: CatalogKind, leaf?: number) =>
   cached(`${kind}|${leaf ?? ''}`, () => buildCatalogGeometry(kind, leaf === undefined ? undefined : { leaf }));
 
-// The terrains shown: every biome and feature with props.
-interface TerrainSet { name: string; ground: number; water?: number; variants: readonly Variant[] }
-const WATER_DEPTH: Partial<Record<BiomeKey | FeatureKey, number>> = { reef: 0.0013, kelp: 0.0021, lake: 0.0006, ocean: 0.004 };
-const sets: [string, TerrainSet][] = [
-  ...(Object.keys(BIOME_FLORA) as BiomeKey[]).map((k): [string, TerrainSet] => [k, { name: biomeDef(k).name, ground: BIOME_LOOK[k].color, variants: BIOME_FLORA[k].variants }]),
-  ...(Object.keys(FEATURE_FLORA) as FeatureKey[]).map((k): [string, TerrainSet] => [k, { name: featureDef(k).name, ground: FEATURE_LOOK[k].color ?? 0x8a8a70, variants: FEATURE_FLORA[k].variants }]),
-].filter(([, t]) => t.variants.some((v) => v.mix.length > 0))
-  .map(([k, t]): [string, TerrainSet] => [k, WATER_DEPTH[k as BiomeKey] !== undefined ? { ...t, water: WATER_DEPTH[k as BiomeKey]! } : t]);
-const TERRAINS = new Map(sets);
-type TerrainSetKey = string;
-
-// ---------- placement ----------
-const SQ3 = Math.sqrt(3) / 2;
-// The patches' hexes lie as the game's tile frame has them (town/geometry.ts
-// rhoOf: flat sides across x, corners on z), so the farms' and resources'
-// hex is the one drawn.
-const HEX_TURN = Math.PI / 6;
-const inHex = (x: number, z: number, r: number) => Math.abs(x) <= r * SQ3 && SQ3 * Math.abs(z) + Math.abs(x) / 2 <= r * SQ3;
-
-// Even spacing (best-candidate sampling), as the game's jittered lattice.
-function spots(n: number, rand: Rng, r: number): [number, number][] {
-  const pts: [number, number][] = [];
-  for (let i = 0; i < n; i++) {
-    let best: [number, number] = [0, 0], bestD = -1;
-    for (let c = 0; c < 12; c++) {
-      let x = 0, z = 0;
-      do { x = (rand() * 2 - 1) * r; z = (rand() * 2 - 1) * r; } while (!inHex(x, z, r));
-      let d = Infinity;
-      for (const p of pts) d = Math.min(d, (p[0] - x) ** 2 + (p[1] - z) ** 2);
-      if (d > bestD) { bestD = d; best = [x, z]; }
-    }
-    pts.push(best);
-  }
-  return pts;
-}
-
-// (leaf: the instance's leaf colour, per instance as in the game: render.ts.)
-// (`wander`: a walker's circle, model units: propMaterial.ts ROAM.)
-interface Placed { key: string; geo: THREE.BufferGeometry; m: THREE.Matrix4; c: THREE.Color; leaf: THREE.Color; mat?: THREE.Material; wander?: number }
-interface Options { jitter: boolean; groves: boolean; seed: number }
-
-const pickTint = (t: Tint | undefined, rand: Rng): number | undefined =>
-  t === undefined ? undefined : typeof t === 'number' ? t : t[Math.floor(rand() * t.length)] ?? undefined;
-
-function instance(x: number, z: number, rand: Rng, jitter: boolean): { m: THREE.Matrix4; c: THREE.Color } {
-  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * Math.PI * 2);
-  const size = 0.8 + 0.45 * rand(), tall = 0.9 + 0.3 * rand();
-  const shade = 0.82 + 0.36 * rand();
-  const c = new THREE.Color(shade, shade, shade);
-  if (jitter) {
-    const a = rand() * Math.PI * 2, lean = rand() * (6 * Math.PI / 180);
-    q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)), lean));
-    c.setRGB(shade * (1 + (rand() - 0.5) * 0.12), shade * (1 + (rand() - 0.5) * 0.12), shade * (1 + (rand() - 0.5) * 0.12));
-  }
-  const m = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(size, size * tall, size).multiplyScalar(PROP));
-  return { m, c };
-}
-
-function placeVariant(v: Variant, o: Options): Placed[] {
-  const rand = mulberry32(o.seed);
-  const noise = makePerlin(mulberry32(o.seed ^ 0x9e37));
-  const out: Placed[] = [];
-  for (const [x, z] of spots(v.density, rand, R * 0.95)) {
-    // Groves: low-frequency noise per species biases which one wins here.
-    const w = v.mix.map(([, share], j) => share * (o.groves ? Math.exp(3 * noise.fbm(x / R * 1.3 + j * 31.7, j * 7.1, z / R * 1.3 + j * 17.3, 2)) : 1));
-    let r = rand() * w.reduce((a, b) => a + b, 0), j = 0;
-    while (j < w.length - 1 && (r -= w[j]) > 0) j++;
-    const [kind, , tint, size = 1] = v.mix[j];
-    const leaf = pickTint(tint, rand);
-    const inst = instance(x, z, rand, o.jitter);
-    inst.m.scale(new THREE.Vector3(size, size, size));
-    out.push({ key: kind, geo: catalogGeo(kind), leaf: new THREE.Color(leaf ?? CATALOG[kind].leaf), ...inst });
-  }
-  return out;
-}
-
-function addInstances(items: Placed[], at: THREE.Vector3, parent: THREE.Object3D): number {
-  const groups = new Map<string, Placed[]>();
-  for (const p of items) { const l = groups.get(p.key) ?? []; l.push(p); groups.set(p.key, l); }
-  let tris = 0;
-  const off = new THREE.Matrix4().makeTranslation(at.x, at.y, at.z);
-  for (const list of groups.values()) {
-    const mesh = new THREE.InstancedMesh(instanceGeometry(list[0].geo, list.length), list[0].mat ?? propMat, list.length);
-    if (list[0].mat === smoothMat) mesh.customDepthMaterial = roamDepth;
-    const leaf = mesh.geometry.getAttribute('leafTint') as THREE.InstancedBufferAttribute, wander = mesh.geometry.getAttribute('wander') as THREE.InstancedBufferAttribute;
-    // (How it answers the seasons, and at what latitude: its kind + degrees / 100, propMaterial.ts.)
-    const kind = landNow ? plantSeason(list[0].key, landBiome(landNow)) : 0, season = kind ? kind + landLatitude(landNow!) / 100 : 0;
-    list.forEach((p, i) => { mesh.setMatrixAt(i, off.clone().multiply(p.m)); mesh.setColorAt(i, p.c); leaf.setXYZW(i, p.leaf.r, p.leaf.g, p.leaf.b, season); wander.setX(i, p.wander ?? 0); });
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    tris += triangles(list[0].geo) * list.length;
-  }
-  return tris;
-}
-
 // ---------- scene pieces ----------
-// The rim of a patch: a band round its hex (no surface under the hex's own:
-// two faces a hair apart flicker from afar) and its sides down to RIM_DEPTH.
-const RIM_DEPTH = 0.5;
-function rim(at: THREE.Vector3, r = R): THREE.Mesh {
-  const mat = new THREE.MeshStandardMaterial({ color: 0x4a4436, roughness: 1 });
-  const band = new THREE.RingGeometry(r, r * 1.06, 6, 1, HEX_TURN).rotateX(-Math.PI / 2);
-  const sides = new THREE.CylinderGeometry(r * 1.06, r * 1.06, RIM_DEPTH, 6, 1, true).rotateY(Math.PI / 2 - HEX_TURN).translate(0, -RIM_DEPTH / 2, 0);
-  const m = new THREE.Mesh(mergeGeometries([band.toNonIndexed(), sides.toNonIndexed()])!, mat);
+// A model's stand: a hexagon of plain ground.
+function hex(color: number, at: THREE.Vector3, r: number): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 6, Math.PI / 6).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color, roughness: 1 }));
   m.position.copy(at);
   m.receiveShadow = true;
-  return m;
-}
-// A patch's ground: its land's colour, through the seasons as the game's terrain has it (seasons.ts:
-// the same ground and the same snow, at the land's latitude).
-function groundMaterial(color: number): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 1 });
-  if (!landNow) return mat;
-  const g = landGround(landNow), row = { value: new THREE.Vector4(g.cold, g.rain, g.russet, g.snow) }, lat = { value: landLatitude(landNow) };
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, { uYear: yearPhase, uRow: row, uLat: lat });
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${SEASON_GLSL}\nuniform vec4 uRow; uniform float uLat;`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        Season season = seasonOf(uLat, 0.0);
-        diffuseColor.rgb = mix(seasonGround(diffuseColor.rgb, uRow, season), ${SEASON_COLORS.snow}, seasonSnow(season, 0.5, uRow.w));`);
-  };
-  mat.customProgramCacheKey = () => 'gallery-ground';
-  return mat;
-}
-function hex(color: number, at: THREE.Vector3, r = R): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 6, HEX_TURN).rotateX(-Math.PI / 2), groundMaterial(color));
-  m.position.copy(at);
-  m.receiveShadow = true;
-  return m;
-}
-function waterSheet(at: THREE.Vector3, depth: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CircleGeometry(R, 6, HEX_TURN).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: 0x1f6f8a, roughness: 0.15, transparent: true, opacity: 0.45, depthWrite: false }));
-  m.position.copy(at).setY(at.y + depth * SC);
-  m.renderOrder = 1;
   return m;
 }
 // A label standing on the ground (a sign in the scene; click it to focus).
@@ -273,306 +96,13 @@ function clearWorld(): void {
   world.clear();
 }
 
-// ---------- state and views ----------
-type View = 'terrains' | 'catalog';
+// ---------- state ----------
 type Cam = 'map' | 'close' | 'ground';
-const terrainKeys = [...TERRAINS.keys()];
-const hashParts = location.hash.slice(1).split('/');
-// (The terrains are shown from real worlds now, as the game draws them: terrainGallery.ts. This page keeps the catalog;
-// its own board of terrains, drawn by its own means, had drifted from the game and is no longer reached.)
-if (hashParts[0] !== 'catalog' && hashParts[0] !== 'board') location.replace('terrain_gallery.html');
-const state = {
-  view: (hashParts[0] === 'board' ? 'terrains' : 'catalog') as View,
-  terrain: ([...terrainKeys, 'resources'].includes(hashParts[1] as TerrainSetKey) ? hashParts[1] : terrainKeys[0]) as TerrainSetKey,
-  focus: 0,
-  seed: 1,
-};
+const state = { focus: 0 };
 let patches: { center: THREE.Vector3; label: WorldLabel; mix: string }[] = [];
 
 const $ = <T extends HTMLElement>(s: string) => document.querySelector<T>(s)!;
-const select = $<HTMLSelectElement>('#terrain');
-for (const k of terrainKeys) select.add(new Option(TERRAINS.get(k)!.name, k));
-select.add(new Option('Resources', 'resources'));
-const jitterBox = $<HTMLInputElement>('#jitter'), grovesBox = $<HTMLInputElement>('#groves');
 const info = $<HTMLSpanElement>('#info'), mixPanel = $<HTMLDivElement>('#mix');
-
-const hexColor = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
-function mixHtml(name: string, v: Variant): string {
-  const rows = v.mix.map(([k, share, tint]) => {
-    const sw = tint === undefined ? '' : (typeof tint === 'number' ? [tint] : tint).map((c) => `<span class="sw" style="background:${hexColor(c)}"></span>`).join('');
-    return `<b>${CATALOG[k].name}</b> ${share}%${sw ? ' ' + sw : ''}`;
-  });
-  return `<h4>${name}</h4><div class="row">${rows.join(' · ')}</div>`;
-}
-
-// The gallery's patch is a tile's painted land: the hex itself (ρ 1 at its
-// sides). A farm fills it up to its border band, 1.5 of its lanes wide (as
-// FIELD_PAD keeps it in the game: cityProps.ts).
-const FILL = 1 - (1.5 * FARM_LANE) / INR[6];
-// A wetland's own pools, about half its ground (tile steps), off its sides.
-const WET_LANDS: ReadonlySet<string> = new Set(['marsh', 'swamp', 'mangrove', 'bog']);
-const poolsOf = (seed: number) => (p: Pt) => rhoOf(6, p) < 0.96 && valueNoise(p.x * 9 + 3.1, p.y * 9 - 1.7, (seed % 89) * 1.3, 7) > 0.5;
-type Pools = ((p: Pt) => boolean) | null;
-
-// What a resource's models add to a patch, laid out as in the game
-// (rural/resourcePlace.ts): only on the tile's land, a walker's whole walk
-// too, in the water for a sea resource and dry for the rest; `at` moves the
-// patch's middle (a worked resource's corner).
-function resourceItems(r: ResourceKey, seed: number, look: ResourceLook = RESOURCE_WILD[r], pools: Pools = null, at: Pt = { x: 0, y: 0 }): Placed[] {
-  const rand = mulberry32(seed);
-  // (A wader, wild rice, stands in the pools too.)
-  const fits = (p: Pt) => rhoOf(6, p) <= 1 && (look.water || look.wade !== undefined || !pools || !pools(p));
-  const inside = (x: number, y: number, m: { model: string; s: number }) => {
-    const p = { x: x + at.x, y: y + at.y }, reach = 2 * roamOf(m.model) * m.s;
-    if (!fits(p)) return false;
-    for (let j = 0; reach > 0 && j < 6; j++) if (!fits({ x: p.x + reach * Math.cos((j * Math.PI) / 3), y: p.y + reach * Math.sin((j * Math.PI) / 3) })) return false;
-    return true;
-  };
-  return resourceLayout(r, rand, look, inside).map((m) => {
-    const geo = cached(`r|${m.model}`, () => ruralGeometry(ruralModelKind(m.model)));
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), m.yaw);
-    const mm = new THREE.Matrix4().compose(new THREE.Vector3((m.x + at.x) * STEP, 0, (m.y + at.y) * STEP), q, new THREE.Vector3().setScalar(m.s * STEP));
-    // (Its wanders on the patch's land, or in its water.)
-    const wander = wanderIn({ x: m.x + at.x, y: m.y + at.y }, wanderMax(m.model), fits) / m.s;
-    return { key: `r|${m.model}`, geo, m: mm, c: new THREE.Color(1, 1, 1), leaf: new THREE.Color(m.color ?? 0xffffff), mat: matOf(m.model), wander };
-  });
-}
-// A wetland's water: a sheet over its pools only.
-function poolSheet(at: THREE.Vector3, pools: (p: Pt) => boolean, depth: number): THREE.Mesh {
-  const N = 256, cv = document.createElement('canvas');
-  cv.width = cv.height = N;
-  const ctx = cv.getContext('2d')!, img = ctx.createImageData(N, N);
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const v = pools({ x: (i / N - 0.5) * 1.24, y: (j / N - 0.5) * 1.24 }) ? 255 : 0, o = (j * N + i) * 4;
-    img.data[o] = img.data[o + 1] = img.data[o + 2] = v; img.data[o + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  const g = new THREE.CircleGeometry(R, 6, HEX_TURN).rotateX(-Math.PI / 2);
-  const pos = g.getAttribute('position'), uv = g.getAttribute('uv');
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / STEP / 1.24 + 0.5, 1 - (pos.getZ(i) / STEP / 1.24 + 0.5));
-  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x1f6f8a, roughness: 0.15, transparent: true, opacity: 0.6, depthWrite: false, alphaMap: new THREE.CanvasTexture(cv) }));
-  m.position.copy(at).setY(at.y + depth * SC);
-  m.renderOrder = 1;
-  return m;
-}
-
-// ---------- worked land ----------
-// A worked tile as the game shows it at a stage (rural/layout.ts, as
-// cityProps.ts places it, on a flat patch): the ground painted with its
-// plots (rural/plots.ts, as the terrain shader paints them), the farm's
-// homestead, its crops or plants, its herd behind fences, and the stage's
-// people, machines and works. Positions in tile steps (the hex's own
-// frame), the patch's x and z.
-function kitItem(m: KitModel | RuralModel, p: Pt, yaw: number, s: number, leaf: number, sc?: THREE.Vector3, shade = 1): Placed {
-  const geo = cached(`r|${m}`, () => ruralGeometry(ruralModelKind(m as RuralModel)));
-  const mm = new THREE.Matrix4().compose(new THREE.Vector3(p.x * STEP, 0, p.y * STEP), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), sc ?? new THREE.Vector3().setScalar(s * STEP));
-  return { key: `r|${m}`, geo, m: mm, c: new THREE.Color(shade, shade, shade), leaf: new THREE.Color(leaf), mat: matOf(m as RuralModel) };
-}
-// The ground's texture: the hex's plots at the stage, the crop's colours
-// (none for a pasture: it keeps the land's own grass).
-function farmGround(imp: ImprovementKey, region: CropRegion, stage: number, salt: number, base: number, pools: Pools): THREE.CanvasTexture {
-  const N = 512, cv = document.createElement('canvas');
-  cv.width = cv.height = N;
-  const ctx = cv.getContext('2d')!, img = ctx.createImageData(N, N), half = 0.62;
-  const pal = CROP_PALETTE[region].map((h) => new THREE.Color(h)), bg = new THREE.Color(base), ps = plotStage(imp, stage);
-  // (Its border and lanes: trodden earth, the land turned toward the roads' dirt, as the terrain shader.)
-  const packed = bg.clone().lerp(new THREE.Color(...ROAD_DIRT), 0.68), paddy = region === 'paddy';
-  const lane = 0.5 * FARM_LANE * (ps <= 1 ? 0.55 : ps === 4 ? 0.375 : 1);
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const x = (i / N - 0.5) * 2 * half, y = (j / N - 0.5) * 2 * half;
-    let c = bg.clone();
-    // (A paddy's plots are its pools, the dry ground between left wild.)
-    const rho = rhoOf(6, { x, y });
-    if (imp !== 'pasture' && rho < FILL && (!paddy || !pools || pools({ x, y }))) {
-      const pl = plotAt(x, y, salt, ps), k = cropIndex(pl.h, ps);
-      c = pal[k]!.clone().multiplyScalar(0.94 + 0.12 * ((pl.h * 7.3) % 1));
-      if (imp === 'plantation' && ps >= 2 && ((pl.f[0] * PLOT_SIZES[ps]![0] / PLANT_ROW_W) % 1) < 0.45) c.lerp(new THREE.Color(0.36, 0.29, 0.2), 0.7);
-      if (!paddy && pl.edge < lane) c = packed.clone();
-      // (A neglected farm: dull, gone to weed.)
-      if (ps === 0) { const l = 0.3 * c.r + 0.55 * c.g + 0.15 * c.b; c.lerp(new THREE.Color(l * 1.05, l * 0.95, l * 0.8), 0.5).lerp(bg, 0.6 * Math.max(0, Math.sin(x * 61 + y * 37) * Math.sin(y * 53 - x * 41))); }
-    } else if (imp !== 'pasture' && !paddy && rho < 1) c = packed.clone();
-    const o = (j * N + i) * 4;
-    img.data[o] = Math.round(Math.min(1, c.r) ** (1 / 2.2) * 255); img.data[o + 1] = Math.round(Math.min(1, c.g) ** (1 / 2.2) * 255); img.data[o + 2] = Math.round(Math.min(1, c.b) ** (1 / 2.2) * 255); img.data[o + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-// A mine's or a camp's ground: its worn patches (rural/wear.ts, as the
-// terrain shader paints them) inside the hexagon, the land's own outside.
-function wearGround(kind: WearKind, base: number, salt: number): THREE.CanvasTexture {
-  const N = 256, cv = document.createElement('canvas');
-  cv.width = cv.height = N;
-  const ctx = cv.getContext('2d')!, img = ctx.createImageData(N, N), bg = new THREE.Color(base);
-  const worn = kind === 'camp' ? bg.clone().lerp(new THREE.Color(...ROAD_DIRT), 0.75) : new THREE.Color(0.5, 0.48, 0.44).lerp(bg, 0.2);
-  const dust = bg.clone().lerp(new THREE.Color(0.6, 0.57, 0.5), 0.6);
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const x = (i / N - 0.5) * 1.24, y = (j / N - 0.5) * 1.24;
-    const [a, d] = rhoOf(6, { x, y }) < 1 ? wearAt(kind, x, y, salt) : [0, 0];
-    const c = bg.clone().lerp(dust, d * (1 - a) * 0.75).lerp(worn, a * 0.92), o = (j * N + i) * 4;
-    img.data[o] = Math.round(Math.min(1, c.r) ** (1 / 2.2) * 255); img.data[o + 1] = Math.round(Math.min(1, c.g) ** (1 / 2.2) * 255); img.data[o + 2] = Math.round(Math.min(1, c.b) ** (1 / 2.2) * 255); img.data[o + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-function groundHex(tex: THREE.Texture, at: THREE.Vector3): THREE.Mesh {
-  const g = new THREE.CircleGeometry(R, 6, HEX_TURN).rotateX(-Math.PI / 2);
-  // (uv from the patch's x and z: the texture spans ±0.62 tile steps.)
-  const pos = g.getAttribute('position'), uv = g.getAttribute('uv');
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / STEP / 1.24 + 0.5, 1 - (pos.getZ(i) / STEP / 1.24 + 0.5));
-  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
-  m.position.copy(at);
-  m.receiveShadow = true;
-  return m;
-}
-// (A paddy's patch stands flooded: its water over the whole of it.)
-const PADDY_WATER = 0.006;
-function workedItems(imp: ImprovementKey, stage: number, res: ResourceKey | null, region: CropRegion, seed: number, land: BiomeKey, pools: Pools): Placed[] {
-  const out: Placed[] = [], rand = mulberry32(seed);
-  if (imp === 'boats' || imp === 'well') {
-    const at: Pt[] = [];
-    for (const th of waterLook(imp, stage)) for (let n = 0; n < th.n; n++) {
-      let p: Pt = { x: 0, y: 0 };
-      for (let k = 0; k < 20; k++) { p = { x: (rand() - 0.5) * 0.6, y: (rand() - 0.5) * 0.6 }; if (at.every((q) => Math.hypot(p.x - q.x, p.y - q.y) > 0.16)) break; }
-      at.push(p);
-      out.push(kitItem(th.model, p, rand() * 6.28, kitBoost(th.model), th.colors ? th.colors[n % th.colors.length]! : 0xffffff));
-    }
-    return out;
-  }
-  const inp: RuralInput = { imp, stage, res, region, axis: 0, salt: seed, seed, yard: (i) => areaLook(imp, land, null, 15, i, seed) };
-  // (A wetland's water is its pools; the farm keeps in from its border band.)
-  const site: RuralSite = { free: () => true, depth: (p) => (pools?.(p) ? 0.004 : -1), wade: PADDY_WATER, ours: (p) => rhoOf(6, p) <= FILL, inner: (p) => rhoOf(6, p) <= 0.85, pool: (p) => pools?.(p) ?? false, ground: () => 0, field: imp === 'pasture' ? largestRect((u, v) => rhoOf(6, { x: u, y: v }) <= FILL) : null };
-  const farm = planFarm(inp, site);
-  if (!farm) return out;
-  const plan = layoutRural(inp, farm, site);
-  if (plan.house) {
-    // (As in the game: a farm's house one of its style's two homes, a mine's its works.)
-    const hk = houseKind(styleOf('Romans', plan.house.floors), HOMESTEAD_LOT, plan.house.floors, imp === 'mine' ? WORKS_VARIANT : seed % 2);
-    const geo = cached(`h|${hk}`, () => placedGeometry(hk));
-    out.push({ key: `h|${hk}`, geo, m: new THREE.Matrix4().compose(new THREE.Vector3(plan.house.p.x * STEP, 0, plan.house.p.y * STEP), new THREE.Quaternion(), new THREE.Vector3().setScalar(STEP * HOMESTEAD_SCALE)), c: new THREE.Color(1, 1, 1), leaf: new THREE.Color(0xa8553a), mat: ruralMat });
-  }
-  // (The hex's frame is the patch's x and z: a heading a turns the model by -a about y.)
-  for (const it of plan.items) out.push({ ...kitItem(it.model, it.p, -it.heading, 0, it.leaf, new THREE.Vector3(it.size[0] * STEP, it.size[1] * STEP, it.size[2] * STEP), it.shade), wander: it.wander / it.size[0] });
-  if (imp === 'mine' && stageLook(imp, stage, res).adits) out.push(kitItem('adit', { x: -0.25, y: 0.2 }, 0.6, KIT_BOOST, 0xffffff));
-  return out;
-}
-// The stage's name: the techs that brought it.
-const stageText = (imp: ImprovementKey, stage: number): string => stage === 0 ? 'before its techs' : STAGE_TECHS(imp).slice(0, stage).map((k) => TECHS[k].name).join(', ');
-// The land a resource stands on in the gallery: its first terrain with flora.
-function landOf(r: ResourceKey): TerrainSetKey | null {
-  const d = RESOURCES[r] as { biomes: readonly string[]; features?: readonly string[] };
-  return [...(d.features ?? []), ...d.biomes].find((k) => TERRAINS.has(k)) ?? null;
-}
-const revealedBy = (r: ResourceKey): string => {
-  const t = (RESOURCES[r] as { reveal?: string }).reveal;
-  return t ? ` · revealed by ${TECHS[TECH_KEYS.find((k) => k === t)!].name}` : '';
-};
-const yieldText = (r: ResourceKey) => Object.entries(RESOURCES[r].yields).filter(([, v]) => v).map(([k, v]) => `+${v} ${k === 'prod' ? 'production' : k}`).join(', ');
-
-// The whole board: a row per terrain, then the resources, eight a row.
-const ROW = 2.5 * R;
-let rowStart = new Map<TerrainSetKey, number>();
-function buildTerrains(): void {
-  const o: Options = { jitter: jitterBox.checked, groves: grovesBox.checked, seed: state.seed };
-  patches = [];
-  rowStart = new Map();
-  const patch = (center: THREE.Vector3, ground: number, water: number | undefined, items: Placed[], title: string, sub: string, mix: string) => {
-    world.add(hex(ground, center));
-    world.add(rim(center));
-    if (water !== undefined) world.add(waterSheet(center, water));
-    const tris = addInstances(items, center, world);
-    const i = patches.length;
-    const div = label(title, `${sub} · ${Math.round(tris).toLocaleString()} tris`, center.clone().add(new THREE.Vector3(0, 0, R * 0.95)), () => { state.focus = i; refreshFocus(); setCam('close'); });
-    patches.push({ center, label: div, mix });
-  };
-  let row = 0;
-  for (const [key, set] of TERRAINS) {
-    landNow = key;
-    rowStart.set(key, patches.length);
-    const z = row * ROW;
-    const title = new WorldLabel([{ text: set.name, bold: true }], LABEL * 1.6);
-    title.position.set(-SPACING * 0.9, title.scale.y / 2 + 0.1, z);
-    world.add(title);
-    set.variants.filter((v) => v.mix.length > 0).forEach((v, i) => {
-      patch(new THREE.Vector3(i * SPACING, 0, z), set.ground, set.water, placeVariant(v, { ...o, seed: o.seed * 977 + row * 31 + i }),
-        v.name, `${realmsLabel(v)}${v.hills ? ', on hills' : ''} · ${v.density} props`, mixHtml(`${set.name}: ${v.name}`, v));
-    });
-    row++;
-  }
-  // The resources: a row each, on its land (that land's first variant,
-  // thinned): wild first, then worked at each stage of its improvement.
-  row++;
-  const head = new WorldLabel([{ text: 'Resources, wild and worked', bold: true }], LABEL * 2);
-  head.position.set(-SPACING * 0.9, head.scale.y / 2 + 0.1, row * ROW);
-  world.add(head);
-  rowStart.set('resources', patches.length);
-  row++;
-  // (Worked, what of it its improvement keeps: render.ts, FLORA_KEEP.)
-  const floraOf = (_r: ResourceKey | null, land: TerrainSetKey | null, seed: number, clearR: number, imp?: ImprovementKey) => {
-    const set = land ? TERRAINS.get(land)! : null, v = set?.variants.find((x) => x.mix.length > 0), rk = mulberry32(seed ^ 0x4b);
-    const items = v ? placeVariant({ ...v, density: Math.round(v.density * 0.5) }, { ...o, seed }).filter((p) => {
-      const at = new THREE.Vector3().setFromMatrixPosition(p.m), layer = CATALOG[p.key as CatalogKind]?.layer;
-      return Math.hypot(at.x, at.z) > clearR * STEP && (!imp || !layer || rk() < FLORA_KEEP[imp][layer])
-        // (Nothing grows on a mine's spoil, nor near it: render.ts.)
-        && !(imp === 'mine' && wornNear('mine', at.x / STEP, at.z / STEP, wearSalt(seed)));
-    }) : [];
-    // (Bananas grow only on their resource's tile: a third of its trees, as render.ts.)
-    const rb = mulberry32(seed ^ 0xba);
-    return _r !== 'bananas' ? items : items.map((p) => (CATALOG[p.key as CatalogKind]?.layer === 'Canopy' || CATALOG[p.key as CatalogKind]?.layer === 'Understory') && rb() < 1 / 3
-      ? { ...p, key: 'banana', geo: catalogGeo('banana'), leaf: new THREE.Color(CATALOG.banana.leaf) } : p);
-  };
-  const rowsOf: { r: ResourceKey | null; imp: ImprovementKey; land: TerrainSetKey | null; name: string }[] = [
-    ...RESOURCE_KEYS.map((r) => ({ r, imp: RESOURCE_IMPROVEMENT[r], land: landOf(r), name: RESOURCES[r].name })),
-    { r: null, imp: 'farm', land: 'temperateForest', name: 'A farm (no resource)' },
-    { r: null, imp: 'camp', land: 'taiga', name: 'A logging camp' },
-  ];
-  rowsOf.forEach(({ r, imp, land, name }, ri) => {
-    const set = land ? TERRAINS.get(land) ?? null : null, z = row * ROW;
-    landNow = land;
-    const title = new WorldLabel([{ text: name, bold: true }], LABEL * 1.3);
-    title.position.set(-SPACING * 0.9, title.scale.y / 2 + 0.1, z);
-    world.add(title);
-    const water = (imp === 'boats' || (r && RESOURCE_WILD[r].water)) ? (set?.water ?? 0.0012) : undefined;
-    // (A wetland stands in its pools: the same on every patch of the row.)
-    const pools = land && WET_LANDS.has(land) ? poolsOf(o.seed * 131 + ri) : null;
-    const wet = (center: THREE.Vector3) => { if (pools) world.add(poolSheet(center, pools, PADDY_WATER / SC * STEP)); };
-    let col = 0;
-    if (r) {
-      const d = RESOURCES[r];
-      // (What lives on the water stands on its surface.)
-      const afloat = (items: Placed[]) => (water === undefined ? items : items.map((it) => ({ ...it, m: new THREE.Matrix4().makeTranslation(0, water * SC, 0).multiply(it.m) })));
-      wet(new THREE.Vector3(0, 0, z));
-      patch(new THREE.Vector3(0, 0, z), set?.ground ?? 0x8a8a70, water, [...floraOf(r, land, o.seed * 131 + ri, 0.2), ...afloat(resourceItems(r, o.seed * 7 + ri, RESOURCE_WILD[r], pools))],
-        `${d.name}: wild`, `${d.kind} · ${yieldText(r)}${revealedBy(r)}`, `<h4>${d.name}</h4><div class="row">${d.kind} resource on ${set?.name ?? 'its land'} · ${yieldText(r)}${revealedBy(r)} · worked as ${IMPROVEMENTS[imp].name}</div>`);
-      col = 1;
-    }
-    const stages = STAGE_TECHS(imp).length;
-    for (let st = 0; st <= stages; st++, col++) {
-      const center = new THREE.Vector3(col * SPACING, 0, z), seed = o.seed * 977 + ri * 31 + st;
-      const region = cropRegion(imp, (land ?? 'prairie') as BiomeKey, null, 15, r);
-      const farmed = imp === 'farm' || imp === 'wetland' || imp === 'plantation';
-      const lift = (items: Placed[]) => (water === undefined ? items : items.map((it) => ({ ...it, m: new THREE.Matrix4().makeTranslation(0, water * SC, 0).multiply(it.m) })));
-      const paddy = region === 'paddy';
-      const items = [...(farmed ? [] : floraOf(r, land, seed, imp === 'camp' ? 0.12 : imp === 'pasture' ? 0.45 : 0.3, imp)), ...lift(workedItems(imp, st, r, region, seed, (land ?? 'prairie') as BiomeKey, pools))];
-      if (r && RESOURCE_WORKED[r]) items.push(...resourceItems(r, seed, RESOURCE_WORKED[r], pools, { x: 0.25, y: -0.2 }));
-      if (farmed) { world.add(groundHex(farmGround(imp, region, st, seed, set?.ground ?? 0x6a7a40, pools), center)); world.add(rim(center)); if (pools) wet(center); else if (paddy && water === undefined) world.add(waterSheet(center, PADDY_WATER / SC * STEP)); }
-      else wet(center);
-      const i = patches.length;
-      const tris = addInstances(items, center, world);
-      if (imp === 'mine' || imp === 'camp') { world.add(groundHex(wearGround(imp, set?.ground ?? 0x8a8a70, wearSalt(seed)), center)); world.add(rim(center)); if (water !== undefined) world.add(waterSheet(center, water)); }
-      else if (!farmed) { world.add(hex(imp === 'quarry' ? 0xb8b0a0 : set?.ground ?? 0x8a8a70, center)); world.add(rim(center)); if (water !== undefined) world.add(waterSheet(center, water)); }
-      const div = label(`${IMPROVEMENTS[imp].name} · stage ${st}`, `${stageText(imp, st)} · ${Math.round(tris).toLocaleString()} tris`, center.clone().add(new THREE.Vector3(0, 0, R * 0.95)), () => { state.focus = i; refreshFocus(); setCam('close'); });
-      patches.push({ center, label: div, mix: `<h4>${name}: ${IMPROVEMENTS[imp].name}, stage ${st}</h4><div class="row">${stageText(imp, st)}</div>` });
-    }
-    row++;
-  });
-  state.focus = Math.min(state.focus, patches.length - 1);
-  refreshFocus();
-  info.textContent = `Every terrain and its variants, then every resource on its land: tile edge ${R / SC}, props at game scale. Pick a terrain to fly to it · ← → previous / next row · click a label to focus · drag move · right-drag rotate & tilt · WASD · Q/E · T/G · Z/X`;
-}
 
 function buildCatalog(): void {
   const cols = 8, gap = 10, rowGap = 13;
@@ -673,38 +203,10 @@ function refreshFocus(): void {
   mixPanel.innerHTML = patches[state.focus]?.mix ?? '';
 }
 
-// The seasons' controls: the turn of the year (only a uniform: nothing is rebuilt), and the latitude the
-// terrains are shown at (each plant carries it: rebuilt).
-{
-  const seasonIn = document.getElementById('season') as HTMLInputElement, seasonOut = document.getElementById('seasonOut')!;
-  const latSel = document.getElementById('latitude') as HTMLSelectElement;
-  const NAMES = ['spring', 'summer', 'autumn', 'winter'] as const;
-  const show = () => {
-    const x = Number(seasonIn.value);
-    yearPhase.value = landPhase(x);
-    seasonOut.textContent = `${x} · ${NAMES[Math.floor(((((x - LAG + YEAR / 8) % YEAR) + YEAR) % YEAR) / (YEAR / 4))]}`;
-  };
-  seasonIn.addEventListener('input', show);
-  seasonIn.addEventListener('change', () => seasonIn.blur());
-  latSel.innerHTML = `<option value="own">each terrain's own</option>${[0, 15, 30, 45, 60, 75].map((l) => `<option value="${l}">${l}° north</option>`).join('')}`;
-  latSel.addEventListener('change', () => { latitudeSet = latSel.value === 'own' ? null : Number(latSel.value); rebuild(false); latSel.blur(); });
-  addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLSelectElement || (e.key !== '[' && e.key !== ']')) return;
-    seasonIn.value = String((Number(seasonIn.value) + (e.key === ']' ? 1 : YEAR - 1)) % YEAR);
-    show();
-  });
-  show();
-}
-function rebuild(resetCam: boolean): void {
+function rebuild(): void {
   clearWorld();
-  landNow = null;
-  if (state.view === 'terrains') buildTerrains(); else buildCatalog();
-  landNow = null;
-  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]')) b.classList.toggle('active', b.dataset['view'] === state.view);
-  select.value = state.terrain;
-  select.disabled = state.view !== 'terrains';
-  if (resetCam && state.view === 'terrains') { state.focus = rowStart.get(state.terrain) ?? 0; refreshFocus(); }
-  history.replaceState(null, '', `#${state.view}${state.view === 'terrains' ? '/' + state.terrain : ''}`);
+  buildCatalog();
+  refreshFocus();
   // Sun and shadows over everything shown.
   const box = new THREE.Box3();
   for (const p of patches) box.expandByPoint(p.center);
@@ -714,67 +216,34 @@ function rebuild(resetCam: boolean): void {
   sun.target.position.copy(mid);
   Object.assign(sun.shadow.camera, { left: -ext * 1.3, right: ext * 1.3, top: ext * 1.3, bottom: -ext * 1.3, near: 1, far: ext * 5 });
   sun.shadow.camera.updateProjectionMatrix();
-  if (resetCam) setCam('map');
+  setCam('map');
 }
 
-const rowGapOf = () => 13;
+const ROW_GAP = 13;
 function setCam(c: Cam): void {
   const box = new THREE.Box3();
   for (const p of patches) box.expandByPoint(p.center);
   const mid = box.getCenter(new THREE.Vector3());
   const f = patches[state.focus]?.center ?? mid;
   if (c === 'map') {
-    if (state.view === 'catalog') {
-      // Start on the top rows, seen at a low angle; pan (right-drag) to see the rest.
-      const top = new THREE.Vector3(mid.x, 0, box.min.z + rowGapOf() * 1.2);
-      camera.position.copy(top).add(new THREE.Vector3(0, 22, 42));
-      controls.target.copy(top);
-    } else {
-      // The focused row, end to end.
-      const row = patches.filter((p) => Math.abs(p.center.z - f.z) < 1e-6);
-      const x0 = Math.min(...row.map((p) => p.center.x)), x1 = Math.max(...row.map((p) => p.center.x));
-      const at = new THREE.Vector3((x0 + x1) / 2, 0, f.z), d = (x1 - x0) * 0.7 + 22;
-      camera.position.copy(at).add(new THREE.Vector3(0, d * 0.6, d * 0.75));
-      controls.target.copy(at);
-    }
+    // Start on the top rows, seen at a low angle; pan (drag) to see the rest.
+    const top = new THREE.Vector3(mid.x, 0, box.min.z + ROW_GAP * 1.2);
+    camera.position.copy(top).add(new THREE.Vector3(0, 22, 42));
+    controls.target.copy(top);
   } else if (c === 'close') {
-    const d = state.view === 'catalog' ? 7 : R * 1.6;
-    camera.position.copy(f).add(new THREE.Vector3(0, d * 0.55, d));
-    controls.target.copy(f).setY(state.view === 'catalog' ? 1.5 : 0.3);
+    camera.position.copy(f).add(new THREE.Vector3(0, 7 * 0.55, 7));
+    controls.target.copy(f).setY(1.5);
   } else {
-    camera.position.copy(f).add(new THREE.Vector3(0, state.view === 'catalog' ? 0.6 : EYE, state.view === 'catalog' ? 5 : R * 0.8));
-    controls.target.copy(f).setY(state.view === 'catalog' ? 1.2 : EYE * 1.6);
+    camera.position.copy(f).add(new THREE.Vector3(0, 0.6, 5));
+    controls.target.copy(f).setY(1.2);
   }
   controls.update();
 }
 
 // ---------- UI ----------
-for (const b of document.querySelectorAll<HTMLButtonElement>('[data-view]'))
-  b.addEventListener('click', () => { if (b.dataset['view'] === 'terrains') { location.href = 'terrain_gallery.html'; return; } state.view = b.dataset['view'] as View; state.focus = 0; rebuild(true); });
+$('#terrains').addEventListener('click', () => { location.href = 'terrain_gallery.html'; });
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-cam]'))
   b.addEventListener('click', () => setCam(b.dataset['cam'] as Cam));
-select.addEventListener('change', () => { state.terrain = select.value as TerrainSetKey; goToRow(); });
-// Flies to the chosen row of the board (its first patch).
-function goToRow(): void {
-  if (state.view !== 'terrains') return;
-  state.focus = rowStart.get(state.terrain) ?? 0;
-  refreshFocus();
-  select.value = state.terrain;
-  history.replaceState(null, '', `#terrains/${state.terrain}`);
-  setCam('close');
-}
-jitterBox.addEventListener('change', () => rebuild(false));
-grovesBox.addEventListener('change', () => rebuild(false));
-$('#reroll').addEventListener('click', () => { state.seed++; rebuild(false); });
-addEventListener('keydown', (e) => {
-  if (state.view !== 'terrains' || e.target instanceof HTMLSelectElement) return;
-  const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-  if (!step) return;
-  const rows = [...terrainKeys, 'resources'];
-  const i = (rows.indexOf(state.terrain) + step + rows.length) % rows.length;
-  state.terrain = rows[i]!;
-  goToRow();
-});
 
 // Keyboard camera, as in the game: W A S D move over the ground (Shift =
 // faster), Q / E rotate around the view's center, Z / X zoom in / out.
@@ -823,28 +292,16 @@ function resize(): void {
 }
 addEventListener('resize', resize);
 resize();
-rebuild(true);
+rebuild();
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   clock.value = time / 1000;
   timer.update(time);
-  // (On the board, the sun's shadows follow the view: the board is too large for one shadow map.)
-  if (state.view === 'terrains') {
-    const ext = 70, mid = controls.target;
-    sun.position.copy(mid).add(new THREE.Vector3(ext * 0.6, ext * 1.4, ext * 0.9));
-    sun.target.position.copy(mid);
-    if (sun.shadow.camera.right !== ext * 1.3) {
-      Object.assign(sun.shadow.camera, { left: -ext * 1.3, right: ext * 1.3, top: ext * 1.3, bottom: -ext * 1.3, near: 1, far: ext * 5 });
-      sun.shadow.camera.updateProjectionMatrix();
-    }
-  }
   keyboardCamera(Math.min(0.1, timer.getDelta()));
   controls.update();
   renderer.render(scene, camera);
 });
-// Dev-only handle for test scripts: focus a patch and frame it.
-if (import.meta.env.DEV) Object.assign(window, { __gallery: { focus: (i: number) => { state.focus = i; refreshFocus(); setCam('close'); }, rows: () => Object.fromEntries(rowStart), names: () => patches.map((p) => p.mix.replace(/<[^>]+>/g, ' ').trim()) } });
-// (Dev: focus the patch whose label starts with `title`, close up: __gallery.focus('Coal: wild').)
+// (Dev: focus the model whose label is `title`, close up: __gallery.focus('Oak').)
 (window as unknown as { __gallery: unknown }).__gallery = {
   focus: (title: string) => { const i = patches.findIndex((p) => p.label.userData['title'] === title || p.mix.includes(`<h4>${title}`)); if (i >= 0) { state.focus = i; refreshFocus(); setCam('close'); } return i; },
 };
