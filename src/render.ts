@@ -619,10 +619,17 @@ export class GlobeRenderer {
     }
     this.vegetation = new Vegetation(g.globe, g.map, g.flora, L, this.relief.base, this.relief.peak, params.r0, g.seed);
     ;[this.vertSlope, this.vertCoast, this.vertInland] = slopeAndShore(this.terrain, coast!);
-    // Forest floors sit in the canopy's shade.
-    for (let t = 0; t < N; t++) {
-      if (!this.vegetation.isForest(t)) continue;
-      for (const v of this.terrain.tileVerts[t]) shade[v] *= 0.93;
+    // Forest floors sit in the canopy's shade: each vertex once, by the share
+    // of its tiles that are forest. (Shaded once for every forest tile it
+    // lies on, a vertex on the edge two of them share was shaded twice, a
+    // corner three times: dark lines along the hexagons, through every forest.)
+    {
+      const vt = this.terrain.vertTiles;
+      for (let v = 0; v < V; v++) {
+        let n = 0, forest = 0;
+        for (let k = 0; k < 3; k++) { const t = vt[v * 3 + k]!; if (t < 0) continue; n++; if (this.vegetation.isForest(t)) forest++; }
+        if (forest > 0) shade[v] *= 1 - 0.07 * (forest / n);
+      }
     }
     const geo = this.terrain.geometry;
     geo.setAttribute('shade', new THREE.BufferAttribute(shade, 1));
