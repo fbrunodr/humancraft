@@ -431,7 +431,7 @@ export const CATALOG = {
   // cards of fine blades, many to a tile, each in the colour of the ground
   // it stands on; no part of any biome's mix.
   turf: { name: 'Turf', layer: 'Ground', leaf: 0x86a34e, build: (p) =>
-    [0, 1, 2].map((i) => turfCard(0.0062, 0.0012, (i * Math.PI) / 3 + 0.2, p.leaf)) },
+    [0, 1, 2].map((i) => turfCard(0.0062, 0.002, (i * Math.PI) / 3 + 0.2, p.leaf)) },
   tallGrass: { name: 'Tall grass', layer: 'Ground', leaf: 0xc8b060, build: (p) =>
     Array.from({ length: 7 }, (_, i) => blade(Math.cos(ring(7, i)) * 0.0006, Math.sin(ring(7, i)) * 0.0006, ring(7, i, 0.2), 0.0007, 0.0042 + 0.0008 * (i % 3), 0.0012, p.leaf)) },
   // Pampas grass: a green tussock, its cream plumes standing over it on their stalks.

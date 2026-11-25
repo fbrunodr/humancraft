@@ -231,8 +231,6 @@ const FLORA_SEASON = `
   #endif`;
 // (A leaf card's clump gone, where the crown is bare: `bare` of them.)
 const BARE_CUT = (bare: string) => `(${bare} > 0.01 && vCard.z < 1.5 && fract(sin(dot(floor(vCard.xy * 9.0), vec2(12.9898, 78.233))) * 43758.5453) < ${bare})`;
-// How nearly edge-on a card of turf may be seen (the cosine between its face and the line of sight): gone under the first, whole from the second.
-const TURF_FACING = ['0.22', '0.5'] as const;
 // How far the turf is drawn, of the crops' distance (uCropFar).
 const TURF_FAR = '1.0';
 const FLORA_VERTEX = `
@@ -609,7 +607,9 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
     if (surfaces) frag = frag.replace('#include <color_fragment>', `#include <color_fragment>
         diffuseColor.rgb *= surfaceShade(diffuseColor.rgb, vSurfP, normalize(vSurfN));`);
     if (flora) frag = frag.replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
-        if (abs(vCard.z) > 0.5) normal *= faceDirection;`);
+        if (abs(vCard.z) > 0.5) normal *= faceDirection;
+        // (The turf is lit from above on both sides, as a farm's crops and the ground under it are: no card darker for the way it faces.)
+        if (vCard.z > 5.5) normal = normalize(mat3(viewMatrix) * normalize(cameraPosition - transpose(mat3(viewMatrix)) * vViewPosition));`);
     if (flora) frag = frag.replace('#include <color_fragment>', `#include <color_fragment>
         // (Wood, a trunk, a limb, a log: bark.)
         if (vBark.w < 0.5 && abs(vCard.z) < 0.5) diffuseColor.rgb *= barkShade(vBark.xyz);
@@ -623,10 +623,6 @@ export function makePropMaterial(bounce = 0, saturation = 0.6, sunDir?: THREE.Ve
           // lighter and a little strawier than its foot.
           vec4 lt = texture2D(uBlades, vCard.xy);
           float keep = lt.a * smoothstep(0.0, 0.38, vCard.y) * 1.25;
-          // (A card seen nearly edge-on is a streak of stretched blades among the rest: it thins
-          // away as it turns its edge to the eye, and those that face it are the grass seen.)
-          vec3 tfn = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
-          keep *= smoothstep(${TURF_FACING[0]}, ${TURF_FACING[1]}, abs(dot(tfn, normalize(vViewPosition))));
           if (keep < 0.08 + 0.92 * fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453)) discard;
           diffuseColor.rgb *= mix(vec3(1.12), vec3(1.75, 1.62, 1.15), smoothstep(0.1, 1.0, vCard.y));
         } else if (vCard.z > 0.5) {
