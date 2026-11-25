@@ -7,6 +7,7 @@ import { unitDef, domainOf, type UnitKey } from './rules.ts';
 import { UNIT_CLASS, firesAtClose, returnFire, type AttackStyle, type Projectile } from './unitClasses.ts';
 import { CARRIER_DECK, IN_FLIGHT, UNIT_LOOK, figuresFor, formationSlots, unitModel, variantOf, rides, headOffset, hairModel, transportModel, wearsHelmet, womenShare, isMachine, colsOf, GEAR, HAIR_BY, HAIR_STYLES, STRIKE, GUARD, DRAW, whirls, bowman, cuts, thrusts, draws, longArms } from './unitModels.ts';
 import { mulberry32 } from './rng.ts';
+import { clustered } from './lod.ts';
 import { HIP, GUN_L, GUN_R, elbowAt, handAt } from './people.ts';
 import { pairUp, type P2 } from './duel.ts';
 import { orderSlots, reforms, type Order } from './formation.ts';
@@ -72,6 +73,9 @@ const FLAG_LIFT = 1.7;
 const DRY = 0.00005;
 // The figures are drawn while at least this many pixels tall; in their finer bodies (unitModels.ts unitModel `fine`) while this many.
 const MIN_PX = 3, NEAR_PX = 40, FAR_PX = 14;
+// Under this many pixels tall a figure is drawn in its tiny model: its far one, its vertices gathered on a grid of
+// TINY_CELLS to its height (lod.ts clustered: each limb's on their own, so it still moves), and without its hair.
+const TINY_PX = 11, TINY_CELLS = 7;
 // In sight: over the horizon (its direction · the camera's position, the
 // globe's radius 1, less a margin for the hills), within this many figure
 // heights of the screen.
@@ -236,7 +240,7 @@ interface Figure {
   // `goal`), and how far from its foe that is (world units).
   foeFig: Figure | null; reach: THREE.Vector3 | null; gap: number;
   held: boolean; // its place set by the fight (stepped up to a foe), not by its formation
-  keys?: readonly [string, string, boolean]; // its model's (UnitView.key), seen far and near, and whether embarked
+  keys?: readonly [string, string, boolean, string]; // its model's (UnitView.key), seen far and near, whether embarked, and seen tiny
   hairKey?: string;
   slots: Slots; // where it is drawn (its body, hair and shadow: instances held from frame to frame)
 }
@@ -280,6 +284,7 @@ interface Shown {
   flag: Billboard;
   k: number;                   // its place among the units on its tile (0: the middle)
   near: boolean;               // seen close: its people in their finer bodies
+  tiny: boolean;               // seen a few pixels tall: in their tiny models (TINY_PX)
   far: boolean;                // seen too small to make out its people's poses (and not busy)
   flagAt: THREE.Vector3;       // where its flag was last stood (it is moved when the unit is)
   seen: boolean;
@@ -791,6 +796,7 @@ export class UnitView {
       if (px < MIN_PX) continue;
       // (Close enough to be seen in detail: its people in their finer bodies.)
       s.near = px >= NEAR_PX;
+      s.tiny = px < TINY_PX;
       this.draw(s, now, stamp);
     }
     // (The dead, until they have sunk away.)
@@ -814,7 +820,7 @@ export class UnitView {
     let strike = 0, colored = false;
     for (const f of s.figures) {
       if (s.spent) continue; // (a missile that has struck: gone)
-      const key = this.key(s, f), hairKey = f.hair >= 0 ? (f.hairKey ??= `hair|${f.hair}`) : null;
+      const key = this.key(s, f), hairKey = f.hair >= 0 && !s.tiny ? (f.hairKey ??= `hair|${f.hair}`) : null;
       let fresh = this.hold(f.slots.body, key, stamp);
       if (hairKey) fresh = this.hold(f.slots.hair, hairKey, stamp) || fresh;
       fresh = this.hold(f.slots.shadow, SHADOW, stamp) || fresh;
@@ -1130,14 +1136,15 @@ export class UnitView {
     if (heading.lengthSq() > 1e-14) s.forward.copy(heading.normalize());
   }
 
-  // (Made once per figure: far and near.)
+  // (Made once per figure: far, near and tiny.)
   private key(s: Shown, f: Figure): string {
     // (Kept until it embarks or lands.)
     if (!f.keys || f.keys[2] !== (s.unit.embarked === true)) {
-      f.keys = s.unit.embarked ? [`transport|${s.unit.civ}|0|0|1`, `transport|${s.unit.civ}|0|0|1`, true]
-        : [`${s.unit.type}|${s.unit.civ}|${f.variant}|${f.female ? 1 : 0}|0`, `${s.unit.type}|${s.unit.civ}|${f.variant}|${f.female ? 1 : 0}|1`, false];
+      const of = `${s.unit.type}|${s.unit.civ}|${f.variant}|${f.female ? 1 : 0}`;
+      f.keys = s.unit.embarked ? [`transport|${s.unit.civ}|0|0|1`, `transport|${s.unit.civ}|0|0|1`, true, `transport|${s.unit.civ}|0|0|2`]
+        : [`${of}|0`, `${of}|1`, false, `${of}|2`];
     }
-    return f.keys[s.near ? 1 : 0];
+    return s.tiny ? f.keys[3] : f.keys[s.near ? 1 : 0];
   }
 
   dispose(): void {
@@ -1160,7 +1167,7 @@ export class UnitView {
     const north = c.clone().cross(east);
     const s: Shown = {
       unit: u, dir: c.clone(), forward: east.multiplyScalar(Math.cos(a)).addScaledVector(north, Math.sin(a)).normalize(),
-      figures: [], spread: LOOSE[0], order: 'block', laid: null, alt: 0, march: null, route: [], fight: null, after: null, gone: false, flag: this.makeFlag(u), k, seen: true, near: false, far: false, flagAt: new THREE.Vector3(), clean: false, posed: -Infinity, posedFar: false,
+      figures: [], spread: LOOSE[0], order: 'block', laid: null, alt: 0, march: null, route: [], fight: null, after: null, gone: false, flag: this.makeFlag(u), k, seen: true, near: false, tiny: false, far: false, flagAt: new THREE.Vector3(), clean: false, posed: -Infinity, posedFar: false,
     };
     this.shown.set(u.id, s);
     this.settle(s, k);
@@ -1403,7 +1410,9 @@ export class UnitView {
     if (key === SHADOW) b = new Batch(key, this.shadowGeo, this.shadowMat, false);
     else {
       const [a, n, c, d, e] = key.split('|') as [string, string, string | undefined, string | undefined, string | undefined];
-      const geo = shareCorners(a === 'hair' ? hairModel(HAIR_STYLES[Number(n)]!) : a === 'transport' ? transportModel() : unitModel(a as UnitKey, n as ArchCiv, Number(c), d === '1', e === '1'));
+      const whole = shareCorners(a === 'hair' ? hairModel(HAIR_STYLES[Number(n)]!) : a === 'transport' ? transportModel() : unitModel(a as UnitKey, n as ArchCiv, Number(c), d === '1', e === '1'));
+      // (Tiny, `e` 2: gathered on a coarse grid, what moves apart kept apart.)
+      const geo = e === '2' ? clustered(whole, TINY_CELLS, ['aLimb', 'aRig', 'aRest']) : whole;
       b = new Batch(key, geo, this.materialOf(geo), true);
     }
     this.batches.set(key, b);
