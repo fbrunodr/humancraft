@@ -103,6 +103,8 @@ const GRASS_MOST = 0.75;
 const GRASS_WOODS = 150;
 // No turf on a shore lower than this over its water (world units): the beach's sand reaches about so high (terrainMaterial.ts).
 const TURF_BEACH = 0.0016;
+// What grows at the water's edge but not on a beach's sand (placeProps).
+const BEACH_SHY: ReadonlySet<CatalogKind> = new Set(['reeds', 'cattail', 'papyrus']);
 // How many clumps of turf a tile of grass carries (placeTurf).
 const TURF = 520;
 // How much larger than the catalog's models the canopy's trees are drawn.
@@ -1288,7 +1290,7 @@ export class GlobeRenderer {
       const rand = mulberry32(t * 7919 + 1);
       const k = tile.corners.length;
       const r0 = this.paint.params.r0;
-      const bank = this.terrain.fields.ground['bank']!;
+      const bank = this.terrain.fields.ground['bank']!, shoreStrip = this.terrain.fields.ground['shore']!;
       let ancient = veg.hasAncientTree(t);
       // Rows of the lattice per fan: enough spots for the densest look nearby.
       const m = Math.max(1, Math.ceil((Math.sqrt(8 * (most / k) + 1) - 1) / 2));
@@ -1399,6 +1401,9 @@ export class GlobeRenderer {
             }
             const shade = 0.82 + 0.36 * tint;
             const color = new THREE.Color(shade * (1 + (rand() - 0.5) * HUE_JITTER), shade * (1 + (rand() - 0.5) * HUE_JITTER), shade * (1 + (rand() - 0.5) * HUE_JITTER));
+            // (Reeds and their like stand in the shallows and on a bank, never on a beach's dry sand. Left out here, last, with every
+            // random number of its spot drawn: the tile's other plants stay as they were.)
+            if (BEACH_SHY.has(prop.kind) && env.ground >= env.water && smp.w[0]! * shoreStrip[smp.v[0]!]! + smp.w[1]! * shoreStrip[smp.v[1]!]! + smp.w[2]! * shoreStrip[smp.v[2]!]! > 0.1) continue;
             const pos = d.clone().multiplyScalar(1 + prop.height);
             const layer = CATALOG[prop.kind].layer, woody = layer === 'Canopy' || layer === 'Understory', fr = (x: number) => x - Math.floor(x);
             out.push({
