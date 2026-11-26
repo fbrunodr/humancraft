@@ -22,7 +22,7 @@ import { BUILDING_KINDS, buildBuildingGeometry, type BuildingKind } from './buil
 import { useOf } from './houseKit.ts';
 import { WORKS_VARIANT, houseFarGeometry, houseGeometry, houseSmoke, isHouseKind, parseHouseKind, type HouseKind } from './houses.ts';
 import { isWonderModelKind, wonderGeometry, type WonderModelKind } from './wonderModels.ts';
-import { isFloraRural, isCropRural, isSmoothRural, roamOf, isRuralModelKind, ruralGeometry, ruralFarGeometry, hasRuralFar, ruralModelKind, slopeUp, type RuralModelKind } from './rural/models.ts';
+import { isFloraRural, isCropRural, isSmoothRural, roamOf, isRuralModelKind, ruralGeometry, ruralFarGeometry, hasRuralFar, ruralModelKind, standBeast, tallOf, type RuralModelKind } from './rural/models.ts';
 import { CityProps, tileFrame, SUMMIT_FLAT, SUMMIT_HOUSES, type CitySpot, type SinkSheet } from './cityProps.ts';
 import { CITY_CELL } from './cityPainter.ts';
 import { CELL, wallHeight } from './town/geometry.ts';
@@ -162,6 +162,7 @@ interface PlacedProp {
   color: THREE.Color; // per-instance shade and slight hue shift
   leaf: THREE.Color;  // leaf color (the model's own, or a variant's tint)
   wander?: number;    // a walker's circle (model units: propMaterial.ts ROAM)
+  lift?: number;      // a beast's: how far it was raised clear of the ground on its wanders (metres of its own; for checks)
 }
 
 // Reference tile spacing (radians) that unit/city sizes were tuned for.
@@ -1551,11 +1552,12 @@ export class GlobeRenderer {
     for (const m of placeResource(g, t, r, look, rand, sampleDir)) {
       // (A beast stands as the slope lies: rural/models.ts slopeUp.)
       const beast = SPECIES_OF[m.model as KitModel] !== undefined && !look.water;
-      const up = beast ? slopeUp(m.dir, Math.max(1.1 * CREATURE_SCALE * m.s, m.wander) * m.k, (d) => sampleDir(d).ground) : m.dir;
+      const stood = beast ? standBeast(m.dir, tallOf(ruralModelKind(m.model)) * m.s * m.k, 1.1 * CREATURE_SCALE * m.s * m.k, m.wander * m.k, (d) => sampleDir(d).ground) : null;
+      const up = stood?.up ?? m.dir, fit = { lift: stood?.lift ?? 0 }, wander = stood ? stood.wander / m.k : m.wander;
       const q = new THREE.Quaternion().setFromUnitVectors(UP, up).multiply(new THREE.Quaternion().setFromAxisAngle(UP, m.yaw));
       const sc = m.k * m.s, shade = 0.92 + 0.12 * rand();
-      items.push({ kind: ruralModelKind(m.model), matrix: new THREE.Matrix4().compose(m.dir.clone().multiplyScalar(1 + (look.wade ? m.spot.ground : Math.max(m.spot.ground, m.spot.water)) - 0.00004 * this.scale), q, new THREE.Vector3(sc, sc, sc)),
-        color: new THREE.Color(shade, shade, shade), leaf: new THREE.Color(m.color ?? 0xffffff), wander: m.wander / m.s });
+      items.push({ kind: ruralModelKind(m.model), matrix: new THREE.Matrix4().compose(m.dir.clone().multiplyScalar(1 + (look.wade ? m.spot.ground : Math.max(m.spot.ground, m.spot.water)) + fit.lift - 0.00004 * this.scale), q, new THREE.Vector3(sc, sc, sc)),
+        color: new THREE.Color(shade, shade, shade), leaf: new THREE.Color(m.color ?? 0xffffff), wander: wander / m.s, lift: fit.lift / (CREATURE_SCALE * sc) });
     }
     this.resourceCache.set(t, { key, items });
     return items;

@@ -24,7 +24,7 @@ import { LOT_SIZE, rhoOf, type Floors, type Footprint } from './town/geometry.ts
 import { roadLines, ROAD_HALF_WIDTH } from './roads.ts';
 import { farmAxis, WORK_OF, type RuralDensity } from './farmPainter.ts';
 import { SCATTER_GAP, areaLook, cropRegion, scatterIn, type RGB } from './rural/look.ts';
-import { ruralModelKind, footingOf, isFloraRural, type RuralModel, slopeUp } from './rural/models.ts';
+import { ruralModelKind, footingOf, isFloraRural, type RuralModel, standBeast, tallOf } from './rural/models.ts';
 import { stageLook, waterLook } from './rural/stages.ts';
 import { kitBoost, isWorks, FIGURES, SPECIES_OF, type KitModel } from './rural/kit.ts';
 import { FENCE_BANDS } from './propMaterial.ts';
@@ -862,8 +862,13 @@ export class CityProps {
           } else matrix = new THREE.Matrix4().compose(dir.clone().multiplyScalar(1 + low - sink), q, sc);
         } else {
           // (A beast stands as the slope lies: rural/models.ts slopeUp.)
-          if (SPECIES_OF[m as KitModel]) q.setFromUnitVectors(UP, slopeUp(dir, Math.max(1.1 * CREATURE_SCALE * size[0] * D, wander * kT), (d) => this.sampleDir(d).ground)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
-          matrix = new THREE.Matrix4().compose(dir.clone().multiplyScalar(1 + smp.ground - sink), q, sc);
+          const fit = { lift: 0 };
+          if (SPECIES_OF[m as KitModel]) {
+            const stood = standBeast(dir, tallOf(kind) * size[0] * D, 1.1 * CREATURE_SCALE * size[0] * D, wander * kT, (d) => this.sampleDir(d).ground);
+            q.setFromUnitVectors(UP, stood.up).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
+            fit.lift = stood.lift; wander = stood.wander / kT;
+          }
+          matrix = new THREE.Matrix4().compose(dir.clone().multiplyScalar(1 + smp.ground + fit.lift - sink), q, sc);
         }
         const b: PlacedBuilding = { kind, matrix, color: new THREE.Color(shade, shade, shade), leaf: new THREE.Color(leaf), wander: (wander * kT) / (size[0] * D) };
         if (!clear.free(this.footprint(b))) return false;

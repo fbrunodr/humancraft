@@ -263,7 +263,10 @@ export const wanderMax = (m: string): number => SWIM[m as KitModel]?.wander ?? (
 // the hill. No more than SLOPE_MOST off the upright. (Its wanders are not kept to level ground: where the
 // land rolls under them a hoof may dip or lift a little.)
 const SLOPE_MOST = 0.5;
-export function slopeUp(dir: THREE.Vector3, reach: number, ground: (d: THREE.Vector3) => number): THREE.Vector3 {
+// (`fit.lift`, if asked for: how far the ground rises over that plane at its highest, round the reach and
+// half way in: raised by it, the beast is nowhere under the ground on its wanders; over a hollow it stands
+// a little clear instead.)
+export function slopeUp(dir: THREE.Vector3, reach: number, ground: (d: THREE.Vector3) => number, fit?: { lift: number }): THREE.Vector3 {
   const e1 = new THREE.Vector3(1, 0, 0).cross(dir);
   if (e1.lengthSq() < 1e-6) e1.set(0, 0, 1).cross(dir);
   e1.normalize();
@@ -271,6 +274,14 @@ export function slopeUp(dir: THREE.Vector3, reach: number, ground: (d: THREE.Vec
   let a = (at(e1, 1) - at(e1, -1)) / (2 * reach), b = (at(e2, 1) - at(e2, -1)) / (2 * reach);
   const steep = Math.hypot(a, b);
   if (steep > SLOPE_MOST) { a *= SLOPE_MOST / steep; b *= SLOPE_MOST / steep; }
+  if (fit) {
+    const g0 = ground(dir);
+    fit.lift = 0;
+    for (let j = 0; j < 16; j++) {
+      const t = (j / 8) * Math.PI, r = (j % 2 ? 0.5 : 1) * reach, x = r * Math.cos(t), y = r * Math.sin(t);
+      fit.lift = Math.max(fit.lift, ground(dir.clone().addScaledVector(e1, x).addScaledVector(e2, y).normalize()) - (g0 + a * x + b * y));
+    }
+  }
   return dir.clone().addScaledVector(e1, -a).addScaledVector(e2, -b).normalize();
 }
 // The largest circle round p (tile steps), up to `max`, that `ok` holds all
@@ -306,6 +317,18 @@ function gaitOf(g: THREE.BufferGeometry, m: string): Float32Array {
   if (!roamOf(m)) return out;
   g.computeBoundingBox();
   const b = g.boundingBox!, beast = !!SPECIES_OF[m as KitModel], tall = b.max.y - b.min.y;
+  if (m === 'fox') {
+    // (The fox, drawn here in parts: its legs are all that lies under its hips, short of its head and its
+    // brush. Found from its feet as the modelled beasts' are, its slanting legs were taken in part, and tore.)
+    const hip = b.min.y + tall * 0.42, mx = (b.min.x + b.max.x) / 2, half = (b.max.x - b.min.x) / 2;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i);
+      if (y >= hip || Math.abs(x - mx) > half * 0.7) continue;
+      out[i * 2] = hip - y;
+      out[i * 2 + 1] = (pos.getZ(i) >= 0 ? 1 : -1) * (x >= mx ? 1 : -1);
+    }
+    return out;
+  }
   if (beast) {
     // A beast's legs, found from its feet: what touches the ground (the lowest twentieth of it) is four
     // feet, one to each quarter round their middle; a leg is what stands over its foot, below the hips, within
@@ -382,6 +405,21 @@ export function ruralGeometry(kind: RuralModelKind): THREE.BufferGeometry {
   }
   return g;
 }
+// A beast stood on the land (world units; `tall`: its height as drawn, `body`: its half length, `wander`: how
+// far it wanders): the way up for it (slopeUp, over its wanders), how far to raise it so that it is nowhere
+// under the ground on them, and its wanders, drawn in only as far as it takes for that raise to stay under
+// STAND_CLEAR of its height (over rolling ground a small beast would else walk buried to its ears, or
+// raised clear of it, stand in the air): on even ground, slopes too, it keeps them all.
+const STAND_CLEAR = 0.22;
+export function standBeast(dir: THREE.Vector3, tall: number, body: number, wander: number, ground: (d: THREE.Vector3) => number): { up: THREE.Vector3; lift: number; wander: number } {
+  const fit = { lift: 0 };
+  for (let w = wander, n = 0; ; w *= 0.7, n++) {
+    const last = n >= 8 || w < body, up = slopeUp(dir, Math.max(body, last ? 0 : w), ground, fit);
+    if (fit.lift <= STAND_CLEAR * tall || last) return { up, lift: Math.min(fit.lift, STAND_CLEAR * tall), wander: last ? 0 : w };
+  }
+}
+export const tallOf = (kind: RuralModelKind): number => { const g = ruralGeometry(kind); if (!g.boundingBox) g.computeBoundingBox(); return g.boundingBox!.max.y; };
+
 // The far models of the countryside's heaviest things (the animals, the plough team, the hay cart: some
 // hundreds of triangles each, and a pasture holds a herd): the same model with its vertices gathered on a
 // coarse grid (lod.ts clustered: FAR_CELLS to its longest side), colours and what walks kept as they are.
