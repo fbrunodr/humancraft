@@ -64,7 +64,9 @@ const PLANTS: Partial<Record<ResourceKey, PlantTufts>> = {
 const PLANTS_DEFAULT = PLANTS.wine!;
 // The ruin's things.
 const WORN: readonly Placed[] = [at('shack', 1, 'home'), at('brokenCart', 1, 'yard')];
-const HUNTED: ReadonlySet<ResourceKey> = new Set<ResourceKey>(['deer', 'furs', 'ivory', 'amber']);
+// What a camp is worked for, where it is not timber: hides (deer, furs: racks of them drying), ivory (the
+// tusks laid out, no hides), amber (gatherers with baskets, neither hides nor a sawmill).
+const HUNTED: ReadonlySet<ResourceKey> = new Set<ResourceKey>(['deer', 'furs']);
 
 export function stageLook(imp: ImprovementKey, stage: number, res: ResourceKey | null): StageLook {
   const w = (model: KitModel, n: number, where: Where = 'field') => at(model, n, where, CLOTHES);
@@ -99,10 +101,19 @@ export function stageLook(imp: ImprovementKey, stage: number, res: ResourceKey |
         : { density: 'high', adits: 0, plants: { ...tufts, rows: true }, things: [w('picker', 1), w('pickerB', 1), at('shelter', 1, 'home'), at('tractor', 1, 'field', MACHINE)] };
     }
     case 'camp': {
+      // (No cart at a hunters' camp: nothing is hauled from it by the cartload.)
       if (res && HUNTED.has(res)) return stage === 0 ? { density: 'low', adits: 0, things: [at('tent', 3, 'home'), at('campfire', 1, 'home'), at('hideRack', 2, 'yard'), w('hunter', 3)] }
         : stage === 1 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('campfire', 1, 'home'), at('tent', 1, 'home'), at('hideRack', 3, 'yard'), w('hunter', 3)] }
-        : stage === 2 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('hideRack', 3, 'yard'), at('haycart', 1, 'home'), w('gunHunter', 3)] }
-        : { density: 'high', adits: 0, things: [at('lodge', 2, 'home'), at('haycart', 1, 'home'), at('hideRack', 2, 'yard'), w('gunHunter', 3)] };
+        : stage === 2 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('campfire', 1, 'home'), at('hideRack', 3, 'yard'), w('gunHunter', 3)] }
+        : { density: 'high', adits: 0, things: [at('lodge', 2, 'home'), at('hideRack', 2, 'yard'), w('gunHunter', 3)] };
+      if (res === 'ivory') return stage === 0 ? { density: 'low', adits: 0, things: [at('tent', 3, 'home'), at('campfire', 1, 'home'), at('tuskPile', 1, 'yard'), w('hunter', 3)] }
+        : stage === 1 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('campfire', 1, 'home'), at('tent', 2, 'home'), at('tuskPile', 2, 'yard'), w('hunter', 3)] }
+        : stage === 2 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('tent', 1, 'home'), at('tuskPile', 2, 'yard'), w('gunHunter', 3)] }
+        : { density: 'high', adits: 0, things: [at('lodge', 2, 'home'), at('tuskPile', 3, 'yard'), w('gunHunter', 3)] };
+      if (res === 'amber') return stage === 0 ? { density: 'low', adits: 0, things: [at('tent', 2, 'home'), at('campfire', 1, 'home'), w('picker', 2), w('pickerB', 1)] }
+        : stage === 1 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('campfire', 1, 'home'), w('picker', 2), w('pickerB', 1)] }
+        : stage === 2 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), w('picker', 2), w('pickerB', 2)] }
+        : { density: 'high', adits: 0, things: [at('lodge', 2, 'home'), w('picker', 2), w('pickerB', 2)] };
       return stage === 0 ? { density: 'low', adits: 0, things: [at('tent', 2, 'home'), at('campfire', 1, 'home'), w('woodcutter', 3)] }
         : stage === 1 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), w('woodcutter', 3)] }
         : stage === 2 ? { density: 'medium', adits: 0, things: [at('lodge', 1, 'home'), at('haycart', 1, 'field'), w('woodcutter', 3)] }

@@ -118,15 +118,15 @@ export const BIOME_FLORA: Record<BiomeKey, FloraSet> = {
     v('Succulent', O, 25, [['dragonTree', 8], ['euphorbia', 20], ['dryBush', 42], ['boulder', 20], ['tor', 10]], { wet: 0.5 }),
   ] },
   savanna: { variants: [
-    v('Acacia', 'any', 95, [['acacia', 22], ['shrub', 10], ['tallGrass', 58, GOLDEN], ['termiteMound', 6], ['boulder', 3], ['tor', 1]], { wet: -0.3 }),
-    v('Miombo', O, 105, [['acacia', 4], ['baobab', 6], ['beechMaple', 30, DRY], ['shrub', 12], ['tallGrass', 43, GOLDEN], ['termiteMound', 3], ['boulder', 2]], { wet: 0.5 }),
-    v('Cerrado', W, 95, [['beechMaple', 12, DRY], ['fanPalm', 8], ['shrub', 30, TWISTED], ['tallGrass', 40, GOLDEN], ['termiteMound', 8], ['boulder', 2]]),
-    v('Outback', A, 85, [['eucalyptus', 15], ['shrub', 15], ['tallGrass', 55, SPINIFEX], ['termiteMound', 10], ['boulder', 3], ['tor', 2]]),
+    v('Acacia', 'any', 95, [['acacia', 22], ['shrub', 10], ['tallGrass', 62, GOLDEN], ['termiteMound', 2], ['boulder', 3], ['tor', 1]], { wet: -0.3 }),
+    v('Miombo', O, 105, [['acacia', 4], ['baobab', 6], ['beechMaple', 30, DRY], ['shrub', 12], ['tallGrass', 45, GOLDEN], ['termiteMound', 1], ['boulder', 2]], { wet: 0.5 }),
+    v('Cerrado', W, 95, [['beechMaple', 12, DRY], ['fanPalm', 8], ['shrub', 30, TWISTED], ['tallGrass', 45, GOLDEN], ['termiteMound', 3], ['boulder', 2]]),
+    v('Outback', A, 85, [['eucalyptus', 15], ['shrub', 15], ['tallGrass', 61, SPINIFEX], ['termiteMound', 4], ['boulder', 3], ['tor', 2]]),
   ] },
   monsoonForest: { variants: [
-    v('Teak-sal', 'any', 140, [['beechMaple', 50, DRY], ['bamboo', 12], ['palm', 10], ['shrub', 13], ['tallGrass', 8], ['termiteMound', 2], ['fallenLog', 5]], { wet: -0.2 }),
+    v('Teak-sal', 'any', 140, [['beechMaple', 50, DRY], ['bamboo', 12], ['palm', 10], ['shrub', 13], ['tallGrass', 9], ['termiteMound', 1], ['fallenLog', 5]], { wet: -0.2 }),
     v('Bamboo forest', O, 165, [['beechMaple', 20, DRY], ['bamboo', 57], ['shrub', 8], ['fernClump', 10], ['fallenLog', 5]], { wet: 0.6 }),
-    v('Thorn forest', W, 95, [['beechMaple', 20, DRY], ['acacia', 15], ['pricklyPear', 15], ['shrub', 30], ['tallGrass', 12], ['termiteMound', 3], ['boulder', 5]], { wet: -0.6 }),
+    v('Thorn forest', W, 95, [['beechMaple', 20, DRY], ['acacia', 15], ['pricklyPear', 15], ['shrub', 30], ['tallGrass', 14], ['termiteMound', 1], ['boulder', 5]], { wet: -0.6 }),
   ] },
   jungle: { variants: [
     v('Lowland', 'any', 200, [['jungleTree', 54, RAINFOREST], ['kapok', 6], ['palm', 10], ['shrub', 7], ['fernClump', 18], ['fallenLog', 5]]),
@@ -215,13 +215,14 @@ export const realmsLabel = (v: Variant): string =>
 // improvement.
 export const FLORA_KEEP: Record<'urban' | ImprovementKey, Record<Layer, number>> = {
   urban:   { Canopy: 0.06, Understory: 0.04, Ground: 0, Accent: 0 },
-  farm:    { Canopy: 0.2, Understory: 0.12, Ground: 0.08, Accent: 0.3 },
+  // (No tree nor shrub stands in a field, a paddy or a plantation's rows.)
+  farm:    { Canopy: 0, Understory: 0, Ground: 0.08, Accent: 0.3 },
   mine:    { Canopy: 0.35, Understory: 0.35, Ground: 0.35, Accent: 0.6 },
   quarry:  { Canopy: 0.35, Understory: 0.35, Ground: 0.35, Accent: 0.6 },
   camp:    { Canopy: 0.55, Understory: 0.45, Ground: 0.6, Accent: 1 }, // (a logging camp's cut: stumps where its trees stood)
-  wetland: { Canopy: 0.2, Understory: 0.12, Ground: 0.08, Accent: 0.3 }, // (paddies and peat beds: cleared as fields are)
+  wetland: { Canopy: 0, Understory: 0, Ground: 0.08, Accent: 0.3 }, // (paddies and peat beds: cleared as fields are)
   boats:   { Canopy: 1, Understory: 1, Ground: 1, Accent: 1 },
   pasture: { Canopy: 0.25, Understory: 0.1, Ground: 0.3, Accent: 0.5 },
-  plantation: { Canopy: 0.15, Understory: 0.08, Ground: 0.08, Accent: 0.3 },
+  plantation: { Canopy: 0, Understory: 0, Ground: 0.08, Accent: 0.3 },
   well:    { Canopy: 0.4, Understory: 0.4, Ground: 0.4, Accent: 0.6 },
 };

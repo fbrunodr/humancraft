@@ -16,7 +16,9 @@ describe('prop catalog', () => {
   // (Leaf cards, the fluffy crowns' crossed quads, are counted apart: a
   // crown's clumps may take up to three times their solid triangles. The
   // mangrove may take more: its arching stilt roots.)
-  const SOLID_EXCEPTIONS: Partial<Record<string, number>> = { mangrove: 80 };
+  // (And the saguaro, six-sided with its arms; the prickly pear, its pads rounded; and the termite mound, a model made elsewhere and baked in
+  // (src/models), hidden from afar: render.ts.)
+  const SOLID_EXCEPTIONS: Partial<Record<string, number>> = { mangrove: 80, saguaro: 70, pricklyPear: 100, termiteMound: 320 };
   it('V4: every prop stays within 40 solid triangles (but the exceptions), and 120 of leaf cards', () => {
     const over = CATALOG_KINDS.flatMap((k) => {
       const g = buildCatalogGeometry(k), card = g.getAttribute('cardUv');

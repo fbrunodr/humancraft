@@ -905,22 +905,22 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
             }
             }
             if (quarryS > 0.02) {
-              // Open pits: a couple of irregular hollows per tile, cut in
-              // steps (benches) of pale stone, dusty ground around them.
+              // Open pits: a couple of irregular hollows per tile, of bare cut
+              // stone: the rock's own scan (its grain and its relief), a
+              // little darker toward a pit's middle; a dusty, trodden apron
+              // round it. (No lines drawn for its benches: they read as
+              // squiggles on the ground.)
               float quarry = smoothstep(0.4, 0.55, quarryS + 0.35 * edgeN) * keep * fieldMask;
               float n = tFbm(P / (0.32 * uR0) + 6.1, 2);
-              float pit = smoothstep(0.6, 0.63, n);
-              float dust = smoothstep(0.52, 0.6, n) * (1.0 - pit);
-              // Broad benches, darker toward the floor; each starts with the
-              // shaded face of the step down, then its flat lighter top.
-              float depth = max(0.0, n - 0.6) * 16.0;
-              float bench = fract(depth), level = min(floor(depth), 5.0);
-              float face = mix(1.0, 1.0 - smoothstep(0.0, 0.3, bench), tFade(1.0 / (0.04 * uR0)));
-              vec3 stone = vec3(0.78, 0.74, 0.66) * (0.94 + 0.1 * tNoise(P / (0.025 * uR0))) * (1.0 - 0.1 * level);
-              stone *= mix(1.0, 0.68, face * pit * step(0.5, depth));
-              vec3 c = mix(diffuseColor.rgb, vec3(0.62, 0.58, 0.5) * vShade, dust * 0.6);
+              float pit = smoothstep(0.585, 0.6, n);
+              float dust = smoothstep(0.5, 0.585, n) * (1.0 - pit);
+              vec3 qn;
+              vec4 qt = gSample(${GROUND_LAYER.rock}.0, qn, 0.7);
+              vec3 stone = gTone(mix(vec3(0.56, 0.53, 0.47), m3.rgb, 0.25), qt.r) * (1.0 - 0.3 * smoothstep(0.6, 0.85, n));
+              vec3 c = mix(diffuseColor.rgb, gTone(vec3(0.6, 0.56, 0.47), 0.5 + 0.6 * (qt.r - 0.5)) * vShade, dust * 0.7);
               c = mix(c, stone * vShade, pit);
               diffuseColor.rgb = mix(diffuseColor.rgb, c, quarry);
+              gN = mix(gN, qn, quarry * max(pit, dust * 0.6));
             }
             if (burntS > 0.02) {
               // Pillaged: scorched ground and ash, the plots still showing faintly.
@@ -997,7 +997,10 @@ export function makeTerrainMaterial(paint: PaintUniforms): TerrainMaterial {
             // Gravel: where a river or a lake has no beach, its bank at the
             // water and its shallow bed are stones, washed clean: pebbles
             // of their own greys and browns, dark between them.
-            float strand = (1.0 - smoothstep(0.00005, 0.0002, above)) * (1.0 - smoothstep(0.0004, 0.0016, vDepth)) * (1.0 - beach) * (1.0 - rock) * landBed;
+            // (On the dry side only along a bank or a shore: low flat ground a little way from the water, a
+            // floodplain's, is no strand, and was paved with pebbles in grey blotches.)
+            float strand = (1.0 - smoothstep(0.00005, 0.0002, above)) * (1.0 - smoothstep(0.0004, 0.0016, vDepth)) * (1.0 - beach) * (1.0 - rock) * landBed
+              * mix(smoothstep(0.35, 0.75, max(vBank, smoothstep(0.0, 1.0, vShore))), 1.0, under);
             if (strand > 0.001) {
               float show = tFade(6500.0);
               float stone = smoothstep(0.42, 0.56, tNoise(P * 6500.0 + 4.0));

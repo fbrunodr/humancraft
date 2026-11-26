@@ -105,10 +105,12 @@ function plough(): G[] {
 }
 // The plough team: two oxen yoked, the plough, the ploughman behind.
 function ploughTeam(): G[] {
+  // (The oxen side by side, clear of each other; the yoke across their necks, behind the horns; the pole
+  // back between them to the plough; the ploughman at its handles.)
   const ox = (z: number) => creature('ox').map((g) => g.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0, z)));
-  return [...ox(0.42), ...ox(-0.42), beam([0.95, 1.18, 0.62], [0.95, 1.18, -0.62], 0.05, TIMBER), beam([0.95, 1.1, 0], [-0.6, 0.55, 0], 0.04, TIMBER),
-    ...plough().map((g) => g.applyMatrix4(new THREE.Matrix4().makeTranslation(-1.4, 0, 0))),
-    ...workerModel('herder', 0).map((g) => g.applyMatrix4(new THREE.Matrix4().makeTranslation(-3.0, 0, 0)))];
+  return [...ox(0.62), ...ox(-0.62), beam([0.5, 1.33, 0.95], [0.5, 1.33, -0.95], 0.05, TIMBER), beam([0.5, 1.28, 0], [-1.15, 0.55, 0], 0.04, TIMBER),
+    ...plough().map((g) => g.applyMatrix4(new THREE.Matrix4().makeTranslation(-2.05, 0, 0))),
+    ...workerModel('herder', 0).map((g) => g.applyMatrix4(new THREE.Matrix4().makeTranslation(-3.65, 0, 0)))];
 }
 // A two-wheeled cart, piled with hay or a load, its horse in the shafts.
 function haycart(): G[] {

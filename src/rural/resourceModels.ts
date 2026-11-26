@@ -12,11 +12,8 @@ import { KIT, kitBoost, type KitModel } from './kit.ts';
 import type { ShrubModel } from './models.ts';
 
 export const LEAF = 0x010203;
-const TIMBER = 0x7a5f45;
 const P = (g: THREE.BufferGeometry, c: number, o: Tf = {}) => part(g, c, tf(o));
-const box = (w: number, h: number, d: number, c: number, o: Tf = {}) => P(new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0), c, o);
 const rock = (r: number, c: number, o: Tf = {}) => P(new THREE.DodecahedronGeometry(r, 0).translate(0, r * 0.55, 0), c, { sy: 0.7, ...o });
-const disc = (r: number, h: number, c: number, o: Tf = {}) => P(new THREE.CylinderGeometry(r, r, h, 9).translate(0, h / 2, 0), c, o);
 // ---- plants ----
 // (A stump's cut face: a slice of its own trunk, so its sides line up.)
 function amberStump(): THREE.BufferGeometry[] {
@@ -29,29 +26,22 @@ function crystals(): THREE.BufferGeometry[] {
   return [rock(0.0032, 0x6e6a62), ...[[0, 0, 0], [0.0016, 0.6, 0.4], [-0.0014, -0.5, 0.2], [0.0006, 0.2, -0.6], [-0.0008, -0.3, -0.5]].map(([x, rz, rx]) =>
     cone(0.0008, 0.005, 6, LEAF, { x, y: 0.0024, rz, rx }))];
 }
-function crust(): THREE.BufferGeometry[] {
-  return [P(new THREE.CylinderGeometry(0.0062, 0.007, 0.0004, 8), 0xe6e0d0, { y: 0.0002, sz: 0.7 }),
-    ...[[0.002, 0.001], [-0.0026, -0.0008], [0.0004, -0.0026], [-0.0006, 0.0024]].map(([x, z]) => rock(0.0011, 0xf2eee4, { x, y: 0.0003, z }))];
+// Rock salt, where it breaks the surface: a few white rocks, plain and few-faced as the land's own, a lump or
+// two beside them. (No flat white pan under them: on sand it read as a plate.)
+function saltRock(): THREE.BufferGeometry[] {
+  return [rock(0.0042, 0xf1ece8, { ry: 0.4 }), rock(0.0028, 0xe9dcd8, { x: 0.0046, z: 0.0016, ry: 1.3 }), rock(0.0019, 0xf6f2ee, { x: -0.0036, z: 0.0026, ry: 2.2 }), rock(0.0011, 0xeee6e2, { x: 0.0014, z: -0.0044 })];
+}
+// Niter: the same, its crust a dull yellowish white.
+function niterRock(): THREE.BufferGeometry[] {
+  return [rock(0.004, 0xe2dcc0, { ry: 0.9 }), rock(0.0027, 0xd8d0ac, { x: -0.0042, z: 0.0018, ry: 0.2 }), rock(0.0018, 0xe8e2c8, { x: 0.004, z: -0.0024, ry: 1.7 }), rock(0.0011, 0xdad2b0, { x: 0.0006, z: 0.0046 })];
 }
 function oilPool(): THREE.BufferGeometry[] {
   return [P(new THREE.CylinderGeometry(0.0062, 0.0062, 0.0003, 9), 0x141312, { y: 0.00015, sz: 0.65 }), P(new THREE.CylinderGeometry(0.0024, 0.0024, 0.0004, 7), 0x1c1a18, { x: 0.006, y: 0.0002, z: 0.003 })];
 }
 
-// ---- crafts ----
-function spiceMats(): THREE.BufferGeometry[] {
-  return [0xb4542a, 0xd88a2a, 0xd8b03a, 0x8a3a24].flatMap((c, k) => [box(0.0062, 0.0002, 0.0048, 0xc8b484, { x: (k % 2) * 0.0072 - 0.0036, z: Math.floor(k / 2) * 0.0058 - 0.0029 }),
-    cone(0.0018, 0.0014, 7, c, { x: (k % 2) * 0.0072 - 0.0036, y: 0.0002, z: Math.floor(k / 2) * 0.0058 - 0.0029 })]);
-}
-function dyeVats(): THREE.BufferGeometry[] {
-  const out: THREE.BufferGeometry[] = [];
-  [0x2a3a8a, 0xa02a3a, 0xd8a028].forEach((c, k) => { const x = (k - 1) * 0.0056; out.push(cyl(0.0022, 0.0022, 0.0028, 8, 0x7a5a3a, { x }), disc(0.0019, 0.0002, c, { x, y: 0.0026 })); });
-  out.push(...[-0.009, 0.009].map((x) => box(0.0004, 0.0074, 0.0004, TIMBER, { x, z: 0.0052 })), box(0.018, 0.0003, 0.0003, TIMBER, { y: 0.0072, z: 0.0052 }));
-  [0x2a3a8a, 0xa02a3a, 0xd8a028, 0x5a2a6a].forEach((c, k) => out.push(box(0.0028, 0.0042, 0.0002, c, { x: (k - 1.5) * 0.0038, y: 0.003, z: 0.0052 })));
-  return out;
-}
-export const RESOURCE_MODEL_KEYS = ['amberStump', 'crystals', 'crust', 'oilPool', 'spiceMats', 'dyeVats'] as const;
+export const RESOURCE_MODEL_KEYS = ['amberStump', 'crystals', 'saltRock', 'niterRock', 'oilPool'] as const;
 export type ResourceModel = (typeof RESOURCE_MODEL_KEYS)[number];
-export const RESOURCE_MODELS: Record<ResourceModel, () => THREE.BufferGeometry[]> = { amberStump, crystals, crust, oilPool, spiceMats, dyeVats };
+export const RESOURCE_MODELS: Record<ResourceModel, () => THREE.BufferGeometry[]> = { amberStump, crystals, saltRock, niterRock, oilPool };
 
 // What a resource shows near its badge: in the wild (its tile not worked
 // for it), the resource as nature has it: wild grain, aurochs and wild
@@ -102,14 +92,14 @@ export const RESOURCE_WILD: Record<ResourceKey, ResourceLook> = {
   gems: L({ model: 'crystals', n: 4, colors: ORE.gems }),
   pearls: W({ model: 'oysters', n: 2 }),
   coral: W({ model: 'coralBed', n: 2 }),
-  salt: L({ model: 'crust', n: 4 }),
+  salt: L({ model: 'saltRock', n: 3 }),
   cotton: L({ model: 'cottonBush', n: 9, colors: [0x5a7a3a, 0x52703a] }),
   tea: L({ model: 'teaShrub', n: 9, colors: [0x3f6a2a, 0x4a7a32, 0x456e2c] }),
   coffee: L({ model: 'coffeeShrub', n: 9, colors: [0x2f5e2a, 0x386a2e, 0x34622a] }),
   amber: L({ model: 'resinPine', n: 2 }),
   horses: L({ model: 'horse', n: 4, colors: [0xb08a5a, 0x7a4a2a, 0xa08868, 0x5a3a24] }),
   iron: L({ model: 'oreRock', n: 2, colors: ORE.iron }),
-  niter: L({ model: 'crust', n: 3 }),
+  niter: L({ model: 'niterRock', n: 3 }),
   coal: L({ model: 'oreRock', n: 2, colors: ORE.coal }),
   oil: L({ model: 'oilPool', n: 2 }),
 };
@@ -123,10 +113,7 @@ export const RESOURCE_WORKED: Partial<Record<ResourceKey, ResourceLook>> = {
   salt: LW({ model: 'saltHeaps', n: 1 }),
   wine: LW({ model: 'winePress', n: 1 }),
   silk: LW({ model: 'cocoonTrays', n: 1 }),
-  spices: LW({ model: 'spiceMats', n: 1 }),
-  dyes: LW({ model: 'dyeVats', n: 1 }),
   furs: LW({ model: 'hideRack', n: 1 }),
-  ivory: LW({ model: 'tuskPile', n: 1 }),
   cotton: LW({ model: 'cottonBales', n: 1 }),
   tea: LW({ model: 'teaBaskets', n: 1 }),
   coffee: LW({ model: 'coffeeSacks', n: 1 }),

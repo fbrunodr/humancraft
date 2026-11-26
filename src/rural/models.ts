@@ -198,7 +198,12 @@ const SHRUB_MODELS: Record<ShrubModel, () => THREE.BufferGeometry> = {
     oct(0.48, leaf, { y: 0.75, sy: 0.9 }), ...bursts(9, [0, 0.75, 0], [0.4, 0.4, 0.4], 0.09, 0xf2eee4)]),
   indigoBush: () => shrub('indigoBush', (leaf) => [cyl(0.03, 0.02, 0.35, 4, BARK),
     oct(0.48, leaf, { y: 0.62, sy: 0.85 }), ...bursts(6, [0, 0.62, 0], [0.4, 0.38, 0.4], 0.08, 0x6a4a9a)]),
-  wildVine: () => shrub('wildVine', (leaf) => [oct(1.0, leaf, { y: 0.85, sy: 0.85 }), oct(0.65, leaf, { x: 0.3, y: 1.45, z: 0.2, sy: 0.7, ry: 0.6 }),
+  // (A vine over a bush, standing on the ground: its stems up from it, a skirt of leaves down to it. A clump
+  // of leaf cards covers only a clump's upper side: one hung at a ball's height alone floated.)
+  wildVine: () => shrub('wildVine', (leaf) => [...trunk([[0, 0, 0], [0.1, 0.5, 0.05], [0, 1.0, 0]], 0.09, 0.05, BARK), ...trunk([[0.25, 0, -0.2], [0.45, 0.5, -0.1], [0.3, 1.0, 0.1]], 0.06, 0.035, BARK),
+    ...trunk([[-0.3, 0, 0.15], [-0.5, 0.45, 0.2], [-0.25, 0.9, 0.05]], 0.06, 0.035, BARK),
+    oct(0.95, leaf, { y: 0.28, sy: 0.4 }), oct(0.8, leaf, { x: -0.25, y: 0.5, z: 0.2, sy: 0.5, ry: 1.1 }),
+    oct(1.0, leaf, { y: 0.85, sy: 0.85 }), oct(0.65, leaf, { x: 0.3, y: 1.45, z: 0.2, sy: 0.7, ry: 0.6 }),
     ...bursts(6, [0, 0.85, 0], [0.85, 0.72, 0.85], 0.12, 0x4a2a5a)]),
   // (Its trunk runs up into its crown.)
   mulberryBush: () => shrub('mulberryBush', (leaf) => [...trunk([[0, 0, 0], [0.05, 0.7, 0], [0, 1.5, 0]], 0.1, 0.06, 0x6a5038),
@@ -268,6 +273,8 @@ export function wanderIn(p: { readonly x: number; readonly y: number }, max: num
 // below the hips, model units, and which leg: +1 or -1). A person's legs
 // are its two sides; a beast's go in diagonal pairs, as at a walk. A
 // swimmer's: its pace and how far it rises to breathe (SWIM; model units).
+// (Where a beast's hips are, of its height, where not at the usual 0.42.)
+const HIPS: Partial<Record<string, number>> = { sheep: 0.27, elephant: 0.36 };
 function gaitOf(g: THREE.BufferGeometry, m: string): Float32Array {
   const pos = g.getAttribute('position'), out = new Float32Array(pos.count * 2);
   const swim = SWIM[m as KitModel];
@@ -280,14 +287,37 @@ function gaitOf(g: THREE.BufferGeometry, m: string): Float32Array {
   }
   if (!roamOf(m)) return out;
   g.computeBoundingBox();
-  const b = g.boundingBox!, beast = !!SPECIES_OF[m as KitModel];
-  const hip = b.min.y + (b.max.y - b.min.y) * (beast ? 0.42 : 0.5), mx = (b.min.x + b.max.x) / 2, half = (b.max.x - b.min.x) / 2;
+  const b = g.boundingBox!, beast = !!SPECIES_OF[m as KitModel], tall = b.max.y - b.min.y;
+  if (beast) {
+    // A beast's legs, found from its feet: what touches the ground (the lowest twentieth of it) is four
+    // feet, one to each quarter round their middle; a leg is what stands over its foot, below the hips, within
+    // a reach of it that widens upward (a hind leg slants). Nothing else swings: not the belly between the
+    // legs, nor a trunk or a muzzle hanging low. (Low hips under a fleece or a great body: by the animal.)
+    const hip = b.min.y + tall * (HIPS[m] ?? 0.42), low = b.min.y + tall * 0.05;
+    let cx = 0, cz = 0, n = 0;
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) <= low) { cx += pos.getX(i); cz += pos.getZ(i); n++; }
+    if (n === 0) return out;
+    cx /= n; cz /= n;
+    const feet = [0, 1, 2, 3].map(() => ({ x: 0, z: 0, n: 0, r: 0 })), quarter = (x: number, z: number) => (x >= cx ? 0 : 1) + (z >= cz ? 0 : 2);
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) <= low) { const f = feet[quarter(pos.getX(i), pos.getZ(i))]!; f.x += pos.getX(i); f.z += pos.getZ(i); f.n++; }
+    for (const f of feet) if (f.n) { f.x /= f.n; f.z /= f.n; }
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) <= low) { const f = feet[quarter(pos.getX(i), pos.getZ(i))]!; f.r = Math.max(f.r, Math.hypot(pos.getX(i) - f.x, pos.getZ(i) - f.z)); }
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      if (y >= hip) continue;
+      const q = quarter(x, z), f = feet[q]!;
+      if (!f.n || Math.hypot(x - f.x, z - f.z) > f.r * (1.25 + 1.5 * (y - b.min.y) / (hip - b.min.y))) continue;
+      out[i * 2] = hip - y;
+      out[i * 2 + 1] = (q >= 2 ? -1 : 1) * (q % 2 === 0 ? 1 : -1);
+    }
+    return out;
+  }
+  const hip = b.min.y + tall * 0.5;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    // (A beast's head, down to graze, swings not: only what is under its body.)
-    if (y >= hip || (beast && Math.abs(x - mx) > half * 0.7)) continue;
+    const y = pos.getY(i);
+    if (y >= hip) continue;
     out[i * 2] = hip - y;
-    out[i * 2 + 1] = (z >= 0 ? 1 : -1) * (beast ? (x >= mx ? 1 : -1) : 1);
+    out[i * 2 + 1] = pos.getZ(i) >= 0 ? 1 : -1;
   }
   return out;
 }

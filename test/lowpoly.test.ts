@@ -4,24 +4,25 @@ import { creature, horseParts, type Species } from '../src/creatures.ts';
 import { workerModel, type Worker } from '../src/rural/kit.ts';
 import { hairShapes } from '../src/people.ts';
 import { unitModel, rides, isMachine, unitVariants, wearsHelmet, HAIR_BY, longArms } from '../src/unitModels.ts';
-import { LOWPOLY_BUDGET, FIGURE_BUDGET, ARMS_BUDGET, triangles } from '../src/lowpoly.ts';
+import { LOWPOLY_BUDGET, ANIMAL_BUDGET, FIGURE_BUDGET, ARMS_BUDGET, triangles } from '../src/lowpoly.ts';
 import { UNITS, type UnitKey } from '../src/rules.ts';
 const UNIT_TYPES = Object.keys(UNITS) as UnitKey[];
 
 // People and animals are low-poly (lowpoly.ts): about LOWPOLY_BUDGET
 // triangles each, a few over where it buys a better look; a figure with
 // all it carries (hair, hat, tools, weapons, shield) a little more.
-const SLACK = 12, GEAR = 30;
+const GEAR = 30;
 const SPECIES: Species[] = ['horse', 'cow', 'pied', 'ox', 'sheep', 'mouflon', 'deer', 'stag', 'elephant', 'fox'];
 const WORKERS: Worker[] = ['farmer', 'reaper', 'herder', 'hunter', 'gunHunter', 'picker', 'miner', 'woodcutter'];
 const tris = (g: THREE.BufferGeometry) => triangles([g]);
 
 describe('L1: people and animals within the low-poly budget', () => {
+  // (The countryside's animals are made finely, ANIMAL_BUDGET; a unit's mount stays low-poly, below.)
   it('each animal', () => {
     for (const sp of SPECIES) {
       const n = triangles(creature(sp));
       console.log(`${sp}: ${n}`);
-      expect(n, sp).toBeLessThanOrEqual(LOWPOLY_BUDGET + SLACK);
+      expect(n, sp).toBeLessThanOrEqual(ANIMAL_BUDGET);
     }
   });
   it('each countryside worker, with hair, hat and tools', () => {

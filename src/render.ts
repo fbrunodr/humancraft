@@ -83,6 +83,8 @@ const TURF_ROCK = [0.3, 0.0098] as const;
 const TURF_FAR_EVERY = 4;
 // The most of a tile's candidate clumps of turf that are kept (grassCover).
 const GRASS_MOST = 0.75;
+// The improvements whose ground is fields, rows or paddies: no tree stands on them (placeProps).
+const CULTIVATED: ReadonlySet<string> = new Set(['farm', 'plantation', 'wetland']);
 // The canopy trees to a tile that leave no room for grass under them (grassCover).
 const GRASS_WOODS = 150;
 // No turf on a shore lower than this over its water (world units): the beach's sand reaches about so high (terrainMaterial.ts).
@@ -1367,6 +1369,9 @@ export class GlobeRenderer {
             } else if (use !== USE.wild && use !== USE.rural && !inWater) {
               if (rand() >= FLORA_KEEP.urban[CATALOG[prop.kind].layer]) continue;
             }
+            // (Nor does a neighbour's tree or shrub stand on a cultivated tile's hexagon: its fields run
+            // straight to its sides, over the painting's wiggles.)
+            if (u !== t && !inWater && CULTIVATED.has(g.builtAt(t) ?? 'well') && g.ownerOf(t) >= 0 && g.use[t] !== USE.center && (CATALOG[prop.kind].layer === 'Canopy' || CATALOG[prop.kind].layer === 'Understory')) continue;
             // (A neighbor's flora feathering in never stands among the
             // buildings of the tile it is on: a city's center keeps clear.)
             if (u !== t && !inWater && g.use[t] === USE.center && (!this.cityProps.keepsFloraClear(t) || !this.cityProps.floraClear(t, d))) continue;
@@ -1592,6 +1597,8 @@ export class GlobeRenderer {
           // (Crops hide once the camera is higher than they reach, cullProps.)
           if (crop) mesh.userData['crop'] = true;
           if (isRuralModelKind(kind) && !cards) mesh.userData['goneAt'] = RURAL_GONE;
+          // (A termite mound is a model of some hundreds of triangles: not drawn once it is a few pixels tall.)
+          if (kind === 'termiteMound') mesh.userData['goneAt'] = 1;
           // Everything casts shadows but the farms' crops (a sea of stalks
           // the eye reads as a field anyway); flora's cut to its leaves and
           // swaying with them (makeFloraDepthMaterial). Everything receives

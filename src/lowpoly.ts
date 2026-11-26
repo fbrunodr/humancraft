@@ -11,6 +11,8 @@ import * as THREE from 'three';
 import type { Paint } from './creatures.ts';
 
 export const LOWPOLY_BUDGET = 200;
+// A countryside animal (creatures.ts: a model made elsewhere and baked in, or drawn finely): at most this many.
+export const ANIMAL_BUDGET = 1100;
 // A unit's figure (people.ts finePerson: seen close up in battle) about three times that.
 export const FIGURE_BUDGET = 600;
 // And what it holds in both hands (a gun, a crossbow: unitModels.ts firearm), modelled in its own right, about a hundred more.

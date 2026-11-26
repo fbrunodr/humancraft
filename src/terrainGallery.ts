@@ -132,7 +132,14 @@ function stage(t: number, r: ResourceKey, s: number): boolean {
   knows(STAGE_TECHS(imp).slice(0, s));
   const near = game.tiles[t]!.neighbors, further = near.flatMap((n) => game.tiles[n]!.neighbors).filter((n) => n !== t && !near.includes(n));
   let city: ReturnType<typeof foundCity> = null;
-  for (const n of [...near, ...further]) { city = foundCity(game, n, HUMAN); if (city) break; }
+  // (Only where a city may stand, and never on the tile itself: a settler set down on water is put ashore
+  // on the nearest land, which may be this tile, and its city then stood on the improvement.)
+  for (const n of [...near, ...further]) {
+    if (game.isWater(n) || !game.canFoundCity(n, HUMAN)) continue;
+    city = foundCity(game, n, HUMAN);
+    if (city && city.tile !== t) break;
+    if (city) { game.destroyCity(city); city = null; }
+  }
   if (!city) return false;
   game.tileCity[t] = city.id;
   game.use[t] = USE.rural;

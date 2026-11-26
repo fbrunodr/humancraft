@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import MOUND from './models/termiteMound.json';
 
 // Prop models (trees, shrubs, ground cover, rocks...), drawn as instanced
 // meshes over the terrain and viewable in the prop gallery (gallery.html).
@@ -66,6 +67,22 @@ export const cone = (r: number, h: number, n: number, color: number, o: Tf = {})
 // (Blobs: a crown's leaf clumps become leaf cards, see clumpCards.)
 // CARD_DENSITY: cards per triangle of the blob each replaces, halved (1: as many triangles as the blob).
 const CARD_DENSITY = 3;
+// A model baked from a file (scripts/importFbx.mts: triangles in thousandths, 1 tall, standing on y = 0), `h`
+// tall, each face flat and painted by its height (0 to 1) and a number of its own (0 to 1).
+function imported(positions: readonly number[], h: number, paint: (y: number, k: number) => THREE.Color): THREE.BufferGeometry {
+  const n = positions.length / 3, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i++) pos[i] = (positions[i]! / 1000) * h;
+  for (let f = 0; f < n / 3; f++) {
+    const y = (positions[f * 9 + 1]! + positions[f * 9 + 4]! + positions[f * 9 + 7]!) / 3000, k = Math.sin(f * 12.9898 + 4.1) * 43758.5453;
+    const c = paint(y, k - Math.floor(k));
+    for (let v = 0; v < 3; v++) col.set([c.r, c.g, c.b], (f * 3 + v) * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
 const blob = (g: THREE.BufferGeometry, cards: number) => { g.userData['cards'] = cards * CARD_DENSITY; return g; };
 // (Ground cover's blobs stay solid, unless made of cards outright: heather.)
 const groundCards = (g: THREE.BufferGeometry) => { g.userData['groundCards'] = true; return g; };
@@ -368,14 +385,17 @@ export const CATALOG = {
     cone(0.0005, 0.0024, 3, 0x9a8470, { y: 0.0058, x: -0.0008, rz: 0.6 }),
     oct(0.0032, p.leaf, { y: 0.0072, sy: 0.35 }),
   ] },
+  // (A cactus, not a tree: a little over half a tree's height, its trunk and arms six-sided.)
   saguaro: { name: 'Saguaro', layer: 'Canopy', leaf: 0x4f7d45, build: (p) => [
-    cyl(0.0008, 0.0007, 0.011, 4, p.leaf),
-    cone(0.0007, 0.0006, 4, p.leaf, { y: 0.011 }),
-    seg(V(0, 0.0042, 0), V(0.0021, 0.0046, 0), 0.0005, 0.0005, 3, p.leaf),
-    seg(V(0.0021, 0.0045, 0), V(0.0021, 0.0083, 0), 0.0005, 0.00045, 3, p.leaf),
-    seg(V(0, 0.0058, 0), V(-0.0019, 0.0061, 0.0004), 0.0005, 0.0005, 3, p.leaf),
-    seg(V(-0.0019, 0.006, 0.0004), V(-0.0019, 0.0088, 0.0004), 0.0005, 0.00045, 3, p.leaf),
-  ] },
+    cyl(0.00085, 0.00075, 0.011, 6, p.leaf),
+    cone(0.00075, 0.0007, 6, p.leaf, { y: 0.011 }),
+    seg(V(0, 0.0042, 0), V(0.0021, 0.0046, 0), 0.00052, 0.00052, 5, p.leaf),
+    seg(V(0.0021, 0.0045, 0), V(0.0021, 0.0083, 0), 0.00052, 0.00046, 5, p.leaf),
+    cone(0.00046, 0.0004, 5, p.leaf, { x: 0.0021, y: 0.0083 }),
+    seg(V(0, 0.0058, 0), V(-0.0019, 0.0061, 0.0004), 0.00052, 0.00052, 5, p.leaf),
+    seg(V(-0.0019, 0.006, 0.0004), V(-0.0019, 0.0088, 0.0004), 0.00052, 0.00046, 5, p.leaf),
+    cone(0.00046, 0.0004, 5, p.leaf, { x: -0.0019, y: 0.0088, z: 0.0004 }),
+  ].map((g) => g.applyMatrix4(new THREE.Matrix4().makeScale(0.6, 0.6, 0.6))) },
   joshuaTree: { name: 'Joshua tree', layer: 'Canopy', leaf: 0x5d7a3e, build: (p) => {
     // A shaggy trunk forking into crooked arms, each tipped with a rosette of daggers.
     const fork = V(0, 0.0042, 0);
@@ -397,11 +417,20 @@ export const CATALOG = {
     ...[[0.0012, 0, 0.0085], [-0.0011, 0.0005, 0.0078], [0.0002, 0.0013, 0.007], [0.0003, -0.0012, 0.0092]]
       .map(([x, z, h]) => seg(V(0, 0.0022, 0), V(x, h, z), 0.0004, 0.00035, 3, p.leaf)),
   ] },
-  pricklyPear: { name: 'Prickly pear', layer: 'Understory', leaf: 0x7a9a4a, build: (p) => [
-    oct(0.0014, p.leaf, { y: 0.0014, sx: 0.85, sz: 0.25 }),
-    oct(0.0012, p.leaf, { x: 0.0011, y: 0.0031, ry: 0.4, rz: -0.5, sx: 0.85, sz: 0.25 }),
-    oct(0.0011, p.leaf, { x: -0.001, y: 0.003, ry: -0.6, rz: 0.4, sx: 0.85, sz: 0.25 }),
-  ] },
+  // (Its pads solid, each growing from the one under it: as clumps of leaf cards, which cover only a clump's
+  // upper side, they were three tufts of leaves hung in the air, a tree with no trunk seen from the ground.)
+  pricklyPear: { name: 'Prickly pear', layer: 'Understory', leaf: 0x7a9a4a, build: (p) => {
+    // (A pad: a flat oval paddle, rounded, standing on its narrow foot: a low ball of six sides squeezed thin,
+    // its lower end drawn in. Not an octahedron: that was a kite balanced on its point.)
+    const pad = (r: number, o: Tf) => {
+      const g = new THREE.SphereGeometry(r, 6, 3), pos = g.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) { const y = pos.getY(i), k = y < 0 ? 1 + 0.45 * (y / r) : 1; pos.setXYZ(i, pos.getX(i) * 0.85 * k, y * 1.15 + r * 1.15, pos.getZ(i) * 0.26 * k); }
+      return part(g, p.leaf, tf(o));
+    };
+    // (The first on the ground; the others out of its upper rim, leaning out, a small one on one of those.)
+    return [pad(0.0014, {}), pad(0.0011, { x: 0.0007, y: 0.0024, ry: 0.5, rz: -0.55 }), pad(0.001, { x: -0.0007, y: 0.0023, ry: -0.6, rz: 0.5 }),
+      pad(0.0007, { x: 0.0019, y: 0.0038, ry: 1.0, rz: -0.25 })];
+  } },
   saxaul: { name: 'Saxaul', layer: 'Understory', leaf: 0x8a9a6a, build: (p) => [
     seg(V(0, 0, 0), V(0.0008, 0.0022, 0.0003), 0.0005, 0.0004, 3, 0x7a6a58),
     seg(V(0.0008, 0.0022, 0.0003), V(-0.0004, 0.0042, 0), 0.0004, 0.0003, 3, 0x7a6a58),
@@ -421,9 +450,9 @@ export const CATALOG = {
   dryBush: { name: 'Dry bush', layer: 'Ground', leaf: 0x9a8a6a, build: (p) => [twigs(4, 0.0042, 0.0026, p.leaf)] },
   berryBush: { name: 'Berry bush', layer: 'Understory', leaf: 0x5c7d3d, accent: 0xc0303a, build: (p) => [
     oct(0.0021, p.leaf, { y: 0.0013, sy: 0.75 }),
-    tet(0.00045, p.accent, { x: 0.0015, y: 0.0016, z: 0.0006 }),
-    tet(0.00045, p.accent, { x: -0.0011, y: 0.0019, z: 0.0012 }),
-    tet(0.00045, p.accent, { x: 0.0002, y: 0.0022, z: -0.0014 }),
+    // (Its berries: small bursts among the leaves, as a vine's grapes and a spice shrub's fruit are: no solid shapes.)
+    ...[[0.0015, 0.0016, 0.0006], [-0.0011, 0.0019, 0.0012], [0.0002, 0.0022, -0.0014], [-0.0006, 0.001, -0.0011]]
+      .map(([x, y, z]) => burst(0.00042, p.accent, { x, y, z })),
   ] },
   grassTuft: { name: 'Grass tuft', layer: 'Ground', leaf: 0x8fae55, build: (p) =>
     Array.from({ length: 5 }, (_, i) => blade(Math.cos(ring(5, i)) * 0.0004, Math.sin(ring(5, i)) * 0.0004, ring(5, i, 0.4), 0.0006, 0.0022 + 0.0004 * (i % 2), 0.0006, p.leaf)) },
@@ -437,9 +466,10 @@ export const CATALOG = {
   // Pampas grass: a green tussock, its cream plumes standing over it on their stalks.
   pampasGrass: { name: 'Pampas grass', layer: 'Ground', leaf: 0x86a84e, accent: 0xe8e0c8, build: (p) => [
     ...Array.from({ length: 7 }, (_, i) => blade(Math.cos(ring(7, i)) * 0.0006, Math.sin(ring(7, i)) * 0.0006, ring(7, i, 0.2), 0.0007, 0.0034 + 0.0007 * (i % 3), 0.0014, p.leaf)),
-    ...[[0.0003, 0.0002, 0.0062], [-0.0005, 0.0003, 0.0054], [0.0001, -0.0006, 0.0058]].flatMap(([x, z, h]) => [
-      cone(0.00012, h! * 0.75, 3, 0xa8a868, { x, z }),
-      tet(0.00042, p.accent, { x, y: h! * 0.86, z, sx: 0.8, sz: 0.8, sy: 3.2 }),
+    // (Its plumes: a flower's head in size, a little over the tussock.)
+    ...[[0.0003, 0.0002, 0.0044], [-0.0005, 0.0003, 0.0039], [0.0001, -0.0006, 0.0042]].flatMap(([x, z, h]) => [
+      cone(0.0001, h! * 0.86, 3, 0xa8a868, { x, z }),
+      tet(0.00036, p.accent, { x, y: h! * 0.9, z, sx: 0.75, sz: 0.75, sy: 1.5 }),
     ]),
   ] },
   flowers: { name: 'Flowers', layer: 'Ground', leaf: 0x7fa850, accent: 0xe05a8a, build: (p) => {
@@ -514,21 +544,10 @@ export const CATALOG = {
   ] },
   // A cathedral mound: a tall lumpy spire on a spreading foot, lesser spires and buttresses
   // crowding round it, each its own height and lean; baked clay, paler where the sun has dried it.
-  termiteMound: { name: 'Termite mound', layer: 'Accent', leaf: 0xb07a4a, build: (p) => {
-    // (Its own clays, fixed: the foot damp and dark, some spires dried pale.)
-    const DRY = 0xc89c6c, DAMP = 0x8a5e3c;
-    const spire = (r: number, h: number, n: number, c: number, seed: number, o: Tf = {}) =>
-      part(lumpy(new THREE.ConeGeometry(r, h, n, 1, true).translate(0, h / 2, 0).toNonIndexed(), 0.16, seed), c, tf(o));
-    return [
-      spire(0.0027, 0.0017, 7, DAMP, 3),
-      spire(0.0017, 0.0064, 6, p.leaf, 5, { rz: 0.05 }),
-      spire(0.0011, 0.0045, 5, DRY, 7, { x: 0.001, z: 0.0004, rz: -0.12 }),
-      spire(0.001, 0.0036, 5, p.leaf, 11, { x: -0.0009, z: 0.0007, rz: 0.16 }),
-      spire(0.0009, 0.0028, 4, DRY, 13, { x: -0.0003, z: -0.0011, rx: -0.14 }),
-      spire(0.0008, 0.002, 4, p.leaf, 17, { x: 0.0013, z: -0.0008, rz: -0.2 }),
-      spire(0.0007, 0.0015, 4, DAMP, 19, { x: -0.0015, z: -0.0002, rz: 0.22 }),
-    ];
-  } },
+  // (A modelled mound: src/models/termiteMound.json, baked from a licensed Meshy model by scripts/importFbx.mts.
+  // Painted here, face by face: damp and dark at its foot, drying paler up its spires, no two faces quite alike.)
+  termiteMound: { name: 'Termite mound', layer: 'Accent', leaf: 0xb07a4a, build: () => [imported(MOUND.positions, 0.0036, (y, k) =>
+    new THREE.Color(0x86593a).lerp(new THREE.Color(0xc79a6a), Math.min(1, Math.max(0, (y - 0.08) / 0.8))).multiplyScalar(0.9 + 0.2 * k))] },
   iceSerac: { name: 'Ice serac', layer: 'Ground', leaf: 0xdff0fa, build: (p) => [
     shard(0.0022, p.leaf, 5, { y: 0.0012, sy: 1.2 }),
     shard(0.0015, p.leaf, 9, { x: 0.0022, y: 0.0007, z: 0.0008, sy: 1.4 }),
