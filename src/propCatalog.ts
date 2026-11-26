@@ -33,6 +33,7 @@ export interface CatalogEntry {
   leaf: number;
   accent?: number;
   water?: WaterUse; // default: dry ground only
+  still?: true;     // stone, ice, coral, dead wood: it takes its instance's colour as leaves do, but no wind moves it
   build: (p: Palette) => THREE.BufferGeometry[];
 }
 
@@ -485,7 +486,7 @@ export const CATALOG = {
   heather: { name: 'Heather', layer: 'Ground', leaf: 0x8a5a8a, build: (p) => [
     groundCards(oct(0.0026, p.leaf, { y: 0.0006, sy: 0.38, ry: 0.3 })),
   ] },
-  moss: { name: 'Moss / lichen mound', layer: 'Ground', leaf: 0x6f8f4a, build: (p) => [
+  moss: { name: 'Moss / lichen mound', layer: 'Ground', still: true, leaf: 0x6f8f4a, build: (p) => [
     oct(0.002, p.leaf, { y: 0.0002, sy: 0.32, ry: 0.7 }),
   ] },
   cottonGrass: { name: 'Cotton grass', layer: 'Ground', leaf: 0x8a9a5a, accent: 0xf6f6f0, build: (p) => [
@@ -517,23 +518,23 @@ export const CATALOG = {
   ] },
 
   // ---------- rock and deadwood ----------
-  boulder: { name: 'Boulder', layer: 'Ground', leaf: 0x8a877d, build: (p) => [
+  boulder: { name: 'Boulder', layer: 'Ground', still: true, leaf: 0x8a877d, build: (p) => [
     rock(0.0022, p.leaf, 3, { y: 0.0008, sy: 0.7 }),
   ] },
-  tor: { name: 'Tor / outcrop', layer: 'Accent', leaf: 0x8f8a80, build: (p) => [
+  tor: { name: 'Tor / outcrop', layer: 'Accent', still: true, leaf: 0x8f8a80, build: (p) => [
     part(new THREE.BoxGeometry(0.005, 0.0022, 0.0042), p.leaf, tf({ y: 0.0008, ry: 0.2 })),
     part(new THREE.BoxGeometry(0.0038, 0.002, 0.0032), p.leaf, tf({ x: 0.0004, y: 0.0028, ry: 0.7, rz: 0.06 })),
     part(new THREE.BoxGeometry(0.0024, 0.0016, 0.0022), p.leaf, tf({ x: -0.0002, y: 0.0045, ry: 1.3 })),
   ] },
-  scree: { name: 'Scree', layer: 'Ground', leaf: 0x8d8b84, build: (p) => [
+  scree: { name: 'Scree', layer: 'Ground', still: true, leaf: 0x8d8b84, build: (p) => [
     tet(0.0008, p.leaf, { y: 0.0003, ry: 0.2 }),
     tet(0.0006, p.leaf, { x: 0.0014, y: 0.0002, z: 0.0005, rx: 0.8 }),
     tet(0.0007, p.leaf, { x: -0.0009, y: 0.0002, z: 0.0012, rz: 0.5 }),
   ] },
-  fallenLog: { name: 'Fallen log', layer: 'Ground', leaf: 0x6a5038, build: (p) => [
+  fallenLog: { name: 'Fallen log', layer: 'Ground', still: true, leaf: 0x6a5038, build: (p) => [
     cyl(0.0006, 0.0005, 0.0065, 4, p.leaf, { y: 0.0005, x: -0.0032, rz: -Math.PI / 2 + 0.05 }),
   ] },
-  stump: { name: 'Stump', layer: 'Ground', leaf: 0x6a5038, accent: 0xb89a70, build: (p) => [
+  stump: { name: 'Stump', layer: 'Ground', still: true, leaf: 0x6a5038, accent: 0xb89a70, build: (p) => [
     cyl(0.0009, 0.0007, 0.0012, 4, p.leaf),
     disc(0.0007, 4, p.accent, { y: 0.0012, rx: -Math.PI / 2, rz: Math.PI / 4 }),
   ] },
@@ -548,13 +549,13 @@ export const CATALOG = {
   // Painted here, face by face: damp and dark at its foot, drying paler up its spires, no two faces quite alike.)
   termiteMound: { name: 'Termite mound', layer: 'Accent', leaf: 0xb07a4a, build: () => [imported(MOUND.positions, 0.0036, (y, k) =>
     new THREE.Color(0x86593a).lerp(new THREE.Color(0xc79a6a), Math.min(1, Math.max(0, (y - 0.08) / 0.8))).multiplyScalar(0.9 + 0.2 * k))] },
-  iceSerac: { name: 'Ice serac', layer: 'Ground', leaf: 0xdff0fa, build: (p) => [
+  iceSerac: { name: 'Ice serac', layer: 'Ground', still: true, leaf: 0xdff0fa, build: (p) => [
     shard(0.0022, p.leaf, 5, { y: 0.0012, sy: 1.2 }),
     shard(0.0015, p.leaf, 9, { x: 0.0022, y: 0.0007, z: 0.0008, sy: 1.4 }),
   ] },
 
   // ---------- under water ----------
-  coralHeads: { name: 'Coral heads', layer: 'Ground', leaf: 0xe07a6a, accent: 0x9a6ad0, water: { kind: 'bed', minDepth: 0.0003 }, build: (p) => [
+  coralHeads: { name: 'Coral heads', layer: 'Ground', still: true, leaf: 0xe07a6a, accent: 0x9a6ad0, water: { kind: 'bed', minDepth: 0.0003 }, build: (p) => [
     oct(0.0011, p.leaf, { y: 0.0003, sy: 0.6 }),
     oct(0.0009, 0xd8b04a, { x: 0.0016, y: 0.0003, z: 0.0006, sy: 0.6 }),
     oct(0.0008, p.accent, { x: -0.0009, y: 0.0002, z: 0.0014, sy: 0.6 }),
@@ -568,7 +569,7 @@ export const CATALOG = {
     part(new THREE.PlaneGeometry(0.0007, 0.0034, 1, 1).translate(0, 0.0017, 0), p.leaf, tf({ ry: 0.3, rz: 0.08 })),
     part(new THREE.PlaneGeometry(0.0006, 0.003, 1, 1).translate(0, 0.0015, 0), p.leaf, tf({ x: 0.0006, ry: 1.6, rx: 0.1 })),
   ] },
-  iceFloe: { name: 'Ice floe / berg', layer: 'Accent', leaf: 0xeef6fa, water: { kind: 'float', maxDepth: Infinity, needWater: false }, build: (p) => [
+  iceFloe: { name: 'Ice floe / berg', layer: 'Accent', still: true, leaf: 0xeef6fa, water: { kind: 'float', maxDepth: Infinity, needWater: false }, build: (p) => [
     shard(0.0055, p.leaf, 2, { y: 0, sy: 0.22 }),
   ] },
 } satisfies Record<string, CatalogEntry>;
@@ -733,7 +734,7 @@ function limbs(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry[] {
 
 // Builds a model whose leaf parts are marked (leafMask) for per-instance tints;
 // a flora model's (one with a layer) are made fluffy.
-export function buildModel(e: Pick<CatalogEntry, 'leaf' | 'accent' | 'build'> & { layer?: Layer }, name: string, palette?: Partial<Palette>): THREE.BufferGeometry {
+export function buildModel(e: Pick<CatalogEntry, 'leaf' | 'accent' | 'build' | 'still'> & { layer?: Layer }, name: string, palette?: Partial<Palette>): THREE.BufferGeometry {
   const leafy = e.layer === 'Canopy' || e.layer === 'Understory';
   let seed = [...name].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 0x01000193), 0x811c9dc5);
   const burstOf = (g: THREE.BufferGeometry) => g.userData['burst'] === true;
@@ -758,6 +759,8 @@ export function buildModel(e: Pick<CatalogEntry, 'leaf' | 'accent' | 'build'> & 
   }
   const merged = mergeGeometries(parts);
   if (!merged) throw new Error(`Could not build prop ${name}`);
+  // (What stands still: its card mark -2, a flat leaf's -1 otherwise alike; propMaterial.ts sways none of it.)
+  if (e.still) { const uv = merged.getAttribute('cardUv'); for (let i = 0; i < uv.count; i++) uv.setZ(i, -2); }
   const leaf = new THREE.Color(palette?.leaf ?? e.leaf);
   const col = merged.getAttribute('color');
   const mask = new Float32Array(col.count);

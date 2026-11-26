@@ -13,6 +13,7 @@ import { buildModel, burst, cone, cyl, oct, part, seg, tf, type Tf } from '../pr
 import { FENCE_BANDS } from '../propMaterial.ts';
 import { CREATURE_SCALE } from '../creatures.ts';
 import { RESOURCE_MODELS, RESOURCE_MODEL_KEYS } from './resourceModels.ts';
+import { clustered } from '../lod.ts';
 import { kitModel, KIT_MODELS, FIGURES, SPECIES_OF, CRAB, type KitModel } from './kit.ts';
 
 // (The flora-drawn ones first: cards, as the trees' crowns are.)
@@ -255,6 +256,23 @@ const DIVE = 0.25;
 // work, fish about their water. At most this far (tile steps).
 const WANDER_BEAST = 0.14, WANDER_PERSON = 0.07;
 export const wanderMax = (m: string): number => SWIM[m as KitModel]?.wander ?? (SPECIES_OF[m as KitModel] ? WANDER_BEAST : roamOf(m) ? WANDER_PERSON : 0);
+// The way up for a beast standing at `dir` on a slope (unit vectors, the globe's): the ground's own normal
+// there, over `reach` either way (world units: its half length, or as far as it wanders if that is
+// farther; `ground`: the ground's height at a direction), so that its feet meet the ground where it stands
+// and all the way round its wanders, which lie in that plane: stood straight up, its uphill legs sank into
+// the hill. No more than SLOPE_MOST off the upright. (Its wanders are not kept to level ground: where the
+// land rolls under them a hoof may dip or lift a little.)
+const SLOPE_MOST = 0.5;
+export function slopeUp(dir: THREE.Vector3, reach: number, ground: (d: THREE.Vector3) => number): THREE.Vector3 {
+  const e1 = new THREE.Vector3(1, 0, 0).cross(dir);
+  if (e1.lengthSq() < 1e-6) e1.set(0, 0, 1).cross(dir);
+  e1.normalize();
+  const e2 = dir.clone().cross(e1), at = (e: THREE.Vector3, k: number) => ground(dir.clone().addScaledVector(e, k * reach).normalize());
+  let a = (at(e1, 1) - at(e1, -1)) / (2 * reach), b = (at(e2, 1) - at(e2, -1)) / (2 * reach);
+  const steep = Math.hypot(a, b);
+  if (steep > SLOPE_MOST) { a *= SLOPE_MOST / steep; b *= SLOPE_MOST / steep; }
+  return dir.clone().addScaledVector(e1, -a).addScaledVector(e2, -b).normalize();
+}
 // The largest circle round p (tile steps), up to `max`, that `ok` holds all
 // over (checked round its rim and halfway in); 0 if none does (it walks its
 // small loop: roamOf).
@@ -364,6 +382,25 @@ export function ruralGeometry(kind: RuralModelKind): THREE.BufferGeometry {
   }
   return g;
 }
+// The far models of the countryside's heaviest things (the animals, the plough team, the hay cart: some
+// hundreds of triangles each, and a pasture holds a herd): the same model with its vertices gathered on a
+// coarse grid (lod.ts clustered: FAR_CELLS to its longest side), colours and what walks kept as they are.
+// render.ts draws them in its place where trees take their far models.
+const FAR_CELLS = 7;
+const FAR_RURAL: ReadonlySet<string> = new Set(['horse', 'cow', 'pied', 'ox', 'sheep', 'mouflon', 'deer', 'stag', 'elephant', 'fox', 'ploughTeam', 'haycart']);
+export const hasRuralFar = (kind: RuralModelKind): boolean => FAR_RURAL.has(kind.slice('rural|'.length));
+const farCache = new Map<RuralModelKind, THREE.BufferGeometry>();
+export function ruralFarGeometry(kind: RuralModelKind): THREE.BufferGeometry {
+  let g = farCache.get(kind);
+  if (!g) {
+    g = clustered(ruralGeometry(kind), FAR_CELLS, [], 0.2);
+    g.computeVertexNormals();
+    g = g.toNonIndexed();
+    farCache.set(kind, g);
+  }
+  return g;
+}
+
 // What of a model meets the ground (tile steps a model unit): the box of its
 // parts near its foot (in the lowest eighth of its height), x and z. Its
 // footing on a slope is judged on this, not on what it holds up overhead (a

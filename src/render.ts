@@ -22,7 +22,7 @@ import { BUILDING_KINDS, buildBuildingGeometry, type BuildingKind } from './buil
 import { useOf } from './houseKit.ts';
 import { WORKS_VARIANT, houseFarGeometry, houseGeometry, houseSmoke, isHouseKind, parseHouseKind, type HouseKind } from './houses.ts';
 import { isWonderModelKind, wonderGeometry, type WonderModelKind } from './wonderModels.ts';
-import { isFloraRural, isCropRural, isSmoothRural, roamOf, isRuralModelKind, ruralGeometry, ruralModelKind, type RuralModelKind } from './rural/models.ts';
+import { isFloraRural, isCropRural, isSmoothRural, roamOf, isRuralModelKind, ruralGeometry, ruralFarGeometry, hasRuralFar, ruralModelKind, slopeUp, type RuralModelKind } from './rural/models.ts';
 import { CityProps, tileFrame, SUMMIT_FLAT, SUMMIT_HOUSES, type CitySpot, type SinkSheet } from './cityProps.ts';
 import { CITY_CELL } from './cityPainter.ts';
 import { CELL, wallHeight } from './town/geometry.ts';
@@ -38,6 +38,8 @@ import { mulberry32, makePerlin } from './rng.ts';
 import { USE, WONDERS, type EraIndex } from './cities.ts';
 import { farGeometry, makeFloraDepthMaterial, makePropMaterial, makeRoamDepthMaterial, instanceGeometry } from './propMaterial.ts';
 import { GpuTimer } from './gpuTimer.ts';
+import { SPECIES_OF, type KitModel } from './rural/kit.ts';
+import { CREATURE_SCALE } from './creatures.ts';
 import { tFbm } from './fineNoise.ts';
 import { DevViews, devEnabled } from './devViews.ts';
 import { Billboards, type Billboard } from './billboards.ts';
@@ -106,6 +108,9 @@ const SETTLE_EVERY = 600, SETTLE_IDLE = 1200; // ms between the towns out of sig
 // The countryside's small models (haystacks, herds, heaps, fences) go when
 // a tree would be this many times smaller than FAR_PX: a pixel or two.
 const RURAL_GONE = 2.5;
+// The countryside's heaviest models (animals, the plough team, the hay cart) take their far ones at this share
+// of the trees' distance: sooner than trees (chosen with the user: at the trees' own it came too late).
+const RURAL_FAR = 0.2;
 // A cap on the frame rate (0: none): frames evenly spaced on whole
 // refreshes (a 120 Hz screen shows each for two) look smoother than more of
 // them, unevenly (a frame of 10–14 ms held for one refresh, then two or three).
@@ -1544,7 +1549,10 @@ export class GlobeRenderer {
     const sampleDir = (d: THREE.Vector3) => { const l = locate(g.globe, d, hint); hint = l.t; return { ...this.citySpot(l.t, l.i, l.wa, l.wb), t: l.t }; };
     const items: PlacedProp[] = [];
     for (const m of placeResource(g, t, r, look, rand, sampleDir)) {
-      const q = new THREE.Quaternion().setFromUnitVectors(UP, m.dir).multiply(new THREE.Quaternion().setFromAxisAngle(UP, m.yaw));
+      // (A beast stands as the slope lies: rural/models.ts slopeUp.)
+      const beast = SPECIES_OF[m.model as KitModel] !== undefined && !look.water;
+      const up = beast ? slopeUp(m.dir, Math.max(1.1 * CREATURE_SCALE * m.s, m.wander) * m.k, (d) => sampleDir(d).ground) : m.dir;
+      const q = new THREE.Quaternion().setFromUnitVectors(UP, up).multiply(new THREE.Quaternion().setFromAxisAngle(UP, m.yaw));
       const sc = m.k * m.s, shade = 0.92 + 0.12 * rand();
       items.push({ kind: ruralModelKind(m.model), matrix: new THREE.Matrix4().compose(m.dir.clone().multiplyScalar(1 + (look.wade ? m.spot.ground : Math.max(m.spot.ground, m.spot.water)) - 0.00004 * this.scale), q, new THREE.Vector3(sc, sc, sc)),
         color: new THREE.Color(shade, shade, shade), leaf: new THREE.Color(m.color ?? 0xffffff), wander: m.wander / m.s });
@@ -1632,14 +1640,18 @@ export class GlobeRenderer {
         // out), a little farther off (HOUSE_FAR).
         const house = isHouseKind(kind);
         const turf = kind === 'turf';
-        if (house || turf || (isFloraKind(kind) && CATALOG[kind].layer === 'Canopy')) {
+        // (And the countryside's heaviest models: rural/models.ts ruralFarGeometry.)
+        const rural = isRuralModelKind(kind) && hasRuralFar(kind);
+        if (house || turf || rural || (isFloraKind(kind) && CATALOG[kind].layer === 'Canopy')) {
           let far = mesh.userData['far'] as THREE.InstancedMesh | undefined;
           if (!far) {
             const geo = new THREE.BufferGeometry();
-            for (const [name, attr] of Object.entries((house ? houseFarGeometry(kind) : turf ? turfFarGeometry() : this.farGeometryOf(kind as CatalogKind)).attributes)) geo.setAttribute(name, attr);
+            for (const [name, attr] of Object.entries((house ? houseFarGeometry(kind) : turf ? turfFarGeometry() : rural ? ruralFarGeometry(kind as RuralModelKind) : this.farGeometryOf(kind as CatalogKind)).attributes)) geo.setAttribute(name, attr);
             geo.setAttribute('leafTint', leaf);
-            far = new THREE.InstancedMesh(geo, house ? this.buildingMat : this.propMat, mesh.instanceMatrix.count);
+            if (rural) geo.setAttribute('wander', wander);
+            far = new THREE.InstancedMesh(geo, house ? this.buildingMat : rural ? mesh.material : this.propMat, mesh.instanceMatrix.count);
             if (house) mesh.userData['farAt'] = HOUSE_FAR;
+            if (rural) mesh.userData['farAt'] = RURAL_FAR;
             far.instanceMatrix = mesh.instanceMatrix;
             far.userData['stat'] = `${statOf(kind)} (far)`;
             far.receiveShadow = true;
@@ -1777,7 +1789,7 @@ export class GlobeRenderer {
         const gone = away > farDist * ((mesh.userData['goneAt'] as number | undefined) ?? Infinity);
         // (Houses far off are drawn merged, chunk.farHouses.)
         mesh.visible = show && !gone && !(twin && far);
-        if (twin) twin.visible = show && far && !(chunk.farHouses && mesh.userData['farAt'] === HOUSE_FAR);
+        if (twin) twin.visible = show && far && !gone && !(chunk.farHouses && mesh.userData['farAt'] === HOUSE_FAR);
       }
       if (chunk.farHouses) chunk.farHouses.visible = this.land === 'normal' && seen && away > farDist * HOUSE_FAR;
       chunk.near = seen && away <= farDist * HOUSE_FAR;

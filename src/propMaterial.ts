@@ -240,7 +240,8 @@ const FLORA_VERTEX = `
       float ph = dot(o, vec3(4100.0, 3700.0, 2900.0));
       float gust = sin(uTime * 1.7 + ph) + 0.5 * sin(uTime * 2.9 + ph * 1.3);
       // (Every leaf card sways, a bush's bursts of berries too, whatever their colour.)
-      float sway = max(leafMask, step(0.5, cardUv.z) * step(cardUv.z, 1.5));
+      // (But stone, ice and coral, card mark -2: they take the instance's colour as leaves do, and stand still.)
+      float sway = max(leafMask, step(0.5, cardUv.z) * step(cardUv.z, 1.5)) * step(-1.5, cardUv.z);
       // (Seen from far, a crown is one solid: a bare one a good deal smaller.)
       if (leafMask > 0.5 && cardUv.z < 0.5) transformed.xz *= 1.0 - 0.45 * vBare;
       transformed.xz += sway * transformed.y * ${WIND.toFixed(3)} * gust * vec2(1.0, 0.6);
