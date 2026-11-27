@@ -1,5 +1,5 @@
 import { unitDef, buildDef, domainOf, UNITS, type BuildKey, type UnitKey, type UnitDef } from './rules.ts';
-import { BUILDING_KEYS, BUILDINGS, WONDER_KEYS, USE, CITY_REACH, weigh, addOut, OUTPUT_KEYS, ERAS, type BuildingKey } from './cities.ts';
+import { BUILDING_KEYS, BUILDINGS, WONDER_KEYS, USE, CITY_REACH, weigh, addOut, OUTPUT_KEYS, type BuildingKey } from './cities.ts';
 import { resourceDef, empireBonus, type ResourceKey } from './resources.ts';
 import { flat, total } from './effects.ts';
 import { buildingUpkeep, cityUpkeep, UPKEEP_PER_CITY } from './economy.ts';
@@ -13,8 +13,9 @@ import { BEST, type AiPolicy } from './aiPolicy.ts';
 import { militaryPhase, planWar, planning, onCampaign, operationOf } from './aiMilitary.ts';
 import { isShooter, canAssault, canShoot } from './unitClasses.ts';
 import { canAttackType } from './unitClasses.ts';
-import { HOLY_STRIFE } from './religion.ts';
-import { MIN_WAR, FAITH_VICTORY, type Game, type Player, type Unit, type City, type DealSide } from './game.ts';
+import { CONVERSION_COST, CONVERSION_TURNS, type ReligionKey } from './religion.ts';
+import { aiDeals, aiReviewsTreaties, regard, threatens, WAR_BY_REGARD } from './diplomacy.ts';
+import { MIN_WAR, type Game, type Player, type Unit, type City } from './game.ts';
 
 // Deliberately simple AI: expand with settlers, improve the land with
 // workers (about one for every WORKER_POP citizens), keep a garrison in every
@@ -23,7 +24,7 @@ import { MIN_WAR, FAITH_VICTORY, type Game, type Player, type Unit, type City, t
 // (warlike or builder: its id and the seed) that steers its research,
 // politics, government and policies, and how readily it goes to war; and
 // its own taste in identity paths (pathTaste), so no two are alike.
-const warlike = (g: Game, p: Player): boolean => (g.seed + p.id * 7) % 3 === 0;
+export const warlike = (g: Game, p: Player): boolean => (g.seed + p.id * 7) % 3 === 0;
 
 // The numbers its decisions turn on: its policy (aiPolicy.ts; the game
 // gives each civ one), leaned by its bent: the warlike sooner to war and
@@ -53,8 +54,10 @@ export function aiTurn(g: Game, p: Player): void {
   if (!p.research) { const t = aiPickTech(g, p); if (t) g.setResearch(p, t); }
   if (!p.studying) { const c = aiPickPolitics(g, p); if (c) g.setPolitics(p, c); }
   aiPickTraits(g, p);
+  aiFaith(g, p);
   aiDiplomacy(g, p);
-  aiTrade(g, p);
+  aiDeals(g, p);
+  aiReviewsTreaties(g, p);
   const cities = g.cities.filter((c) => c.owner === p.id);
   const units = g.units.filter((u) => u.owner === p.id);
   const settlers = units.filter((u) => u.type === 'settler').length;
@@ -84,8 +87,7 @@ export function aiTurn(g: Game, p: Player): void {
   const l = p.ledger, net = l.income.gold + l.tithes + l.trade - l.cityUpkeep - l.unitUpkeep;
   const broke = net < 0 && p.gold < 40;
   if (net < 0 && p.gold <= 0) {
-    // (Not its commanders: cheap to keep, and an army is the worse without one.)
-    const spare = units.filter((u) => isMilitary(u) && u.type !== 'commander' && !g.cityByTile.has(u.tile)).sort((a, b) => unitDef(a.type).cost - unitDef(b.type).cost);
+    const spare = units.filter((u) => isMilitary(u) && !g.cityByTile.has(u.tile)).sort((a, b) => unitDef(a.type).cost - unitDef(b.type).cost);
     for (const u of spare.slice(0, 2)) g.removeUnit(u);
   }
   // It pays its way: no new city while what one more would cost a turn
@@ -96,25 +98,26 @@ export function aiTurn(g: Game, p: Player): void {
   const oneMore = (cityUpkeep(6, cities.length, false, total(g.effectsOf(p), 'upkeep')) + UPKEEP_PER_CITY * cities.length) * g.inflation;
   const pending = settlers + cities.filter((c) => c.building === 'settler').length;
   const canSettle = cities.length < 2 || net - oneMore * (1 + pending) >= 0 || p.gold >= 40 * oneMore * (1 + pending);
-  // (A civ hostile toward it, as it reads them: it arms.)
-  const menaced = !atWar && g.players.some((o) => o.alive && o.id !== p.id && g.met[p.id]![o.id] && attitude(g, o, p.id) === 'hostile');
+  // (A civ that threatens it, as anyone can read it (diplomacy.ts): it arms.)
+  const menaced = !atWar && g.players.some((o) => o.alive && o.id !== p.id && g.met[p.id]![o.id] && threatens(g, o.id, p.id));
   const armyTarget = broke ? 0 : (P.armyBase + P.armyPerCity * cities.length) * (atWar || planning(g, p) ? P.armyWar : menaced ? P.armyThreat : 1);
   let coming = cities.filter((c) => c.building && c.building in UNITS && !unitDef(c.building as UnitKey).civilian && domainOf(unitDef(c.building as UnitKey)) === 'land').length;
-  // A commander once its army is six strong, a second at sixteen.
-  let commanderShort = !broke && units.filter((u) => u.type === 'commander').length + cities.filter((c) => c.building === 'commander').length < (military >= 16 ? 2 : military >= 6 ? 1 : 0);
   // A fleet: for a civ with ports, while a rival has a coast in its reach or ships it has seen: a share of its army.
   const ports = cities.filter((c) => g.cityCoast(c));
   const seaRival = ports.length > 0 && (g.cities.some((c) => c.owner !== p.id && g.known[p.id]![c.tile] && g.cityCoast(c) && ports.some((h) => g.approxDist(h.tile, c.tile) <= 20))
     || g.units.some((u) => u.owner !== p.id && domainOf(unitDef(u.type)) === 'sea' && g.known[p.id]![u.tile] && g.atWar(p.id, u.owner)));
   const building = (d: 'sea' | 'air') => cities.filter((c) => c.building && c.building in UNITS && domainOf(unitDef(c.building as UnitKey)) === d).length;
   const navyShort = broke || !seaRival ? 0 : Math.round(P.navyShare * armyTarget * Math.min(1, (2 * ports.length) / Math.max(1, cities.length))) - units.filter((u) => dom(u) === 'sea').length - building('sea');
+  // (And a ship to find the civs it has not met, while there are some and it has a port and no ship out: the sea is how they are reached.)
+  const unmet = g.players.some((o) => o.alive && o.id !== p.id && !g.met[p.id]![o.id]);
+  let explorer = !broke && unmet && g.turn > 40 * g.pace && ports.length > 0 && !units.some((u) => dom(u) === 'sea') && building('sea') === 0;
   const airShort = broke ? 0 : Math.round(P.airShare * armyTarget) - units.filter((u) => dom(u) === 'air').length - building('air');
   for (const c of cities) {
     g.rework(c);
     if (!c.building) {
-      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort, canSettle, commander: commanderShort });
+      c.building = chooseBuild(g, c, P, { expansion, garrisoned: garrisoned(c), military: military + coming, armyTarget, workersShort: wantWorkers - workers, atWar, threatened: threatened(c), navyShort, airShort, canSettle, explorer });
+      if (explorer && c.building && c.building in UNITS && domainOf(unitDef(c.building as UnitKey)) === 'sea') explorer = false;
       if (c.building === 'worker') workers++;
-      else if (c.building === 'commander') commanderShort = false;
       else if (c.building === 'settler') expansion++;
       else if (c.building && c.building in UNITS) coming++;
     }
@@ -146,24 +149,13 @@ export function aiTurn(g: Game, p: Player): void {
     else if (domainOf(unitDef(u.type)) === 'air') airTurn(g, u);
     else if (domainOf(unitDef(u.type)) === 'sea') seaTurn(g, u);
   }
-  // Faith sends missionaries: the founder of a religion raises one when it
-  // can pay for it and for the city it would go to, in
-  // its city nearest that one; each then goes and preaches.
-  const founded = g.foundedBy(p.id);
-  if (founded) {
-    const out = g.units.filter((u) => u.owner === p.id && u.type === 'missionary' && !u.dead);
-    for (const u of out) missionaryTurn(g, u);
-    // (Two out, and one more for every 300 faith it has laid by, six at most: faith kept is faith wasted.)
-    if (out.length < Math.min(6, 2 + Math.floor(p.faith / (300 * g.pace))) && g.rng() < P.faithConvert) {
-      const homes = cities.filter((c) => c.religion === founded.religion);
-      const from = founded.holy?.owner === p.id ? founded.holy : homes[0];
-      const target = from ? missionTarget(g, p.id, from.tile, p.faith - g.missionaryCost) : null;
-      if (target && homes.length) {
-        const home = homes.reduce((a, b) => (g.approxDist(b.tile, target.tile) < g.approxDist(a.tile, target.tile) ? b : a));
-        const m = g.trainMissionary(p.id, home);
-        if (m) missionaryTurn(g, m);
-      }
-    }
+  // Faith sends missionaries: each out goes and preaches; and one more is
+  // raised while its faith pays for it and there is a city worth the
+  // journey (missionPlan), in its city holding that religion nearest it.
+  for (const u of g.units.filter((x) => x.owner === p.id && x.type === 'missionary' && !x.dead)) missionaryTurn(g, u);
+  if (p.faith >= g.missionaryCostOf(p.id) && g.rng() < P.faithConvert) {
+    const plan = missionPlan(g, p);
+    if (plan) { const m = g.trainMissionary(p.id, plan.home, plan.religion); if (m) missionaryTurn(g, m); }
   }
   // The army (aiMilitary.ts): operations, tactics, garrisons and posts.
   militaryPhase(g, p, P, cities);
@@ -205,7 +197,7 @@ function bestUnit(g: Game, city: City, role: Role): UnitKey | null {
   for (const k of Object.keys(UNITS) as UnitKey[]) {
     const d: UnitDef = unitDef(k);
     // (The AI builds no nuclear weapons.)
-    if (d.civilian || d.nuke || k === 'commander' || !canAttackType(k) || !g.canBuild(city, k) || domainOf(d) !== domain) continue;
+    if (d.civilian || d.nuke || !canAttackType(k) || !g.canBuild(city, k) || domainOf(d) !== domain) continue;
     if (domain === 'land') {
       const is: Role = d.siege ? 'siege' : d.mounted ? 'mounted' : isShooter(k) ? 'ranged' : 'front';
       if (is !== role || (role === 'front' && !canAssault(k))) continue;
@@ -249,7 +241,7 @@ function armyRole(g: Game, city: City, P: AiPolicy): UnitKey | null {
 // What a city builds next: each kind of thing pulls by how much it is
 // needed now and by its civ's policy; the strongest pull that can be
 // answered wins (with a little chance, so cities differ).
-interface BuildNeeds { commander: boolean; canSettle: boolean; expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
+interface BuildNeeds { explorer: boolean; canSettle: boolean; expansion: number; garrisoned: boolean; military: number; armyTarget: number; workersShort: number; atWar: boolean; threatened: boolean; navyShort: number; airShort: number }
 function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey | null {
   // (A garrison first: a city with none is anyone's who walks in; the unit that holds best at close quarters.)
   if (!n.garrisoned) return bestUnit(g, city, 'front') ?? bestUnit(g, city, 'ranged') ?? (g.canBuild(city, 'warrior') ? 'warrior' : null);
@@ -261,16 +253,14 @@ function chooseBuild(g: Game, city: City, P: AiPolicy, n: BuildNeeds): BuildKey 
   };
   const unit = (): BuildKey | null => armyRole(g, city, P);
   // (Ships from a port while its fleet is short of what it wants, aircraft likewise: each a share of its army, by its policy.)
-  const ship = n.navyShort > 0 && g.cityCoast(city) ? bestUnit(g, city, 'sea') : null;
+  const ship = (n.navyShort > 0 || n.explorer) && g.cityCoast(city) ? bestUnit(g, city, 'sea') : null;
   const plane = n.airShort > 0 ? bestUnit(g, city, 'air') : null;
   const short = (n.armyTarget - n.military) / Math.max(1, n.armyTarget);
   const pulls: [number, () => BuildKey | null][] = [
     [n.canSettle && n.expansion < P.cityTarget && g.canBuild(city, 'settler') && !n.threatened ? P.wSettle * (1 - n.expansion / P.cityTarget) * (n.atWar ? 0.5 : 1) : 0, () => 'settler'],
     [n.workersShort > 0 && city.pop >= 2 && g.canBuild(city, 'worker') ? P.wWorker * Math.min(1, n.workersShort / 2) : 0, () => 'worker'],
     [short > 0 ? P.wArmy * (0.25 + short) * (n.threatened ? 2.5 : 1) : n.threatened && short > -0.5 ? P.wArmy * 0.5 : 0, unit],
-    // (A commander for an army worth leading: its units fight the better beside it, and it carries the slow ones on the march.)
-    [n.commander && g.canBuild(city, 'commander') ? P.wArmy * 0.9 : 0, () => 'commander'],
-    [ship && !n.threatened ? P.wArmy * (0.3 + Math.min(1, n.navyShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => ship],
+    [ship && !n.threatened ? Math.max(n.explorer && !n.atWar ? 0.9 : 0, n.navyShort > 0 ? P.wArmy * (0.3 + Math.min(1, n.navyShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0) : 0, () => ship],
     [plane ? P.wArmy * (0.3 + Math.min(1, n.airShort / 3)) * (n.atWar ? 1.2 : 0.6) : 0, () => plane],
     [city.pop >= 2 ? P.wBuild * 0.6 : P.wBuild * 0.15, () => bestBuilding(g, city)],
     [city.pop >= 5 && !n.atWar ? P.wWonder * 0.5 : 0, wonder],
@@ -362,7 +352,8 @@ function workerTurn(g: Game, u: Unit): void {
   const useful = (t: number) => usefulWork(g, u.owner, t);
   const here = g.improveTarget(u);
   if (here !== null && useful(here) && (u.aiTarget === null || u.aiTarget === here)) { g.improve(u, here); u.aiTarget = null; return; }
-  const ok = (t: number) => g.ownerOf(t) === u.owner && !g.isWater(t) && g.improveBlock({ ...u, tile: t, moves: 1 }, t) === null && useful(t)
+  // (The water too, once its civ's units embark: boats are built from the water they float on.)
+  const ok = (t: number) => g.ownerOf(t) === u.owner && g.canEnter(u, t) && g.improveBlock({ ...u, tile: t, moves: 1 }, t) === null && useful(t)
     && !g.units.some((v) => v !== u && v.owner === u.owner && (v.work === t || (v.type === 'worker' && v.aiTarget === t)));
   if (u.aiTarget === null || !ok(u.aiTarget)) {
     let best: number | null = null, bestS = -Infinity;
@@ -415,38 +406,84 @@ function fortSpot(g: Game, owner: number): number | null {
   return free.length ? free.reduce((a, b) => (g.approxDist(b, r.tile) < g.approxDist(a, r.tile) ? b : a)) : null;
 }
 
-// The city a missionary of a civ would go to from a tile: one it knows,
-// not of its religion, not a holy city nor lately converted, of no civ it
-// is at war with, that its faith can pay for; the more people and the
-// nearer the better (its own a little before others').
-function missionTarget(g: Game, id: number, from: number, faith: number): City | null {
-  const mine = g.foundedBy(id);
-  if (!mine) return null;
-  const holy = new Set([...g.religions.values()].map((f) => f.holyCity));
+// What a religion taking root in a city is worth to a civ: in a city of its
+// own, what its state makes of it (its state religion: STATE_BONUS; a
+// secular state: SECULAR_BONUS past the city's first; another religion under a state one:
+// nothing); in another's, its tithe if it holds the holy city, and a
+// little for a people brought to its state's creed (they think the better
+// of it: diplomacy.ts).
+function missionWorth(g: Game, p: Player, r: ReligionKey, c: City): number {
+  // (A secular state's city makes nothing of its first religion: worth a little all the same, as the way to its second.)
+  if (c.owner === p.id) return p.stateReligion ? (p.stateReligion === r ? 4 : 0) : c.religions.size ? 2 : 0.5;
+  return (g.holySeats(p.id).includes(r) ? 1 : 0) + (p.stateReligion === r ? 0.75 : 0);
+}
+// The city a missionary of religion r would go to from a tile: one its civ
+// knows, that does not hold it, of no civ it is at war with; by what it is
+// worth, its odds, and the way there.
+function missionTarget(g: Game, p: Player, r: ReligionKey, from: number): { city: City; s: number } | null {
   let best: City | null = null, bestS = 0;
   for (const c of g.cities) {
-    if (c.religion === mine.religion || holy.has(c.id) || c.devout > g.turn || !g.known[id]![c.tile] || (c.owner !== id && g.atWar(id, c.owner)) || g.preachCost(c) > faith) continue;
-    const s = (c.pop * (c.owner === id ? 1.3 : 1)) / (1 + g.approxDist(from, c.tile) / 8);
+    if (c.religions.has(r) || !g.known[p.id]![c.tile] || (c.owner !== p.id && g.atWar(p.id, c.owner))) continue;
+    // (One already on its way there: not two for one city.)
+    if (g.units.some((u) => u.owner === p.id && u.religion === r && u.aiTarget === c.tile)) continue;
+    const s = (missionWorth(g, p, r, c) * (0.5 + c.pop / 10) * (spreadOdds(g, c, p.id) / 100)) / (1 + g.approxDist(from, c.tile) / 8);
     if (s > bestS) { best = c; bestS = s; }
+  }
+  return best ? { city: best, s: bestS } : null;
+}
+const spreadOdds = (g: Game, c: City, id: number): number => g.preachChance({ owner: id } as Unit, c);
+// The missionary worth raising now: of the religions its cities hold (and it has room for one more of), the one with
+// the best city to go to, from its city holding it nearest that one.
+function missionPlan(g: Game, p: Player): { religion: ReligionKey; home: City } | null {
+  let best: { religion: ReligionKey; home: City } | null = null, bestS = 0.15;
+  for (const r of g.stateOptions(p.id)) {
+    const homes = g.cities.filter((c) => c.owner === p.id && c.religions.has(r) && g.missionaryBlock(p.id, c, r) === null);
+    if (!homes.length) continue;
+    const t = missionTarget(g, p, r, homes[0]!.tile);
+    if (!t || t.s <= bestS) continue;
+    best = { religion: r, home: homes.reduce((a, b) => (g.approxDist(b.tile, t.city.tile) < g.approxDist(a.tile, t.city.tile) ? b : a)) };
+    bestS = t.s;
   }
   return best;
 }
-// A missionary's turn: it preaches if it can where it stands; else it goes toward the city it would convert, to stand beside it.
+// A missionary's turn: it preaches if it can where it stands; else it goes toward the city it would bring its religion to, to stand beside it.
 function missionaryTurn(g: Game, u: Unit): void {
   const here = g.preachTarget(u);
   if (here && g.preach(u, here)) return;
-  const target = missionTarget(g, u.owner, u.tile, g.players[u.owner]!.faith);
-  if (!target || u.moves <= 0) return;
+  if (!u.religion) { g.removeUnit(u); return; }
+  const target = missionTarget(g, g.players[u.owner]!, u.religion, u.tile)?.city;
+  // (Nowhere left to go: it is let go.)
+  if (!target) { g.removeUnit(u); return; }
+  u.aiTarget = target.tile;
+  if (u.moves <= 0) return;
   const spots = [target.tile, ...g.tiles[target.tile]!.neighbors].filter((t) => g.canStand(u, t) && !g.isForeignBlocked(t, u.owner) && !g.isEnemyOccupied(t, u.owner))
     .sort((a, b) => g.approxDist(a, u.tile) - g.approxDist(b, u.tile));
+  let going = false;
   for (const t of spots) {
     if (!g.findPath(u, t)) continue;
     g.goTo(u, t);
+    going = true;
     break;
   }
   if (u.dead) return;
+  if (!going && !spots.includes(u.tile)) { g.removeUnit(u); return; } // (no way there)
   const now = g.preachTarget(u);
   if (now) g.preach(u, now);
+}
+
+// The state's religion: what its cities would make most of (religion.ts), its
+// own founding a little before the rest. Its first is free and taken at
+// once; a change after that must repay the upheaval (half its cohesion
+// for ten turns) within forty.
+export function aiFaith(g: Game, p: Player): void {
+  if (p.conversion > 0) return;
+  const mine = g.foundedBy(p.id)?.religion;
+  const worth = (r: ReligionKey | null) => { const y = g.stateWorth(p.id, r); return y.culture + y.cohesion + (r && r === mine ? 0.5 : 0); };
+  let best = p.stateReligion, bestW = worth(p.stateReligion);
+  for (const r of [null, ...g.stateOptions(p.id)]) { const w = worth(r); if (w > bestW + 1e-9) { best = r; bestW = w; } }
+  if (best === p.stateReligion) return;
+  if (g.conversionCosts(p) && (bestW - worth(p.stateReligion)) * 40 < CONVERSION_COST * CONVERSION_TURNS * Math.max(4, p.ledger.income.cohesion)) return;
+  g.setStateReligion(p, best);
 }
 
 // The tiles each civ's roads should run on (roads.ts civRoads: its own
@@ -572,6 +609,20 @@ function seaTurn(g: Game, u: Unit): void {
     }
   }
   if (went) { if (!u.dead && u.moves > 0) strike(); return; }
+  // (Nothing to do at sea, and civs still unmet: it explores, toward the nearest water from which the unknown would be seen.)
+  if (!wars.length && g.players.some((o) => o.alive && o.id !== p && !g.met[p]![o.id])) {
+    const known = g.known[p]!;
+    let best: number | null = null, bestS = -Infinity;
+    for (const [t, d] of g.tilesWithinMap(u.tile, 18)) {
+      if (d === 0 || !g.isWater(t) || !known[t] || !g.canStand(u, t) || g.isForeignBlocked(t, p)) continue;
+      let dark = 0;
+      for (const x of g.tilesWithin(t, 2)) if (!known[x]) dark++;
+      if (!dark) continue;
+      const sc = dark - 0.8 * d;
+      if (sc > bestS) { best = t; bestS = sc; }
+    }
+    if (best !== null && g.findPath(u, best)) { g.goTo(u, best); return; }
+  }
   // (Nothing to do at sea: its own port, to hold it.)
   const h = home();
   if (h && g.approxDist(h.tile, u.tile) > 2 && g.findPath(u, h.tile)) g.goTo(u, h.tile); else u.fortified = true;
@@ -740,64 +791,26 @@ export function standing(g: Game, a: number, b: number): Standing {
   return { army: rankOf(power(g, b), power(g, a)), tech: rankOf(B.techs.size, A.techs.size), prod: rankOf(B.ledger.income.prod, A.ledger.income.prod), gold: rankOf(B.ledger.income.gold, A.ledger.income.gold) };
 }
 // A civ's appetite for a war on another: how much stronger it is (by rank), against
-// what its policy asks (want: 1 and over, it would go), moved by what its
-// faith would make of the fighting, a truce still running, and how they compare in techs
-// and production; `near`: within reach; `score`: for choosing among
-// several (nearer, and already at war with another, the better).
-// (`react`: counting what o's own attitude toward it adds, a first strike
-// or a wide berth; off when it is o's attitude that is being read, so the
-// two do not chase each other.)
-function appetite(g: Game, p: Player, o: Player, react = true): { want: number; near: boolean; score: number } {
+// what its policy asks (want: 1 and over, it would go), moved by what it
+// thinks of the other (diplomacy.ts regard: eager against a civ it hates,
+// never against a friend or one it is sworn to), a truce still running,
+// and how they compare in techs and production; `near`: within reach;
+// `score`: for choosing among several (nearer, and already at war with
+// another, the better).
+function appetite(g: Game, p: Player, o: Player): { want: number; near: boolean; score: number } {
   const P = mind(g, p), st = standing(g, p.id, o.id);
   const own = g.cities.filter((c) => c.owner === p.id);
   // (Their cities it has seen: one it has not found is out of its reach.)
   const d = g.cities.reduce((m, c) => (c.owner === o.id && g.known[p.id]![c.tile] ? Math.min(m, own.reduce((x, h) => Math.min(x, g.approxDist(c.tile, h.tile)), 99)) : m), 99);
-  // (What faith would make of the fighting: its units' religions against
-  // theirs, as its cities and theirs now follow them: the game's own figure, game.ts faithEdge.)
-  const mineC = g.cities.filter((c) => c.owner === p.id), theirs = g.cities.filter((c) => c.owner === o.id && g.known[p.id]![c.tile]);
-  void mineC; void theirs;
-  // (And what such a war would cost its people's cohesion, if they are of its own religion: as much as its policy minds it.)
-  const mine = g.faithOf(p.id), same = mine !== null && mine === g.faithOf(o.id);
-  const faith = g.faithEdge(p.id, o.id) * (same ? Math.max(0, 1 - P.holyPeace * HOLY_STRIFE[Math.min(HOLY_STRIFE.length - 1, g.holyWars(p.id) + 1)]!) : 1);
+  const liking = g.pact(p.id, o.id) ? 0 : WAR_BY_REGARD[regard(g, p.id, o.id).level];
   const truce = 1 - P.truceRespect * Math.min(1, g.truceLeft(p.id, o.id) / 10);
   const lead = (1 / RANK_WORTH[st.tech]) ** P.warTech * (1 / RANK_WORTH[st.prod]) ** P.warProd;
   const ratio = 1 / RANK_WORTH[st.army];
-  const strike = react && attitude(g, o, p.id) === 'hostile' ? Math.max(0, 1 + P.warHostile) : 1;
-  // (And how near o is to winning the game, as the Diplomacy sheet tells
-  // anyone: the first capitals it holds of those a conquest takes, the
-  // world's people in its faith by tenths, its era. A civ past half way
-  // to a victory is one to stop, the more the nearer: stopLeader.)
-  // (Its faith's spread is no reason for one of that faith to fight it: a war between them turns no one from it, and what it took would follow it still.)
-  const near = Math.max(g.capitalsHeld(o.id) / g.capitalsToWin, same ? 0 : Math.round(10 * g.faithShare(o.id)) / 10 / FAITH_VICTORY, 0.9 * (o.era / (ERAS.length - 1)));
-  const stop = 1 + P.stopLeader * Math.max(0, Math.min(1, near) - 0.5) * 2;
   // (And its own conquest: within two first capitals of it, a civ that holds one draws its wars, by its lust for them.)
   const held = g.capitalsHeld(p.id), need = g.capitalsToWin;
   const conquest = held >= need - 2 && held >= 2 && g.capitalsHeld(o.id) > 0 ? 1 + 0.3 * P.capitalLust * (held / Math.max(1, need - 1)) : 1;
-  const want = (ratio * Math.max(0, faith) * Math.max(0, truce) * lead * strike * stop * conquest) / P.warRatio;
+  const want = (ratio * liking * Math.max(0, truce) * lead * conquest) / P.warRatio;
   return { want, near: d <= 14, score: want * (1 + 6 / d) * (g.players.some((x) => x.id !== p.id && g.atWar(o.id, x.id)) ? 1.3 : 1) };
-}
-// How a computer civ stands toward another, in broad: what the other may
-// know of it (the Diplomacy sheet). From the same weighing its decisions
-// are made by, so it is never a mask; its plans themselves stay its own.
-export type Attitude = 'war' | 'hostile' | 'wary' | 'neutral' | 'friendly' | 'afraid';
-export const ATTITUDES: Record<Attitude, { name: string; tells: string }> = {
-  war: { name: 'At war', tells: 'You are at war.' },
-  hostile: { name: 'Hostile', tells: 'It thinks itself the stronger, has you within reach and nothing holds it back.' },
-  wary: { name: 'Wary', tells: 'It weighs its strength against yours, and is not far from liking what it sees.' },
-  neutral: { name: 'Neutral', tells: 'It has no quarrel with you, and no bond.' },
-  friendly: { name: 'Friendly', tells: 'A bond holds between you: a shared faith, or trade.' },
-  afraid: { name: 'Afraid', tells: 'You are much the stronger, and it knows it.' },
-};
-// (The player's attitude, which no one can ask for, is read as if the
-// player decided by the best policy there is: mind.)
-export function attitude(g: Game, o: Player, toward: number): Attitude {
-  if (g.atWar(o.id, toward)) return 'war';
-  const P = mind(g, o), a = appetite(g, o, g.players[toward]!, false), st = standing(g, o.id, toward);
-  if (a.near && a.want >= 1 && P.warChance > 0.005 && g.turn >= P.warAfter * g.pace) return 'hostile';
-  if (st.army === 4) return 'afraid';
-  const f = g.faithOf(o.id), bond = (f !== null && f === g.faithOf(toward)) || g.deals.some((d) => d.sides.some((s) => s.civ === o.id) && d.sides.some((s) => s.civ === toward));
-  if (bond) return 'friendly';
-  return a.near && a.want >= 0.7 ? 'wary' : 'neutral';
 }
 
 // Whether it accepts peace offered by `from`: losing, even, or weary.
@@ -836,37 +849,4 @@ export function resourceWorth(g: Game, p: Player, r: ResourceKey): number {
   if (d.kind !== 'strategic') return 0;
   const needs = (k: BuildKey) => (k in UNITS ? unitDef(k as UnitKey).needs : k in BUILDINGS ? BUILDINGS[k as BuildingKey].resource : undefined);
   return [...g.unlocked(p)].some((k) => needs(k) === r) ? 6 : 2;
-}
-// What giving a spare copy away costs it: a little (it would rather keep
-// its goods), more for a strategic to a civ stronger than itself.
-const giveCost = (g: Game, p: Player, r: ResourceKey | null, to: number): number =>
-  !r ? 0 : resourceDef(r).kind === 'strategic' && standing(g, p.id, to).army >= 3 ? 3 : 1;
-
-// Whether it signs a deal: what it gets must beat what it gives by a point.
-export function aiAcceptsDeal(g: Game, p: Player, sides: readonly [DealSide, DealSide]): boolean {
-  const mine = sides.find((s) => s.civ === p.id), theirs = sides.find((s) => s.civ !== p.id);
-  if (!mine || !theirs || g.dealBlock(sides) !== null) return false;
-  const gain = (theirs.resource ? resourceWorth(g, p, theirs.resource) : 0) + theirs.gold;
-  return gain - giveCost(g, p, mine.resource, theirs.civ) - mine.gold >= 1;
-}
-
-// Now and then, a trade with a civ it is at peace with: goods for goods,
-// or its spares sold for gold a turn, or theirs bought. To the human, an
-// offer to answer (one a turn at most).
-function aiTrade(g: Game, p: Player): void {
-  if (g.rng() > 0.3) return;
-  for (const o of g.players.filter((x) => g.canTrade(p.id, x.id))) {
-    if (o.isHuman && (g.rng() > 0.3 || g.dealOffers.length)) continue;
-    const byWorth = (to: Player) => (a: ResourceKey, b: ResourceKey) => resourceWorth(g, to, b) - resourceWorth(g, to, a);
-    const give = g.tradeable(p.id, o.id).sort(byWorth(o))[0] ?? null;
-    const get = g.tradeable(o.id, p.id).sort(byWorth(p))[0] ?? null;
-    const side = (civ: number, resource: ResourceKey | null, gold = 0): DealSide => ({ civ, resource, gold });
-    const wantGet = get !== null && resourceWorth(g, p, get) >= 2;
-    if (give && wantGet) g.proposeDeal([side(p.id, give), side(o.id, get)]);
-    else if (give) g.proposeDeal([side(p.id, give), side(o.id, null, Math.max(1, resourceWorth(g, o, give) - 2))]);
-    else if (wantGet) {
-      const pay = Math.max(1, Math.floor(resourceWorth(g, p, get) / 2));
-      if (pay <= g.goldRate(p.id) / 3) g.proposeDeal([side(p.id, null, pay), side(o.id, get)]);
-    }
-  }
 }

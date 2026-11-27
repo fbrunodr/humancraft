@@ -13,7 +13,8 @@ import { KIT_MODELS, kitModel } from '../src/rural/kit.ts';
 import { unitModel } from '../src/unitModels.ts';
 import { cityUpkeep } from '../src/economy.ts';
 import { BORDER_AT, CITY_REACH, USE } from '../src/cities.ts';
-import { UNITS, BUILDINGS, WONDERS, GAME_SPEEDS, type BuildKey } from '../src/rules.ts';
+import { UNITS, BUILDINGS, WONDERS, GAME_SPEEDS, type BuildKey, type BuildingKey } from '../src/rules.ts';
+import type { Item, Offer } from '../src/deals.ts';
 
 // The game's systems: research, politics (governments and policies),
 // identity (traits, faiths), religion, resources, borders, upkeep,
@@ -56,14 +57,15 @@ describe('S1: the trees hold together', () => {
     expect(TRAIT_KEYS.length).toBeGreaterThanOrEqual(80);
   });
   it('everything buildable is unlocked by exactly one tech or politics item, or from the start', () => {
-    // (A missionary is never built: the founder of a religion raises it with faith.)
+    // (A missionary is never built: it is raised with faith.)
     const start = new Set<BuildKey>(['warrior', 'slinger', 'scout', 'settler', 'worker', 'monument', 'missionary']);
     const count = new Map<string, number>();
     const add = (ks: readonly string[] | undefined) => { for (const k of ks ?? []) count.set(k, (count.get(k) ?? 0) + 1); };
     for (const k of TECH_KEYS) { const d = techDef(k); add(d.units); add(d.buildings); add(d.wonders); }
     for (const k of POLITICS_KEYS) { const d = politicsDef(k); add(d.units); add(d.buildings); add(d.wonders); }
+    // (Nor each religion's temple and cathedral: a tech for the kind, in a city that holds the religion: religion.ts.)
     for (const k of [...Object.keys(UNITS), ...Object.keys(BUILDINGS), ...Object.keys(WONDERS)]) {
-      expect(count.get(k) ?? 0, k).toBe(start.has(k as BuildKey) ? 0 : 1);
+      expect(count.get(k) ?? 0, k).toBe(start.has(k as BuildKey) || BUILDINGS[k as BuildingKey]?.religion ? 0 : 1);
     }
   });
   it('every government but the first and every policy are unlocked by politics, once', () => {
@@ -273,7 +275,9 @@ describe('S7: luxuries and trade', () => {
     plant(b, theirs, 2);
     return g;
   };
-  const side = (civ: number, resource: ResourceKey | null, gold = 0) => ({ civ, resource, gold });
+  // (A lasting deal from the player to the other civ: a resource or nothing, and gold a turn, each way.)
+  const items = (resource: ResourceKey | null, gold = 0): Item[] => [...(resource ? [{ k: 'resource', resource } as const] : []), ...(gold ? [{ k: 'goldPerTurn', n: gold } as const] : [])];
+  const deal = (give: Item[], get: Item[]): Offer => ({ from: 0, to: 1, give, get });
 
   it('the first copy of each luxury gives the whole civilization its bonus, once, mostly cohesion', () => {
     for (const k of LUXURY_KEYS) expect(RESOURCES[k].empire?.cohesion ?? 0, k).toBeGreaterThan(0);
@@ -292,24 +296,24 @@ describe('S7: luxuries and trade', () => {
     expect(g.spareResources(0).get('silk')).toBe(1);
     expect(g.tradeable(0, 1)).toEqual(['silk']);
     // (A computer refuses to give for nothing.)
-    expect(g.proposeDeal([side(0, null), side(1, 'wine')])).toBe(false);
-    expect(g.proposeDeal([side(0, 'silk'), side(1, 'wine')])).toBe(true);
+    expect(g.propose(deal(items(null), items('wine')))).toBe('declined');
+    expect(g.propose(deal(items('silk'), items('wine')))).toBe('signed');
     expect(g.hasResource(1, 'silk')).toBe(true);
     expect(g.luxuriesOf(0).sort()).toEqual(['silk', 'wine']);
     expect(g.tradeable(0, 1)).toEqual([]);
     expect(g.spareResources(0).get('silk')).toBeUndefined();
     // (No second deal for the copy it keeps.)
-    expect(g.dealBlock([side(0, 'silk'), side(1, null, 1)])).not.toBeNull();
+    expect(g.offerBlock(deal(items('silk'), items(null, 1)))).not.toBeNull();
   });
 
   it('a deal ends with war, or when the giver loses its spare copy', () => {
     let g = twoCivs('silk', 'wine');
-    g.proposeDeal([side(0, 'silk'), side(1, 'wine')]);
+    g.propose(deal(items('silk'), items('wine')));
     g.declareWar(0, 1);
     expect(g.deals.length).toBe(0);
     expect(g.hasResource(1, 'silk')).toBe(false);
     g = twoCivs('silk', 'wine');
-    g.proposeDeal([side(0, 'silk'), side(1, 'wine')]);
+    g.propose(deal(items('silk'), items('wine')));
     g.resources[g.resources.indexOf('silk')] = null;
     g.endTurn(); g.over = null;
     expect(g.deals.length).toBe(0);
@@ -320,7 +324,7 @@ describe('S7: luxuries and trade', () => {
     const g = twoCivs('silk', 'wine');
     g.players[1]!.gold = 100;
     g.players[0]!.gold = 0;
-    expect(g.proposeDeal([side(0, 'silk'), side(1, null, 1)])).toBe(true);
+    expect(g.propose(deal(items('silk'), items(null, 1)))).toBe('signed');
     g.endTurn(); g.over = null;
     expect(g.players[0]!.ledger.trade).toBe(1);
   });

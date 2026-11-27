@@ -13,7 +13,7 @@ import { unitDef, domainOf, type UnitKey } from './rules.ts';
 // aircraft, and a submarine attacks only ships.
 
 export type UnitClass =
-  | 'civilian' | 'recon' | 'leader'         // never attack
+  | 'civilian' | 'recon'                    // never attack
   | 'melee' | 'antiCav' | 'gunline'         // foot that closes in: blades, spears and pikes, muskets, rifles and machine guns
   | 'archer' | 'mountedArcher' | 'gun'      // shooters: bows, chariot archers, crewed guns (Gatling guns, field cannon)
   | 'engine' | 'artillery'                  // siege: catapult and trebuchet; cannon and artillery
@@ -23,7 +23,7 @@ export type UnitClass =
   | 'fighter' | 'bomber' | 'helicopter' | 'antiAir';
 
 export const UNIT_CLASS: Record<UnitKey, UnitClass> = {
-  settler: 'civilian', worker: 'civilian', missionary: 'civilian', scout: 'recon', commander: 'leader',
+  settler: 'civilian', worker: 'civilian', missionary: 'civilian', scout: 'recon',
   warrior: 'melee', swordsman: 'melee', longswordsman: 'melee',
   spearman: 'antiCav', pikeman: 'antiCav',
   musketman: 'gunline', rifleman: 'gunline', infantry: 'gunline',
@@ -67,7 +67,7 @@ export type Projectile = 'arrow' | 'stone' | 'shell' | 'bullet' | 'bomb';
 // (from the next tile: the target doesn't fire back).
 export type AttackMode = 'melee' | 'ranged';
 
-const NEVER: ReadonlySet<UnitClass> = new Set(['civilian', 'recon', 'leader', 'carrier']);
+const NEVER: ReadonlySet<UnitClass> = new Set(['civilian', 'recon', 'carrier']);
 // Who may close in to fight (engines, crewed guns, bombarding ships and
 // aircraft only ever shoot).
 const ASSAULTS: ReadonlySet<UnitClass> = new Set(['melee', 'antiCav', 'gunline', 'archer', 'mountedArcher', 'cavalry', 'armor', 'warship', 'steamship', 'submarine']);

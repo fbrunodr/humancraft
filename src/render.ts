@@ -2620,7 +2620,6 @@ export class GlobeRenderer {
   private updateUnits(sel: Selection): void {
     const g = this.game;
     this.selUnit = sel?.kind === 'unit' ? sel.unit : null;
-    // (Units packed in an army are carried by their commander, not shown.)
     // (Nor are a city's: the city is what is seen there, its banner saying it is held (updateCities). One
     // shows while it is selected, while it marches in, and while it fights: `revealed`, until it is done.)
     const inCity = (u: Unit) => g.use[u.tile] === USE.center;
@@ -2630,7 +2629,7 @@ export class GlobeRenderer {
       if (was !== undefined && was !== u.tile) this.revealed.add(u.id);
     }
     const shown: ShownUnit[] = g.units
-      .filter((u) => g.visible[u.tile] && u.packedIn === null && (!inCity(u) || u === this.selUnit || this.revealed.has(u.id)))
+      .filter((u) => g.visible[u.tile] && (!inCity(u) || u === this.selUnit || this.revealed.has(u.id)))
       .sort((a, b) => Number(unitDef(a.type).civilian ?? false) - Number(unitDef(b.type).civilian ?? false))
       .map((u) => ({ id: u.id, type: u.type, civ: g.players[u.owner].name, color: g.players[u.owner].color, tile: u.tile, hp: u.hp, suffrage: g.players[u.owner].politics.has('womensSuffrage'), embarked: g.isEmbarked(u), fortified: u.fortified }));
     this.unitView.sync(shown, performance.now() / 1000);
@@ -2641,8 +2640,7 @@ export class GlobeRenderer {
   private unitFlag(s: ShownUnit): Billboard {
     const g = this.game, u = g.units.find((x) => x.id === s.id);
     const icon = unitIcon(s.type), civilian = unitDef(s.type).civilian === true, selected = u !== undefined && u === this.selUnit, fortified = u?.fortified ?? false;
-    // (A commander's flag counts it and its army.)
-    const count = u?.type === 'commander' ? 1 + g.armyOf(u).length : 1;
+    const count = 1;
     const key = `u|${s.color}|${icon}|${civilian}|${count}|${Math.ceil(s.hp / 10)}|${selected}|${fortified}`;
     return this.unitFlags.add(key, (ctx) => drawUnitFlag(ctx, s.color, icon, civilian, count, s.hp, selected, fortified));
   }
@@ -2724,7 +2722,7 @@ export class GlobeRenderer {
       const glyph = !mine || !item ? null : isUnitKey(item) ? unitIcon(item) : isWonder(item) ? 'star' as const : 'building' as const;
       const capital = g.players[city.owner]!.capital === city.id;
       // (The units holding it, not shown themselves (updateUnits): while it is in sight.)
-      const garrison = g.visible[city.tile] ? g.units.filter((u) => u.tile === city.tile && u.packedIn === null && !unitDef(u.type).civilian).length : 0;
+      const garrison = g.visible[city.tile] ? g.units.filter((u) => u.tile === city.tile && !unitDef(u.type).civilian).length : 0;
       const key = `c|${this.fontEpoch}|${color}|${city.pop}|${city.name}|${hp}|${capital}|${growth}|${production}|${glyph}|${garrison}`;
       const board = this.cityLabels.add(key, (ctx) => drawCityBanner(ctx, { name: city.name, pop: city.pop, color, capital, hp, growth, production, glyph, garrison }));
       board.position.copy(tile.center).multiplyScalar(this.terrain.centerRadius[city.tile] + 0.03 * s);

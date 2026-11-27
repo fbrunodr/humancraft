@@ -9,7 +9,7 @@
 import { UNITS, unitDef, domainOf, type UnitKey } from '../src/rules.ts';
 import { TECH_KEYS, techDef } from '../src/techs.ts';
 import { POLITICS_KEYS, politicsDef } from '../src/politics.ts';
-import { UNIT_CLASS, canShoot, canAssault, isShooter } from '../src/unitClasses.ts';
+import { canShoot, canAssault, isShooter } from '../src/unitClasses.ts';
 import { combatStrength, matchup, fightRounds, SIEGE_VS_UNITS, SIEGE_VS_CITY, VOLLEY_ROUNDS, MELEE_ROUNDS } from '../src/game.ts';
 import { mulberry32 } from '../src/rng.ts';
 import { ERAS } from '../src/cities.ts';
@@ -19,7 +19,7 @@ export const UNIT_ERA = new Map<UnitKey, number>((Object.keys(UNITS) as UnitKey[
 for (const k of TECH_KEYS) for (const u of techDef(k).units ?? []) UNIT_ERA.set(u, techDef(k).era);
 for (const k of POLITICS_KEYS) for (const u of politicsDef(k).units ?? []) UNIT_ERA.set(u, politicsDef(k).era);
 
-export const fights = (k: UnitKey): boolean => domainOf(unitDef(k)) === 'land' && !unitDef(k).civilian && (canShoot(k) || canAssault(k)) && UNIT_CLASS[k] !== 'leader';
+export const fights = (k: UnitKey): boolean => domainOf(unitDef(k)) === 'land' && !unitDef(k).civilian && (canShoot(k) || canAssault(k));
 export const landUnits = (era: number): UnitKey[] => (Object.keys(UNITS) as UnitKey[]).filter((k) => fights(k) && UNIT_ERA.get(k) === era);
 
 // A duel in the open, x against y, from out of reach: the chance x wins

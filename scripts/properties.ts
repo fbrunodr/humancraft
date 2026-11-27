@@ -72,7 +72,7 @@ for (let k = 0; k < GAMES; k++) {
   }
   const w = g.winner;
   capitals.push(Math.max(...g.players.map((p) => g.capitalsHeld(p.id))) / g.players.length);
-  faithTop.push(Math.max(...g.players.map((p) => g.faithShare(p.id))));
+  faithTop.push(Math.max(...g.players.map((p) => (p.stateReligion ? g.followers(p.stateReligion).share : 0))));
   techTop.push(Math.max(...g.players.map((p) => p.techs.size)));
   won.set(w?.how ?? 'none', (won.get(w?.how ?? 'none') ?? 0) + 1);
   length.push(g.turn);

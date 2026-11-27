@@ -1,4 +1,6 @@
-import { HUMAN, EMBARK_TECH, FAITH_VICTORY, UNITS_PER_SOURCE, DEAL_TURNS, TRUCE_TURNS, TRUCE_BREAK, VICTORIES, type Victory, type Game, type Player, type DealSide, type Deal } from './game.ts';
+import { HUMAN, EMBARK_TECH, OCEAN_TECH, UNITS_PER_SOURCE, DEAL_TURNS, TRUCE_TURNS, TRUCE_BREAK, VICTORIES, UN_EVERY, UN_SHARE, UN_TECH, MIN_WAR, HISTORY, HISTORY_KEYS, type HistoryKey, type Victory, type Game, type Player } from './game.ts';
+import { DEAL_MIN, isLasting, isMutual, sameItem, givenBy, partyTo, type Item, type Offer } from './deals.ts';
+import { regard, powerOf, mood, weigh, dealRoll, techsFor, mapNews, forecast, itemText, MOODS, REGARDS, REGARD_CUTS } from './diplomacy.ts';
 import { TECH_KEYS, STAGE_TECHS, techDef, techPath, type TechKey, type TechDef } from './techs.ts';
 import {
   POLITICS_KEYS, politicsDef, politicsPath, GOVERNMENT_KEYS, governmentDef, policyDef, fits, SLOT_KINDS, POLICY_KINDS, POLICY_KEYS,
@@ -8,13 +10,13 @@ import {
   PATHS, FAITH_KEYS, PAIR_SLOTS, MAX_TRAITS, openSlots, traitDef, pathTraits, traitBlock, pathLevels, epithet, traitOfReligion, BLOCK_TEXT, isTraitKey,
   type PathKey, type TraitKey,
 } from './identity.ts';
-import { RELIGION_KEYS, religionDef, FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, CONVERT_PER_POP, DEVOUT_TURNS } from './religion.ts';
+import { RELIGION_KEYS, religionDef, spreadChance, STATE_BONUS, SECULAR_BONUS, CONVERSION_TURNS, CONVERSION_COST, MISSIONARIES_MOST, TITHE, TEMPLE_TECH, CATHEDRAL_TECH, type ReligionKey } from './religion.ts';
 import { RESOURCE_KEYS, resourceDef, empireBonus, type ResourceKey } from './resources.ts';
-import { describe as describeEffect, describeAll, flat, yieldBonus, total, type Effect } from './effects.ts';
-import { ERAS, BUILDINGS, WONDERS, IMPROVEMENTS, OUTPUT_KEYS, type EraIndex, type ImprovementKey, type OutputKey } from './cities.ts';
+import { describe as describeEffect, describeAll, yieldBonus, total, type Effect } from './effects.ts';
+import { ERAS, BUILDINGS, WONDERS, IMPROVEMENTS, OUTPUT_KEYS, out, type EraIndex, type ImprovementKey, type OutputKey } from './cities.ts';
 import { UNITS, unitDef, buildDef } from './rules.ts';
 import { FREE_UNITS, UPKEEP_PER_TILE, UPKEEP_PER_CITY, UPKEEP_PER_POP, COURTHOUSE_CUT, BUILDING_UPKEEP_PER, UNIT_UPKEEP_PER, INFLATION_TURNS, buildingUpkeep } from './economy.ts';
-import { aiAcceptsDeal, resourceWorth, standing, attitude, ATTITUDES, RANKS, type Rank } from './ai.ts';
+import { resourceWorth, RANKS, type Rank } from './ai.ts';
 import { bonusStr, tip } from './ui.ts';
 import { icon, unitIcon, resourceIcon, YIELD_ICON } from './icons.ts';
 
@@ -54,6 +56,7 @@ const YIELD_USE: Record<OutputKey, string> = {
   culture: 'It goes toward your identity\'s next trait, and each city\'s own pushes its borders out.', faith: 'It is kept, and buys what a city builds; a founder\'s raises missionaries.',
 };
 type GovTab = 'mine' | 'policies' | 'governments';
+type DipTab = 'civs' | 'relations' | 'trade' | 'un';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const KIND_NAME: Record<PolicySlot, string> = { military: 'Military', economic: 'Economic', social: 'Social', wildcard: 'Wildcard' };
 const TIER_NAME = ['', 'I', 'II', 'III'] as const;
@@ -105,7 +108,9 @@ export class Sheets {
   private target: { slot: PolicySlot; i: number } | null = null;   // the slot a policy card will go to
   private notice = '';
   // The trade being drawn up: with whom, what each side gives.
-  private draft: { civ: number; give: ResourceKey | null; get: ResourceKey | null; pay: number; paid: number } | null = null;
+  private draft: { civ: number; lasting: boolean; peace: boolean; give: Item[]; get: Item[] } | null = null;
+  private dipTab: DipTab = 'civs';
+  private chart: HistoryKey = 'score';
 
   constructor(private readonly game: Game, private readonly changed: () => void) {
     this.el = document.getElementById('sheet')!;
@@ -127,6 +132,25 @@ export class Sheets {
       if (act) this.act(act);
     });
     // A tree's item under the pointer: the lines of all it rests on light up.
+    // A history chart under the pointer: a line at its turn, and that turn's figures beside it.
+    this.el.addEventListener('mousemove', (e) => {
+      const svg = e.target instanceof Element ? e.target.closest<SVGSVGElement>('.hchart svg') : null;
+      const box = this.el.querySelector<HTMLElement>('.hchart'), tipEl = box?.querySelector<HTMLElement>('.htip'), cross = box?.querySelector<SVGLineElement>('.hcross');
+      if (!box || !tipEl || !cross) return;
+      if (!svg) { tipEl.hidden = true; cross.setAttribute('visibility', 'hidden'); return; }
+      const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, x = ((e.clientX - r.left) / r.width) * vb.width;
+      const x0 = Number(svg.dataset['x0']), x1 = Number(svg.dataset['x1']), turns = Number(svg.dataset['turns']);
+      const t = Math.max(1, Math.min(turns, Math.round(1 + ((x - x0) / Math.max(1, x1 - x0)) * (turns - 1))));
+      const px = x0 + ((t - 1) / Math.max(1, turns - 1)) * (x1 - x0);
+      cross.setAttribute('x1', String(px)); cross.setAttribute('x2', String(px)); cross.setAttribute('visibility', 'visible');
+      const ids = (svg.dataset['civs'] ?? '').split(',').filter(Boolean).map(Number), series = this.game.history[this.chart];
+      const rows = ids.map((id) => ({ id, v: series[id]?.[t - 1] ?? 0 })).sort((a, b) => b.v - a.v)
+        .map((x) => `<div><span class="swatch" style="background:${this.game.players[x.id]!.color}"></span>${esc(this.game.players[x.id]!.name)}<b>${x.v.toLocaleString()}</b></div>`).join('');
+      tipEl.innerHTML = `<small>Turn ${t} · ${HISTORY[this.chart]}</small>${rows}`;
+      tipEl.hidden = false;
+      const left = ((px / vb.width) * r.width) + (r.left - box.getBoundingClientRect().left);
+      tipEl.style.left = `${px > vb.width * 0.6 ? left - tipEl.offsetWidth - 14 : left + 14}px`;
+    });
     this.el.addEventListener('mouseover', (e) => {
       const node = e.target instanceof Element ? e.target.closest<HTMLElement>('.node') : null;
       const lit = new Set<string>();
@@ -225,7 +249,9 @@ export class Sheets {
     // (Victory, diplomacy and government keep to the middle of the sheet, as the accounts do: game.css .page.)
     const body = from ? this.sourcesHtml(from) : this.open === 'victory' || this.open === 'diplomacy' || this.open === 'government' || this.open === 'cities' ? `<div class="page">${main}</div>` : main;
     const govTab = (k: GovTab, label: string) => `<button class="${this.govTab === k ? 'active' : ''}" data-do="govTab" data-tab="${k}">${label}</button>`;
+    const dipTab = (k: DipTab, label: string) => `<button class="${this.dipTab === k ? 'active' : ''}" data-do="dipTab" data-tab="${k}">${label}${k === 'trade' && this.game.dealOffers.length ? ` <small>${this.game.dealOffers.length}</small>` : ''}</button>`;
     const tabs = this.open === 'government' ? `<nav class="htabs">${govTab('mine', 'My government')}${govTab('policies', 'Policies')}${govTab('governments', 'Governments')}</nav>`
+      : this.open === 'diplomacy' ? `<nav class="htabs">${dipTab('civs', 'Civilizations')}${dipTab('relations', 'Relations')}${dipTab('trade', 'Trade')}${dipTab('un', 'United Nations')}</nav>`
       : tabbed ? `<nav class="htabs"><button class="${from ? '' : 'active'}" data-do="tab" data-tab="main">${tabbed[1]}</button><button class="${from ? 'active' : ''}" data-do="tab" data-tab="from">${icon(YIELD_ICON[tabbed[0]])}${tabbed[2]}</button></nav>` : '';
     // (Its head: its title, a tree's box to find things in it. The top bar goes from one sheet to another.)
     const tree = (this.open === 'research' || this.open === 'politics') && !from;
@@ -268,6 +294,7 @@ export class Sheets {
       case 'politics': g.setPolitics(p, d['key'] as PoliticsKey); break;
       case 'trait': { const k = d['key'] ?? ''; if (isTraitKey(k) && !g.adoptTrait(p, k)) this.notice = 'Not enough identity points yet.'; break; }
       case 'gov': g.setGovernment(p, d['key'] as GovernmentKey); break;
+      case 'stateReligion': { const k = d['key'] ?? ''; const why = g.stateBlock(p, k === '' ? null : k as ReligionKey); if (why) this.notice = why; else g.setStateReligion(p, k === '' ? null : k as ReligionKey); break; }
       case 'govTab': this.govTab = d['tab'] as GovTab; this.target = null; break;
       case 'filter': this.filter = d['kind'] as PolicyKind | 'all'; break;
       case 'slot': {
@@ -289,29 +316,41 @@ export class Sheets {
       case 'war': g.declareWar(HUMAN, Number(d['civ'])); break;
       case 'peace': g.offerPeace(HUMAN, Number(d['civ'])); break;
       case 'accept': { const from = Number(d['civ']); if (g.peaceOffers.has(`${from}>${HUMAN}`)) g.makePeace(from, HUMAN); break; }
-      case 'tradeWith': this.draft = { civ: Number(d['civ']), give: null, get: null, pay: 0, paid: 0 }; break;
-      case 'tradePick': {
+      case 'dipTab': this.dipTab = d['tab'] as DipTab; break;
+      case 'chart': this.chart = d['key'] as HistoryKey; break;
+      case 'tradeWith': { const civ = Number(d['civ']), war = g.atWar(HUMAN, civ); this.draft = { civ, lasting: !war, peace: war, give: [], get: [] }; this.dipTab = 'trade'; break; }
+      case 'tradeKind': if (this.draft && !this.draft.peace) { this.draft.lasting = d['kind'] === 'lasting'; this.draft.give = []; this.draft.get = []; } break;
+      case 'tradeItem': {
         if (!this.draft) return;
-        const k = (d['key'] ?? '') as ResourceKey, side = d['side'] === 'give' ? 'give' : 'get';
-        this.draft[side] = this.draft[side] === k ? null : k;
+        const item = JSON.parse(d['item'] ?? 'null') as Item | null, side = d['side'] === 'give' ? 'give' : 'get';
+        if (!item) return;
+        // (What binds both sides goes on both, and comes off both.)
+        for (const list of isMutual(item) ? [this.draft.give, this.draft.get] : [this.draft[side]]) {
+          const at = list.findIndex((x) => sameItem(x, item));
+          if (at >= 0) list.splice(at, 1); else list.push(item);
+        }
         break;
       }
       case 'tradeGold': {
         if (!this.draft) return;
-        const side = d['side'] === 'pay' ? 'pay' : 'paid';
-        this.draft[side] = Math.max(0, this.draft[side] + Number(d['n']));
+        const list = this.draft[d['side'] === 'give' ? 'give' : 'get'], k = this.draft.lasting ? 'goldPerTurn' : 'gold';
+        const at = list.findIndex((x) => x.k === k), was = at >= 0 ? (list[at] as { n: number }).n : 0, n = Math.max(0, was + Number(d['n']));
+        if (at >= 0) list.splice(at, 1);
+        if (n > 0) list.push({ k, n });
         break;
       }
       case 'tradeCancel': this.draft = null; break;
       case 'tradePropose': {
         if (!this.draft) return;
-        const sides = this.draftSides(this.draft);
-        const who = g.players[this.draft.civ]!.name;
-        if (g.proposeDeal(sides)) { this.draft = null; this.notice = `The ${who} signed.`; }
-        else this.notice = g.dealBlock(sides) ?? `The ${who} decline: offer them more.`;
+        const o = this.draftOffer(this.draft), who = g.players[this.draft.civ]!.name;
+        const r = g.propose(o);
+        if (r === 'signed') { this.draft = null; this.notice = `The ${who} signed.`; }
+        else this.notice = r === 'blocked' ? g.offerBlock(o) ?? '' : `The ${who} decline, for this turn: a better offer may change their mind, or another turn.`;
         break;
       }
-      case 'dealAnswer': g.answerDeal(Number(d['i']), d['yes'] === '1'); break;
+      case 'dealAnswer': g.answerOffer(Number(d['i']), d['yes'] === '1'); break;
+      case 'treatyEnd': { const t = g.deals[Number(d['i'])]; if (t && !g.cancelTreaty(t, HUMAN)) this.notice = `A deal runs ${DEAL_MIN} turns before either side may end it.`; break; }
+      case 'ballot': g.ballot = d['civ'] === '' ? null : Number(d['civ']); break;
       default: return;
     }
     this.changed();
@@ -372,7 +411,8 @@ export class Sheets {
         const gives = fx.filter((e) => e.k === 'improvement' && e.imp === i).map(describeEffect).join('; ');
         return lock(`Build ${plural(IMPROVEMENTS[i].name)}`, `${plural(IMPROVEMENTS[i].name)} can be built${gives ? ` · ${gives}` : ''}`);
       }),
-      ...(k === EMBARK_TECH ? [lock('Land units embark', 'Your land units can take to the water and cross it')] : []),
+      ...(k === EMBARK_TECH ? [lock('Land units embark', 'Your land units can take to the shallows and the lakes, and workers build fishing boats from the water they float on')] : []),
+      ...(k === OCEAN_TECH ? [lock('The deep ocean', 'Your ships and embarked units can cross the deep ocean')] : []),
       ...(kind === 'tech' ? RESOURCE_KEYS.filter((r) => resourceDef(r).reveal === k).map((r) => lock(`Reveals ${resourceDef(r).name}`, 'A strategic resource, hidden until now')) : []),
       ...fx.filter((e) => !(e.k === 'improvement' && builds.includes(e.imp))).map((e) => this.effectChip(e)),
     ];
@@ -603,61 +643,146 @@ export class Sheets {
     return `<div class="gcols">${cols}</div>`;
   }
 
-  // The rules in three short parts, then a card to each religion: its
-  // faith, what a city following it gets, and who founded it, where, how far
-  // it has gone (a founded one lit).
+  // The rules in three short parts; the state's religion, to choose; then
+  // a card to each religion: its faith, who founded it and holds its holy
+  // city, how far it has gone (a founded one lit); and the player's cities.
   private religionHtml(): string {
     const g = this.game, p = this.me;
     const cards = RELIGION_KEYS.map((r) => {
       const d = religionDef(r), f = g.religions.get(r);
       const holy = f?.holyCity != null ? g.cityById.get(f.holyCity) : undefined;
-      const followers = g.cities.filter((c) => c.religion === r).length;
-      const by = f ? g.players[f.founder]! : null;
-      const state = by ? `<span><span class="swatch" style="background:${by.color}"></span>Founded by ${by.id === p.id ? 'you' : `the ${esc(by.name)}`}</span>${holy ? `<span>Holy city ${esc(holy.name)}</span>` : ''}<span>${followers === 1 ? '1 city follows it' : `${followers} cities follow it`}</span>`
-        : `<span>Not yet founded</span>${followers ? `<span>${followers} cities follow it</span>` : ''}`;
+      const fol = g.followers(r);
+      const by = f ? g.players[f.founder]! : null, seat = holy ? g.players[holy.owner]! : null;
+      const states = g.players.filter((o) => o.alive && o.stateReligion === r && (o.id === p.id || g.met[p.id]![o.id]));
+      const state = by ? `<span><span class="swatch" style="background:${by.color}"></span>Founded by ${by.id === p.id ? 'you' : `the ${esc(by.name)}`}</span>${holy && seat ? `<span>Holy city ${esc(holy.name)}${seat.id !== by.id ? ` (held by ${seat.id === p.id ? 'you' : `the ${esc(seat.name)}`})` : ''}</span>` : ''}<span>${fol.cities === 1 ? '1 city holds it' : `${fol.cities} cities hold it`} · ${Math.round(100 * fol.share)}% of the world's people</span>${states.length ? `<span>State religion of ${states.map((o) => (o.id === p.id ? 'yours' : `the ${esc(o.name)}`)).join(', ')}</span>` : ''}`
+        : '<span>Not yet founded</span>';
       return `<div class="rcard ${f ? 'founded' : ''}"><div class="rhead"><span class="seal" style="background:${d.color}"></span><div><b>${d.name}</b><small>Faith: ${esc(traitDef(traitOfReligion(r)).name)}</small></div></div>
-        <div class="rbonus">${bonusStr(flat(d.follower, 'follower'))}<small>in each city following it</small></div><div class="rfoot">${state}</div></div>`;
+        <div class="rbonus"><small>${esc(d.temple)} · ${esc(d.cathedral)}</small></div><div class="rfoot">${state}</div></div>`;
     }).join('');
     const mine = g.cities.filter((c) => c.owner === p.id);
-    const cities = mine.length ? mine.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.religion ? religionDef(c.religion).name : '<small>none</small>'}</td></tr>`).join('') : '';
-    return `<div class="page"><div class="rules"><div><h4>Founding</h4><p>A religion is founded by the first civilization to adopt its faith, a trait of the Devotion path of identity (Meditation founds Hinduism). A civilization adopts one faith at most. Its religion is the one it founded, or else the one more than half of its people follow.</p></div>
-      <div><h4>Spreading</h4><p>It spreads from its holy city to the cities around it, whoever owns them; Shrines and Temples press it harder. Each city following a religion gets its bonus; the founder takes 1 gold a turn from every city following it.</p></div>
-      <div><h4>At war</h4><p>A civilization attacking one of its own religion fights ${Math.round(100 * FAITH_SAME)}% weaker; attacking one of another religion, ${Math.round(100 * FAITH_RIVAL)}% stronger; with no religion on either side, nothing. Its cities that follow the religion make ${HOLY_STRIFE.slice(1).map((x) => Math.round(100 * x) + '%').join(', ')} less cohesion while it is at war with one, two, three or more civilizations of its own religion.</p></div></div>
-      <div class="rcards">${cards}</div>
+    const cities = mine.length ? mine.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.religions.size ? [...c.religions].map((r) => `${religionDef(r).name}${p.stateReligion === r ? ' <small>state</small>' : ''}`).join(', ') : '<small>none</small>'}</td><td>${bonusStr(g.religionYield(c)) || '<small>—</small>'}</td></tr>`).join('') : '';
+    const n = RELIGION_KEYS.length;
+    return `<div class="page"><div class="rules"><div><h4>Founding</h4><p>A religion is founded by the first civilization to adopt its faith, a trait of the Devotion path of identity (Meditation founds Hinduism). A civilization adopts one faith at most. Its capital becomes the holy city; whoever holds a holy city takes ${TITHE} gold a turn from every city in the world that holds its religion.</p></div>
+      <div><h4>Spreading</h4><p>A city holds any number of religions and never loses one. A religion comes to a city by a missionary and no other way. A missionary's preaching takes ${spreadChance(0, true)} times in 100 in a city with no religion; ${spreadChance(1, true)} in a city of your own that holds one already, ${spreadChance(2, true)} with two, down to ${spreadChance(n - 1, true)} with ${n - 1}; in another civilization's city ${spreadChance(1, false)}, ${spreadChance(2, false)}, down to ${spreadChance(n - 1, false)}. The missionary is spent either way.</p></div>
+      <div><h4>The state</h4><p>Every religion gives the same. Under a state religion each of your cities that holds it makes ${bonusStr(out(STATE_BONUS))}. In a secular state each city makes ${bonusStr(out(SECULAR_BONUS))} for every religion it holds past its first: the same with three, and worth more once your cities hold four each. Civilizations of one state religion think the better of each other; of rival ones, the worse.</p></div>
+      <div><h4>Buildings</h4><p>Each religion has its own temple (${techDef(TEMPLE_TECH).name}) and cathedral (${techDef(CATHEDRAL_TECH).name}), built in a city that holds it: a city of three religions may build all three. Faith buys them, a Shrine, missionaries and, under a state religion, fighting units.</p></div></div>
+      ${this.stateHtml()}
+      <h3>Religions</h3><div class="rcards">${cards}</div>
       ${this.convertHtml()}
-      ${cities ? `<h3>Your cities</h3><table class="grid"><tr><th>City</th><th>Follows</th></tr>${cities}</table>` : ''}</div>`;
+      ${cities ? `<h3>Your cities</h3><table class="grid"><tr><th>City</th><th>Holds</th><th>Makes of them now</th></tr>${cities}</table>` : ''}</div>`;
   }
 
-  // What the founder of a religion does with its faith: missionaries.
+  // The state's religion: what each choice would bring now, and the button to make it.
+  private stateHtml(): string {
+    const g = this.game, p = this.me;
+    const now = g.stateWorth(p.id, p.stateReligion);
+    const card = (r: ReligionKey | null): string => {
+      const cur = p.stateReligion === r, why = cur ? null : g.stateBlock(p, r), y = g.stateWorth(p.id, r);
+      const held = r ? g.cities.filter((c) => c.owner === p.id && c.religions.has(r)).length : g.cities.filter((c) => c.owner === p.id).reduce((s, c) => s + c.religions.size, 0);
+      const diff = (y.culture + y.cohesion) - (now.culture + now.cohesion);
+      const sharing = r ? g.players.filter((o) => o.alive && o.id !== p.id && g.met[p.id]![o.id] && o.stateReligion === r).map((o) => esc(o.name)) : [];
+      return `<div class="rcard ${cur ? 'founded' : ''}"><div class="rhead"><span class="seal" style="background:${r ? religionDef(r).color : '#b9b5ac'}"></span><div><b>${r ? religionDef(r).name : 'Secular'}</b><small>${r ? `${held} of your cities hold it` : `${held} religions held across your cities (each city's first counts for nothing)`}</small></div></div>
+        <div class="rbonus">${bonusStr(y) || 'nothing yet'}<small>a turn in all${cur ? '' : diff ? ` (${diff > 0 ? '+' : ''}${diff} on now)` : ' (as now)'}</small></div>
+        <div class="rfoot">${sharing.length ? `<span>Shared with the ${sharing.join(', ')}</span>` : ''}${cur ? '<span><b>Your state now</b></span>' : `<button data-do="stateReligion" data-key="${r ?? ''}" class="${why ? 'off' : ''}" ${why ? `title="${esc(why)}"` : ''}>${r ? 'Make it the state religion' : 'Become secular'}</button>`}</div></div>`;
+    };
+    const warn = p.conversion > 0 ? `Your people are unsettled by the last change: ${Math.round(100 * CONVERSION_COST)}% less cohesion for ${p.conversion} more turns, and no new change until then.`
+      : g.conversionCosts(p) ? `Changing it unsettles your people: your cities make ${Math.round(100 * CONVERSION_COST)}% less cohesion for ${CONVERSION_TURNS} turns.` : 'Your first state religion costs nothing; every change after it unsettles your people for a while.';
+    return `<h3>The state</h3><p class="note">${warn}</p><div class="rcards">${[null, ...g.stateOptions(p.id)].map(card).join('')}</div>`;
+  }
+
+  // What faith does: missionaries.
   private convertHtml(): string {
-    const g = this.game, mine = g.foundedBy(HUMAN);
-    if (!mine) return '';
+    const g = this.game;
     const out = g.units.filter((u) => u.owner === HUMAN && u.type === 'missionary').length;
-    return `<h3>Missionaries</h3><p class="note">As the founder of ${religionDef(mine.religion).name} you raise missionaries with faith (${g.missionaryCost}; you have ${this.me.faith}) in your cities that follow it: the button is in the city's panel. A missionary goes where you send it, over land and sea, and preaches in a city it stands in or beside, anyone's, for ${g.paced(CONVERT_PER_POP)} faith a citizen there; the city keeps to your religion for ${DEVOUT_TURNS} turns whatever presses on it, and the missionary is spent. Not in another religion's holy city.${out ? ` You have ${out} on the map.` : ''}</p>`;
+    return `<h3>Missionaries</h3><p class="note">You raise a missionary of a religion with faith (${g.missionaryCostOf(HUMAN)}; you have ${this.me.faith}) in a city of yours that holds it: the buttons are in the city's panel. At most ${MISSIONARIES_MOST} of a religion out at once. It goes where you send it, over land and sea, and preaches in a city it stands in or beside, anyone's you are not at war with.${out ? ` You have ${out} on the map.` : ''}</p>`;
   }
 
   private diplomacyHtml(): string {
     const g = this.game;
     const others = g.players.filter((o) => o.id !== HUMAN && o.alive && g.met[HUMAN]![o.id]);
     if (!others.length) return '<p class="note">You have not met another civilization yet. Civilizations meet when their units or cities come within sight of each other.</p>';
-    // (How each compares with you: what anyone who has met them can see; the computer civs weigh the same.)
-    const cmp = (x: Rank) => `<span class="${x >= 3 ? 'bad' : x <= 1 ? 'good' : ''}">${RANKS[x]}</span>`;
-    const rows = others.map((o) => {
-      const r = g.relations[HUMAN]![o.id]!, war = r.war, st = standing(g, HUMAN, o.id), mood = attitude(g, o, HUMAN);
+    return this.dipTab === 'relations' ? this.relationsHtml(others) : this.dipTab === 'trade' ? this.tradeHtml() : this.dipTab === 'un' ? this.unHtml() : this.civsHtml(others);
+  }
+
+  // A card to each civilization met: its mood toward the player, and the two things it is read from, taken apart:
+  // what it thinks of the player (every reason, with its weight) and how the player compares with it.
+  private civsHtml(others: readonly Player[]): string {
+    const g = this.game;
+    const cmp = (x: Rank) => `<span class="${x >= 3 ? 'good' : x <= 1 ? 'bad' : ''}">${RANKS[x]}</span>`;
+    const cards = others.map((o) => {
+      const r = g.relations[HUMAN]![o.id]!, war = r.war, rg = regard(g, o.id, HUMAN), pw = powerOf(g, o.id, HUMAN), md = MOODS[mood(g, o.id, HUMAN)];
       const offered = g.peaceOffers.has(`${o.id}>${HUMAN}`);
-      const wait = war ? Math.max(0, r.since + 8 - g.turn) : 0, truce = g.truceLeft(HUMAN, o.id);
-      const action = !war ? `<button class="danger" data-do="war" data-civ="${o.id}" ${truce ? tip('Break the truce', `It has ${truce} turns to run: break it and your people make ${Math.round(100 * TRUCE_BREAK)}% less cohesion for as long`) : ''}>Declare war${truce ? ` <small>truce: ${truce}</small>` : ''}</button>`
+      const wait = war ? Math.max(0, r.since + MIN_WAR - g.turn) : 0, truce = g.truceLeft(HUMAN, o.id);
+      const action = !war ? `<button class="danger" data-do="war" data-civ="${o.id}" ${truce ? tip('Break the truce', `It has ${truce} turns to run: break it and your people make ${Math.round(100 * TRUCE_BREAK)}% less cohesion for as long, and they will remember it`) : g.pact(HUMAN, o.id) || g.openBorders(HUMAN, o.id) ? tip('Turn on them', 'A treaty stands between you: they, and their friends, will remember it') : ''}>Declare war${truce ? ` <small>truce: ${truce}</small>` : ''}</button>`
         : offered ? `<button class="primary" data-do="accept" data-civ="${o.id}">Accept peace</button>`
         : g.canMakePeace(HUMAN, o.id) ? `<button data-do="peace" data-civ="${o.id}">Offer peace</button>` : `<small>Peace possible in ${wait} turns</small>`;
-      const known = epithet(o.identity), faith = g.faithOf(o.id);
-      const trade = g.canTrade(HUMAN, o.id) ? `<button data-do="tradeWith" data-civ="${o.id}" class="${this.draft?.civ === o.id ? 'active' : ''}">Trade</button>` : '';
-      return `<tr><td><span class="swatch" style="background:${o.color}"></span> ${esc(o.name)}${known ? ` <small>${esc(known)}</small>` : ''}<br><small>${esc(governmentDef(o.government).name)}${faith ? ` · ${religionDef(faith).name}` : ''}</small></td>
-        <td><span class="pill ${mood === 'war' || mood === 'hostile' ? 'war' : mood === 'friendly' ? 'peace' : ''}" ${tip(ATTITUDES[mood].name, ATTITUDES[mood].tells)}>${ATTITUDES[mood].name}</span>${war ? ` <small>since turn ${r.since}</small>` : ''}</td>
-        <td>${cmp(st.army)}</td><td>${cmp(st.tech)}</td><td>${cmp(st.prod)}</td><td>${cmp(st.gold)}</td><td>${trade}</td><td>${action}</td></tr>`;
+      const known = epithet(o.identity), faith = o.stateReligion;
+      const reasons = rg.reasons.length ? [...rg.reasons].sort((a, b) => b.value - a.value).map((x) => `<li class="${x.value > 0 ? 'good' : 'bad'}"><b>${x.value > 0 ? '+' : ''}${x.value}</b> ${esc(x.text)}</li>`).join('') : '<li><small>Nothing for or against you yet.</small></li>';
+      const ties = [g.openBorders(HUMAN, o.id) ? 'Open borders' : '', g.pact(HUMAN, o.id) ? 'Defensive pact' : '', truce ? `Truce: ${truce} turns` : ''].filter(Boolean).map((x) => `<span class="tag">${x}</span>`).join(' ');
+      const scale = REGARDS.map((n, i) => `<span class="${i === rg.level ? 'on' : ''}">${n}</span>`).join('');
+      return `<div class="dcard"><div class="dhead"><span class="seal" style="background:${o.color}"></span><div><b>${esc(o.name)}</b>${known ? ` <small>${esc(known)}</small>` : ''}<br><small>${esc(governmentDef(o.government).name)} · ${faith ? religionDef(faith).name : 'secular'}</small></div>
+          <span class="grow"></span><span class="pill ${war ? 'war' : rg.level <= 1 ? 'war' : rg.level >= 3 ? 'peace' : ''}" ${tip(war ? 'At war' : md.name, war ? `Since turn ${r.since}.` : md.tells)}>${war ? 'At war' : md.name}</span></div>
+        <p class="dtells">${war ? `You are at war since turn ${r.since}. ` : ''}${md.tells}</p>
+        <div class="dcols"><div><h4>What they think of you <small>${REGARDS[rg.level]} · ${rg.total > 0 ? '+' : ''}${rg.total}</small></h4><div class="dscale">${scale}</div><ul class="dwhy">${reasons}</ul></div>
+          <div><h4>How you compare <small>they see you as ${RANKS[pw.rank]}</small></h4><table class="dpow"><tr><td>Army</td><td>${cmp(pw.army)}</td></tr><tr><td>Production</td><td>${cmp(pw.prod)}</td></tr><tr><td>Technology</td><td>${cmp(pw.tech)}</td></tr><tr><td>Gold income</td><td>${cmp(pw.gold)}</td></tr><tr><td><b>All in all</b></td><td><b>${cmp(pw.rank)}</b></td></tr></table>${ties ? `<div class="dties">${ties}</div>` : ''}</div></div>
+        <div class="dfoot"><button data-do="tradeWith" data-civ="${o.id}">${war ? 'Peace terms' : 'Trade'}</button><span class="grow"></span>${action}</div></div>`;
     }).join('');
-    return `<p class="note">How each civilization stands toward you is its own weighing of you, in broad: its plans stay its own. The columns rank it against you, in broad (no one knows another's exact figures); the computer's civilizations know of you, and of each other, the same ranks and no more. Everyone starts at peace; at peace, units cannot enter each other's tiles, and attacking a civilization declares war. A war lasts at least 8 turns before peace can be made; a peace is a truce for ${TRUCE_TURNS} turns, which can be broken at a price.</p>
-      <table class="grid"><tr><th>Civilization</th><th>Toward you</th><th>Army</th><th>Technology</th><th>Production</th><th>Gold income</th><th></th><th></th></tr>${rows}</table>
-      ${this.tradeHtml()}`;
+    return `<p class="note">What a civilization does about you follows from two things, shown here as it weighs them: how well it thinks of you (the sum of the reasons listed: ${REGARD_CUTS[0]} and under Hateful, to ${REGARD_CUTS[1]} Hostile, under ${REGARD_CUTS[2]} Cautious, under ${REGARD_CUTS[3]} Friendly, beyond that Devoted) and how you compare with it (in ranks: no one knows another's exact figures). What happened between you is remembered and fades with the turns. At peace a civilization's land is closed to another's armies and ships without open borders; civilians pass. A war lasts at least ${MIN_WAR} turns; a peace is a truce for ${TRUCE_TURNS}.</p>
+      <div class="dcards">${cards}</div>`;
+  }
+
+  // Everyone the player knows of, round a regular polygon, with a line for what stands between each two: contact, war, a pact, open borders.
+  private relationsHtml(others: readonly Player[]): string {
+    const g = this.game, civs = [this.me, ...others], n = civs.length;
+    const W = 760, H = 560, R = 205, cx = W / 2, cy = H / 2 - 6;
+    const at = (i: number): [number, number] => { const a = -Math.PI / 2 + (2 * Math.PI * i) / n; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; };
+    const lines: string[] = [];
+    // (Drawn the plainest first, so a war or a pact lies over mere contact. Two lines between a pair lie side by side.)
+    const kinds = [['contact', 0], ['borders', 1], ['pact', 2], ['war', 3]] as const;
+    for (const [kind] of kinds) for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const a = civs[i]!.id, b = civs[j]!.id;
+      if (!g.met[a]![b]) continue;
+      const has = { contact: !g.atWar(a, b) && !g.pact(a, b) && !g.openBorders(a, b), borders: g.openBorders(a, b), pact: g.pact(a, b), war: g.atWar(a, b) }[kind];
+      if (!has) continue;
+      const [x1, y1] = at(i), [x2, y2] = at(j);
+      // (Open borders beside a pact: shifted a little to one side of it.)
+      const both = kind === 'borders' && g.pact(a, b), len = Math.hypot(x2 - x1, y2 - y1), ox = both ? (-(y2 - y1) / len) * 4 : 0, oy = both ? ((x2 - x1) / len) * 4 : 0;
+      lines.push(`<line class="rl ${kind}" x1="${(x1 + ox).toFixed(1)}" y1="${(y1 + oy).toFixed(1)}" x2="${(x2 + ox).toFixed(1)}" y2="${(y2 + oy).toFixed(1)}"><title>${esc(civs[i]!.name)} – ${esc(civs[j]!.name)}: ${kind === 'contact' ? 'at peace' : kind === 'borders' ? 'open borders' : kind === 'pact' ? 'defensive pact' : 'at war'}</title></line>`);
+    }
+    const nodes = civs.map((o, i) => {
+      const [x, y] = at(i), out = 1 + 46 / R, lx = cx + (x - cx) * out, ly = cy + (y - cy) * out;
+      const sub = o.id === HUMAN ? 'you' : g.atWar(HUMAN, o.id) ? 'at war with you' : MOODS[mood(g, o.id, HUMAN)].name;
+      const anchor = Math.abs(x - cx) < 30 ? 'middle' : x > cx ? 'start' : 'end';
+      return `<g><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="17" fill="${o.color}" class="rn"/><text x="${lx.toFixed(1)}" y="${(ly - 2).toFixed(1)}" text-anchor="${anchor}" class="rname">${esc(o.name)}</text><text x="${lx.toFixed(1)}" y="${(ly + 13).toFixed(1)}" text-anchor="${anchor}" class="rsub">(${esc(sub)})</text></g>`;
+    }).join('');
+    const key = (cls: string, label: string) => `<span><svg width="34" height="8"><line class="rl ${cls}" x1="1" y1="4" x2="33" y2="4"/></svg>${label}</span>`;
+    return `<p class="note">You and every civilization you have met, and what stands between each two of them. Under each name, its mood toward you.</p>
+      <div class="relations"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Relations between the civilizations you know">${lines.join('')}${nodes}</svg>
+      <div class="rkey">${key('contact', 'Contact, at peace')}${key('war', 'War')}${key('pact', 'Defensive pact')}${key('borders', 'Open borders')}</div></div>`;
+  }
+
+  // The United Nations: when its council sits next, whom it will vote between, how the vote would go now, and the player's own.
+  private unHtml(): string {
+    const g = this.game;
+    const rules = `Their council sits every ${UN_EVERY} turns and votes on a leader of the world, between the two civilizations with the most votes (a vote a citizen). Each civilization gives all its votes to one of the two, or abstains; no one votes for itself. A candidate with ${Math.round(100 * UN_SHARE)}% of the votes of the rest of the world, abstentions counted against, wins the game. The computer's civilizations vote only for one they are Friendly or Devoted to, or sworn to defend: a shared state religion, open borders, a pact, gifts and a war fought on their side all bring them there.`;
+    if (g.un.since === null) return `<p class="note">The United Nations are founded when the first civilization discovers ${techDef(UN_TECH).name}; through them every civilization comes to know every other. ${rules}</p>`;
+    const cands = g.unCandidates(), name = (c: number) => (c === HUMAN ? 'you' : `the ${esc(g.players[c]!.name)}`), cap = (x: string) => `${x[0]!.toUpperCase()}${x.slice(1)}`;
+    const table = (votes: readonly { civ: number; weight: number; for: number | null }[], cs: readonly [number, number], needs: (c: number) => number) => {
+      const tally = (c: number) => votes.reduce((s, v) => s + (v.for === c && v.civ !== c ? v.weight : 0), 0);
+      const rows = [...votes].sort((a, b) => b.weight - a.weight).map((v) => `<tr><td><span class="swatch" style="background:${g.players[v.civ]!.color}"></span> ${esc(g.players[v.civ]!.name)}${cs.includes(v.civ) ? ' <small>stands</small>' : ''}</td><td class="num">${v.weight}</td><td>${v.for === null ? '<small>abstains</small>' : `for ${name(v.for)}`}</td></tr>`).join('');
+      return `<table class="grid"><tr><th>Civilization</th><th class="num">Votes</th><th>Given</th></tr>${rows}</table><p class="note">${cs.map((c) => `${cap(name(c))}: <b>${tally(c)}</b> of the ${needs(c)} needed`).join(' · ')}.</p>`;
+    };
+    const mine = cands ? g.ballotFor(cands) : null;
+    const pick = (c: number | null, label: string) => `<button data-do="ballot" data-civ="${c ?? ''}" class="${mine === c ? 'active' : ''}">${label}</button>`;
+    const last = g.un.last;
+    // (What the last vote needed: of the votes cast then.)
+    const neededThen = (c: number) => Math.max(1, Math.ceil(UN_SHARE * (last?.votes ?? []).reduce((s, v) => s + (v.civ !== c ? v.weight : 0), 0)));
+    return `<p class="note">${rules}</p>
+      <h3>The next vote <small>in ${Math.max(0, g.un.next - g.turn)} turns</small></h3>
+      ${cands ? `<p>Between <b>${name(cands[0])}</b> and <b>${name(cands[1])}</b>, as things stand.</p>
+        <div class="tfoot"><span>Your vote: <b>${mine === null ? 'abstain' : `for ${name(mine)}`}</b></span><span class="grow"></span>${cands.filter((c) => c !== HUMAN).map((c) => pick(c, `For ${name(c)}`)).join(' ')} ${pick(null, 'Abstain')}</div>
+        <h3>How it would go today</h3>${table(forecast(g, cands, mine), cands, (c) => g.unNeeds(c))}` : '<p class="note">Too few civilizations are left to vote between.</p>'}
+      ${last ? `<h3>The last vote <small>turn ${last.turn}</small></h3>${table(last.votes, last.candidates, neededThen)}` : ''}`;
   }
 
   // ---- victory ----
@@ -672,25 +797,63 @@ export class Sheets {
     const bar = (share: number) => `<div class="bar"><i style="width:${(100 * Math.max(0, Math.min(1, share))).toFixed(1)}%"></i></div>`;
     const card = (k: Victory, mine: string, share: number, lead: string) =>
       `<div class="vcard"><b>${VICTORIES[k].name}</b><p>${VICTORIES[k].rule}</p><div class="vmine">${mine}</div>${bar(share)}<small>${lead}</small></div>`;
-    const tenth = (id: number) => Math.round(10 * g.faithShare(id)) * 10;
-    const caps = first((o) => g.capitalsHeld(o.id)), era = first((o) => o.era), faith = first((o) => g.faithShare(o.id));
+    const caps = first((o) => g.capitalsHeld(o.id)), era = first((o) => o.era);
     const rank = civs.findIndex((o) => o.id === p.id) + 1;
     const cards = [
       card('conquest', `You hold ${g.capitalsHeld(p.id)} of the ${g.capitalsToWin} first capitals that win`, g.capitalsHeld(p.id) / g.capitalsToWin,
         caps.id === p.id ? 'No one you have met holds more' : `The ${esc(caps.name)} hold ${g.capitalsHeld(caps.id)}`),
       card('science', `You know ${p.techs.size} of the ${TECH_KEYS.length} technologies`, p.techs.size / TECH_KEYS.length,
         era.id === p.id ? `No one you have met is past the ${ERAS[p.era].name} era` : `The ${esc(era.name)} are in the ${ERAS[era.era].name} era`),
-      card('religion', g.foundedBy(HUMAN) ? `About ${tenth(p.id)}% of the world's people follow your religion` : 'You have founded no religion', g.faithShare(p.id) / FAITH_VICTORY,
-        faith.id === p.id || g.faithShare(faith.id) <= 0 ? 'No one you have met has more followers' : `The religion of the ${esc(faith.name)}: about ${tenth(faith.id)}%`),
+      card('diplomacy', g.un.since === null ? 'The United Nations are not founded yet' : (() => { const c = g.unCandidates(); return c?.includes(p.id) ? `You stand in the next vote: you need ${g.unNeeds(p.id)} votes of the rest of the world` : 'You do not stand in the next vote: the two civilizations with the most citizens do'; })(),
+        g.un.last && g.un.last.candidates.includes(p.id) ? g.un.last.votes.reduce((s2, v) => s2 + (v.for === p.id && v.civ !== p.id ? v.weight : 0), 0) / g.unNeeds(p.id) : 0,
+        g.un.since === null ? 'Founded when the first civilization discovers Telecommunications' : `The council votes again in ${Math.max(0, g.un.next - g.turn)} turns (Diplomacy, United Nations)`),
       card('time', `${g.score(p.id)} points: ${civs.length === 1 ? 'you have met no one to compare' : `${rank === 1 ? 'the best score' : `${rank}${['th', 'st', 'nd', 'rd'][rank] ?? 'th'}`} of the ${civs.length} you know of`}`, g.turn / g.turnLimit,
         `${Math.max(0, g.turnLimit - g.turn)} turns left: the last is ${g.turnLimit}`),
     ].join('');
-    // (Toward each way of winning, in broad: the score, the era, a tenth of the world's people at a time.)
+    // (Toward each way of winning, in broad: the score, the era.)
     const rows = civs.map((o) => `<tr><td><span class="swatch" style="background:${o.color}"></span> ${esc(o.name)}</td><td class="num">${g.score(o.id)}</td>
-      <td>${ERAS[o.era].name}${o.id === HUMAN ? ` <small>${o.techs.size} of ${TECH_KEYS.length} technologies</small>` : ''}</td><td>${g.faithShare(o.id) > 0 ? `about ${tenth(o.id)}%` : '—'}</td><td class="num">${g.capitalsHeld(o.id)} of the ${g.capitalsToWin} that win</td></tr>`).join('');
+      <td>${ERAS[o.era].name}${o.id === HUMAN ? ` <small>${o.techs.size} of ${TECH_KEYS.length} technologies</small>` : ''}</td><td>${o.stateReligion ? religionDef(o.stateReligion).name : 'secular'}</td><td class="num">${g.capitalsHeld(o.id)} of the ${g.capitalsToWin} that win</td></tr>`).join('');
     return `<div class="vcards">${cards}</div>
+      ${this.historyHtml(civs)}
       <h3>Standings</h3><p class="note">You and the civilizations you have met, the best score first. Of the others you know these things in broad, no more.</p>
-      <table class="grid"><tr><th>Civilization</th><th class="num">Score</th><th>Era</th><th>World's people of its faith</th><th class="num">First capitals held</th></tr>${rows}</table>`;
+      <table class="grid"><tr><th>Civilization</th><th class="num">Score</th><th>Era</th><th>State religion</th><th class="num">First capitals held</th></tr>${rows}</table>`;
+  }
+
+  // The civ's history, a line a civ over the turns, for the figure chosen. The score is everyone's the player
+  // has met (it is on the scoreboard); the rest are the player's own only, until the game is over: no one knows
+  // another's exact figures.
+  private historyHtml(civs: readonly Player[]): string {
+    const g = this.game, k = this.chart, series = g.history[k];
+    const turns = series[HUMAN]?.length ?? 0;
+    const tabs = HISTORY_KEYS.map((x) => `<button data-do="chart" data-key="${x}" class="${x === k ? 'active' : ''}">${HISTORY[x]}</button>`).join(' ');
+    const head = `<h3>History</h3><div class="tfoot hpick">${tabs}</div>`;
+    if (turns < 2) return `${head}<p class="note">Nothing to draw yet: a line needs two turns.</p>`;
+    const shown = (k === 'score' || g.over ? (g.over ? g.players : civs) : [this.me]).filter((o) => series[o.id]?.length);
+    const W = 1000, H = 300, L = 54, R = 150, T = 14, B = 30, x0 = L, x1 = W - R;
+    const hi = Math.max(1, ...shown.flatMap((o) => series[o.id]!)), lo = Math.min(0, ...shown.flatMap((o) => series[o.id]!));
+    // (A round top to the scale, and four lines across.)
+    const step = (() => { const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(Math.max(1e-9, raw))); return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? raw; })();
+    const top = Math.ceil(hi / step) * step, bottom = Math.floor(lo / step) * step;
+    const X = (t: number) => x0 + ((t - 1) / Math.max(1, turns - 1)) * (x1 - x0), Y = (v: number) => T + (1 - (v - bottom) / Math.max(1e-9, top - bottom)) * (H - T - B);
+    const grid: string[] = [];
+    for (let v = bottom; v <= top + 1e-9; v += step) grid.push(`<line class="hgrid" x1="${x0}" x2="${x1}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"/><text class="haxis" x="${x0 - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${Math.round(v).toLocaleString()}</text>`);
+    const every = [10, 20, 25, 50, 100].find((s) => turns / s <= 8) ?? 100;
+    for (let t = every; t <= turns; t += every) grid.push(`<text class="haxis" x="${X(t).toFixed(1)}" y="${H - 9}" text-anchor="middle">${t}</text>`);
+    // (Each line in its civ's colour over a dark casing, so a pale civ shows on the pale sheet; the player's own heavier, and drawn last.)
+    const order = [...shown].sort((a, b) => Number(a.id === HUMAN) - Number(b.id === HUMAN));
+    const lines = order.map((o) => {
+      const d = series[o.id]!.map((v, i) => `${i ? 'L' : 'M'}${X(i + 1).toFixed(1)} ${Y(v).toFixed(1)}`).join('');
+      return `<path class="hcase ${o.id === HUMAN ? 'me' : ''}" d="${d}"/><path class="hline ${o.id === HUMAN ? 'me' : ''}" d="${d}" stroke="${o.color}"/>`;
+    }).join('');
+    // (Names at the lines' ends, spread so that none sits on another.)
+    const ends = shown.map((o) => ({ o, y: Y(series[o.id]![turns - 1]!) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ends.length; i++) ends[i]!.y = Math.max(ends[i]!.y, ends[i - 1]!.y + 14);
+    const over = ends.length ? Math.max(0, ends[ends.length - 1]!.y - (H - B)) : 0;
+    const labels = ends.map((e) => `<circle cx="${x1 + 10}" cy="${(e.y - over).toFixed(1)}" r="4.5" fill="${e.o.color}" class="hdot"/><text class="hname" x="${x1 + 20}" y="${(e.y - over + 4).toFixed(1)}">${esc(e.o.name)}${e.o.id === HUMAN ? ' (you)' : ''}</text>`).join('');
+    const note = k === 'score' || g.over ? 'You and the civilizations you have met.' : 'Your own civilization: of the others you know the score, and no more, until the game is over.';
+    return `${head}<div class="hchart"><svg viewBox="0 0 ${W} ${H}" data-x0="${x0}" data-x1="${x1}" data-turns="${turns}" data-civs="${shown.map((o) => o.id).join(',')}" role="img" aria-label="${HISTORY[k]} over the turns">
+      ${grid.join('')}<line class="hbase" x1="${x0}" x2="${x1}" y1="${Y(bottom).toFixed(1)}" y2="${Y(bottom).toFixed(1)}"/>${lines}${labels}<line class="hcross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/></svg><div class="htip" hidden></div></div>
+      <p class="note">${HISTORY[k]}, turn by turn. ${note} The figures as they stand now are in the table below.</p>`;
   }
 
   // A table whose columns sort (click a heading: by it, again: the other
@@ -752,7 +915,7 @@ export class Sheets {
       ['specialists', 'Specialists', 'Citizens working in a building\'s slots'],
       ['capital', 'The capital', 'The palace, and what your government, policies and traits give the capital'],
       ['roads', 'Roads', 'Cities joined to the capital by road'],
-      ['religion', 'Religion', 'What each city gets from the religion it follows'],
+      ['religion', 'Religion', 'What each city makes of the religions it holds, under your state'],
     ] as const;
     const name = y === 'prod' ? 'production' : y;
     const made = cities.reduce((a, x) => a + x.parts.total[y], 0);
@@ -835,7 +998,7 @@ export class Sheets {
     const income: [string, number, string][] = [
       ['Cities', l.income.gold - l.luxuries.gold, 'Worked tiles, buildings, specialists, the palace, roads to the capital; production with nothing to build'],
       ['Luxuries', l.luxuries.gold, 'What your kinds of luxury give the whole civilization'],
-      ['Tithes', l.tithes, 'From every city following the religion you founded'],
+      ['Tithes', l.tithes, 'From every city in the world holding a religion whose holy city you hold'],
       ['Trade', Math.max(0, l.trade), 'Gold a turn from your deals, less what you pay in them'],
     ];
     const expenses: [string, number, string][] = [
@@ -850,7 +1013,7 @@ export class Sheets {
       `<div class="eline"><div class="ehead"><span>${name}</span><b>${sign}${n1(v)}</b></div><div class="bar ${cls}"><i style="width:${(100 * v / most).toFixed(1)}%"></i></div><small>${how}</small></div>`).join('')
       || '<p class="note">Nothing yet.</p>';
     const net = sum(income) - sum(expenses);
-    const deals = g.deals.filter((d) => d.sides.some((x) => x.civ === HUMAN) && d.sides.some((x) => x.gold > 0));
+    const deals = g.deals.filter((d) => partyTo(d, HUMAN) && [...d.give, ...d.get].some((x) => x.k === 'goldPerTurn'));
     // (What upkeep is reckoned from: game.ts upkeepOf, buildingUpkeepOf, upkeep; economy.ts.)
     const fx = g.effectsOf(p), cityPct = total(fx, 'upkeep'), buildPct = total(fx, 'buildingUpkeep'), infl = g.inflation;
     const capital = p.capital === null ? undefined : g.cityById.get(p.capital);
@@ -883,7 +1046,7 @@ export class Sheets {
         <div><span class="label">Expenses</span><b class="${sum(expenses) > 0.04 ? 'bad' : ''}">${sum(expenses) > 0.04 ? `−${n1(sum(expenses))}` : '0'}</b></div><div><span class="label">Each turn</span><b class="${net < 0 ? 'bad' : ''}">${net >= 0 ? '+' : '−'}${n1(Math.abs(net))}</b></div></div>
       <div class="ecols"><div><h3>Income</h3>${lines(income, 'gold', '+')}</div><div><h3>Expenses</h3>${lines(expenses, 'cost', '−')}</div></div>
       <p class="note">Last turn's accounts. What the treasury cannot pay, your cities lose in proportion, in production, science and culture, and a unit deserts.</p>
-      ${deals.length ? `<h3>Deals with gold in them</h3><table class="grid">${deals.map((d) => `<tr><td>${this.dealText(d)}</td></tr>`).join('')}</table>` : ''}
+      ${deals.length ? `<h3>Deals with gold in them</h3><table class="grid"><tr><th>With</th><th>You give</th><th>You get</th></tr>${deals.map((d) => `<tr><td>${esc(g.players[d.a === HUMAN ? d.b : d.a]!.name)}</td><td>${this.said(givenBy(d, HUMAN))}</td><td>${this.said(givenBy(d, d.a === HUMAN ? d.b : d.a))}</td></tr>`).join('')}</table>` : ''}
       <h3>How upkeep is reckoned</h3>${how}
       ${rows.length ? `<h3>Your cities</h3><p class="note">As they stand now. Click a heading to sort by it.</p>${cityTable}` : ''}
       ${unitRows.length ? `<h3>Your fighting units</h3>${unitTable}` : ''}</div>`;
@@ -891,14 +1054,10 @@ export class Sheets {
 
   // ---- trade ----
 
-  private draftSides(d: NonNullable<Sheets['draft']>): [DealSide, DealSide] {
-    return [{ civ: HUMAN, resource: d.give, gold: d.pay }, { civ: d.civ, resource: d.get, gold: d.paid }];
+  private draftOffer(d: NonNullable<Sheets['draft']>): Offer {
+    return { from: HUMAN, to: d.civ, give: d.give, get: d.get, ...(d.peace ? { peace: true } : {}) };
   }
-  private dealText(d: Deal): string {
-    const side = (s: DealSide) => [s.resource ? resourceDef(s.resource).name : '', s.gold ? `${s.gold} gold a turn` : ''].filter(Boolean).join(' + ') || 'nothing';
-    const mine = d.sides.find((s) => s.civ === HUMAN)!, theirs = d.sides.find((s) => s.civ !== HUMAN)!;
-    return `<td><span class="swatch" style="background:${this.game.players[theirs.civ]!.color}"></span> ${esc(this.game.players[theirs.civ]!.name)}</td><td>${side(mine)}</td><td>${side(theirs)}</td>`;
-  }
+  private said(list: readonly Item[]): string { return list.length ? list.map((i) => esc(itemText(this.game, i))).join(' + ') : 'nothing'; }
   // What a resource does for whoever takes it.
   private goodsNote(k: ResourceKey, to: Player): string {
     const d = resourceDef(k);
@@ -911,34 +1070,73 @@ export class Sheets {
     const lux = luxuries.length
       ? luxuries.map((k) => `<tr><td>${esc(resourceDef(k).name)}</td><td>${imported.has(k) && !g.ownedResources(HUMAN).has(k) ? 'Traded in' : 'Your land'}</td><td>${bonusStr(empireBonus(k, p.era))}</td><td class="num">${spare.get(k) ?? 0}</td></tr>`).join('')
       : '<tr><td colspan="4"><small>None yet: settle near luxuries, or trade for them.</small></td></tr>';
-    const offers = g.dealOffers.map((d, i) => `<tr>${this.dealText(d)}<td><small>${DEAL_TURNS} turns</small></td><td><button class="primary" data-do="dealAnswer" data-i="${i}" data-yes="1">Accept</button> <button data-do="dealAnswer" data-i="${i}" data-yes="0">Decline</button></td></tr>`).join('');
-    const mine = g.deals.filter((d) => d.sides.some((s) => s.civ === HUMAN));
-    const deals = mine.map((d) => `<tr>${this.dealText(d)}<td class="num">${d.until - g.turn}</td></tr>`).join('');
+    const who = (c: number) => `<span class="swatch" style="background:${g.players[c]!.color}"></span> ${esc(g.players[c]!.name)}`;
+    const offers = g.dealOffers.map((o, i) => `<tr><td>${who(o.from)}${o.demand ? ' <span class="bad">demand</span>' : o.peace ? ' <span class="good">peace</span>' : ''}</td><td>${this.said(o.get)}</td><td>${this.said(o.give)}</td><td><small>${[...o.give, ...o.get].some(isLasting) ? `${DEAL_TURNS} turns` : 'at once'}</small></td>
+      <td><button class="primary" data-do="dealAnswer" data-i="${i}" data-yes="1" ${g.offerBlock(o) ? 'disabled' : ''}>Accept</button> <button data-do="dealAnswer" data-i="${i}" data-yes="0" ${o.demand ? tip('Refuse', 'They will hold it against you') : ''}>${o.demand ? 'Refuse' : 'Decline'}</button></td></tr>`).join('');
+    const deals = g.deals.map((t, i) => (partyTo(t, HUMAN) ? `<tr><td>${who(t.a === HUMAN ? t.b : t.a)}</td><td>${this.said(givenBy(t, HUMAN))}</td><td>${this.said(givenBy(t, t.a === HUMAN ? t.b : t.a))}</td><td class="num">${t.until - g.turn}</td>
+      <td><button data-do="treatyEnd" data-i="${i}" ${g.canCancel(t) ? '' : `disabled title="It can be ended once it has run ${DEAL_MIN} turns: ${Math.max(0, t.since + DEAL_MIN - g.turn)} more"`}>End it</button></td></tr>` : '')).join('');
     const strategics = [...spare].filter(([k]) => resourceDef(k).kind !== 'luxury');
-    return `<h3>Trade</h3>${!this.draft && this.notice ? `<p class="notice">${esc(this.notice)}</p>` : ''}
-      <p class="note">The first copy of each luxury gives your whole civilization its bonus every turn, mostly cohesion, and it grows with the era. More copies add nothing, so you can trade them: a spare copy (you always keep one) for another civilization's goods or for gold a turn, for ${DEAL_TURNS} turns. A strategic resource you trade for lets you build what needs it. A war, losing the spare tile, or a payer running out of gold ends a deal.</p>
+    const partners = g.players.filter((o) => o.id !== HUMAN && o.alive && g.met[HUMAN]![o.id]);
+    return `${!this.draft && this.notice ? `<p class="notice">${esc(this.notice)}</p>` : ''}
+      <p class="note">A deal is of one of two kinds, never both. <b>Settled at once</b>: gold, a technology, your map, a city, a war declared on a third civilization or peace made with one, a state religion taken up. <b>Lasting</b>, for ${DEAL_TURNS} turns: gold a turn, a spare resource (you always keep one copy), open borders, a defensive pact, an embargo on a third civilization; either side may end it after ${DEAL_MIN} turns, and a war ends it. Whether a civilization signs is a matter of odds: how the deal balances for it, against what it asks of someone it regards as it does you.</p>
       ${offers ? `<h3>Offers to you</h3><table class="grid"><tr><th>From</th><th>You give</th><th>You get</th><th>Term</th><th></th></tr>${offers}</table>` : ''}
+      <h3>Draw up a deal</h3><div class="tfoot">${partners.map((o) => `<button data-do="tradeWith" data-civ="${o.id}" class="${this.draft?.civ === o.id ? 'active' : ''}"><span class="swatch" style="background:${o.color}"></span> ${esc(o.name)}</button>`).join(' ')}</div>
       ${this.draftHtml()}
+      ${deals ? `<h3>Deals in force</h3><table class="grid"><tr><th>With</th><th>You give</th><th>You get</th><th class="num">Turns left</th><th></th></tr>${deals}</table>` : ''}
       <h3>Your luxuries</h3><table class="grid"><tr><th>Luxury</th><th>From</th><th>Bonus to your civilization</th><th class="num">Spare copies</th></tr>${lux}</table>
-      ${strategics.length ? `<p class="note">Spare strategic copies: ${strategics.map(([k, n]) => `${esc(resourceDef(k).name)} ×${n}`).join(', ')}.</p>` : ''}
-      ${deals ? `<h3>Deals in force</h3><table class="grid"><tr><th>With</th><th>You give</th><th>You get</th><th>Turns left</th></tr>${deals}</table>` : ''}`;
+      ${strategics.length ? `<p class="note">Spare strategic copies: ${strategics.map(([k, n]) => `${esc(resourceDef(k).name)} ×${n}`).join(', ')}.</p>` : ''}`;
   }
 
+  // The deal being drawn up: on each side, everything that side could give of the kind chosen (at once, or lasting),
+  // to pick; and how it stands with the other civilization.
   private draftHtml(): string {
     const g = this.game, d = this.draft;
-    if (!d || !g.canTrade(HUMAN, d.civ)) return '';
+    if (!d) return '';
     const o = g.players[d.civ]!;
-    const chips = (keys: ResourceKey[], side: 'give' | 'get', to: Player) => keys.length
-      ? keys.map((k) => `<button class="tchip ${d[side] === k ? 'picked' : ''}" data-do="tradePick" data-side="${side}" data-key="${k}"><b>${esc(resourceDef(k).name)}</b> ${this.goodsNote(k, to)}</button>`).join('')
-      : '<small class="none">No spare goods the other side lacks.</small>';
-    const gold = (side: 'pay' | 'paid') => `<div class="tgold"><span>Gold a turn</span>${[-5, -1].map((n) => `<button data-do="tradeGold" data-side="${side}" data-n="${n}">${n}</button>`).join('')}<b>${d[side]}</b>${[1, 5].map((n) => `<button data-do="tradeGold" data-side="${side}" data-n="${n}">+${n}</button>`).join('')}</div>`;
-    const sides = this.draftSides(d), block = g.dealBlock(sides);
-    const verdict = block ?? (aiAcceptsDeal(g, o, sides) ? `The ${esc(o.name)} would accept.` : `The ${esc(o.name)} want more.`);
-    return `<h3>Trade with the ${esc(o.name)}</h3>
+    if (!o.alive) return '';
+    const war = g.atWar(HUMAN, d.civ);
+    const thirds = g.players.filter((x) => x.alive && x.id !== HUMAN && x.id !== d.civ);
+    // (What a side could give now, of the kind: each thing the rules allow it.)
+    const options = (giver: number, taker: number): Item[] => {
+      const out: Item[] = [];
+      if (d.lasting) {
+        for (const r of g.tradeable(giver, taker)) out.push({ k: 'resource', resource: r });
+        out.push({ k: 'openBorders' }, { k: 'pact' });
+        for (const x of thirds) out.push({ k: 'embargo', civ: x.id });
+      } else {
+        for (const t of techsFor(g, giver, taker)) out.push({ k: 'tech', tech: t });
+        if (mapNews(g, giver, taker) > 0) out.push({ k: 'map' });
+        for (const c of g.cities) if (c.owner === giver) out.push({ k: 'city', city: c.id });
+        for (const x of thirds) { out.push({ k: 'warOn', civ: x.id }); out.push({ k: 'peaceWith', civ: x.id }); }
+        for (const r of g.stateOptions(giver)) out.push({ k: 'convert', religion: r });
+      }
+      return out.filter((i) => g.itemBlock(giver, taker, i) === null);
+    };
+    const note = (i: Item, taker: Player): string => (i.k === 'resource' ? ` ${this.goodsNote(i.resource, taker)}` : i.k === 'tech' ? ` <small>${g.techCost(i.tech)} science</small>` : i.k === 'city' ? ` <small>size ${g.cityById.get(i.city)?.pop ?? 0}</small>` : i.k === 'map' ? ` <small>${mapNews(g, taker.id === HUMAN ? d.civ : HUMAN, taker.id)} tiles new</small>` : '');
+    const chips = (side: 'give' | 'get') => {
+      const giver = side === 'give' ? HUMAN : d.civ, taker = side === 'give' ? d.civ : HUMAN;
+      const list = options(giver, taker);
+      // (Something picked that can no longer be given stays shown, to be taken out.)
+      for (const i of d[side]) if (i.k !== 'gold' && i.k !== 'goldPerTurn' && !list.some((x) => sameItem(x, i))) list.push(i);
+      return list.length ? list.map((i) => `<button class="tchip ${d[side].some((x) => sameItem(x, i)) ? 'picked' : ''}" data-do="tradeItem" data-side="${side}" data-item="${esc(JSON.stringify(i))}"><b>${esc(itemText(g, i))}</b>${note(i, g.players[taker]!)}</button>`).join('') : '<small class="none">Nothing of this kind to give.</small>';
+    };
+    const gold = (side: 'give' | 'get') => {
+      const k = d.lasting ? 'goldPerTurn' : 'gold', has = (d[side].find((x) => x.k === k) as { n: number } | undefined)?.n ?? 0, steps = d.lasting ? [1, 5] : [10, 100];
+      return `<div class="tgold"><span>${d.lasting ? 'Gold a turn' : 'Gold'}</span>${[...steps].reverse().map((n) => `<button data-do="tradeGold" data-side="${side}" data-n="${-n}">−${n}</button>`).join('')}<b>${has}</b>${steps.map((n) => `<button data-do="tradeGold" data-side="${side}" data-n="${n}">+${n}</button>`).join('')}</div>`;
+    };
+    const offer = this.draftOffer(d), block = g.offerBlock(offer);
+    let verdict = block ?? '';
+    if (!block) {
+      const v = weigh(g, offer), rg = regard(g, d.civ, HUMAN), pct = (x: number) => `${x > 0 ? '+' : ''}${Math.round(100 * x)}%`;
+      verdict = v.why ? `“${v.why}”`
+        : `${v.chance >= 1 ? `The ${o.name} would sign.` : v.chance <= 0 ? `The ${o.name} would refuse.` : `The ${o.name} might sign: ${Math.round(100 * v.chance)} in 100${dealRoll(g, HUMAN, d.civ) < v.chance ? '' : ' (not this turn, as they feel today)'}.`} As they weigh it the deal comes out at ${pct(v.balance)} for them; being ${REGARDS[rg.level]} toward you they ask ${pct(v.asks)}.`;
+    }
+    const kind = (lasting: boolean, label: string) => `<button data-do="tradeKind" data-kind="${lasting ? 'lasting' : 'now'}" class="${d.lasting === lasting ? 'active' : ''}" ${d.peace && lasting ? 'disabled' : ''}>${label}</button>`;
+    return `<div class="tfoot"><b>${war ? 'Peace' : 'A deal'} with the ${esc(o.name)}</b><span class="grow"></span>${kind(false, 'Settled at once')} ${kind(true, `Lasting, ${DEAL_TURNS} turns`)}</div>
       <div class="tradebox">
-        <div class="tside"><span class="label">You give</span><div class="tchips">${chips(g.tradeable(HUMAN, o.id), 'give', o)}</div>${gold('pay')}</div>
-        <div class="tside"><span class="label">The ${esc(o.name)} give</span><div class="tchips">${chips(g.tradeable(o.id, HUMAN), 'get', this.me)}</div>${gold('paid')}</div>
+        <div class="tside"><span class="label">You give</span><div class="tchips">${chips('give')}</div>${gold('give')}</div>
+        <div class="tside"><span class="label">The ${esc(o.name)} give</span><div class="tchips">${chips('get')}</div>${gold('get')}</div>
       </div>
-      <div class="tfoot"><span class="${block ? 'bad' : ''}">${verdict}</span>${this.notice ? ` <b>${esc(this.notice)}</b>` : ''}<span class="grow"></span><button data-do="tradeCancel">Cancel</button> <button class="primary" data-do="tradePropose" ${block ? 'disabled' : ''}>Propose for ${DEAL_TURNS} turns</button></div>`;
+      <div class="tfoot"><span class="${block ? 'bad' : ''}">${esc(verdict)}</span>${this.notice ? ` <b>${esc(this.notice)}</b>` : ''}<span class="grow"></span><button data-do="tradeCancel">Cancel</button> <button class="primary" data-do="tradePropose" ${block ? 'disabled' : ''}>${d.peace ? 'Propose peace on these terms' : d.lasting ? `Propose for ${DEAL_TURNS} turns` : 'Propose'}</button></div>`;
   }
 }

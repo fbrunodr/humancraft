@@ -74,7 +74,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   theWheel:        t('The Wheel', 0, 40, ['mining'], { units: ['chariotArcher'], buildings: ['waterMill'] }),
   horsebackRiding: t('Horseback Riding', 0, 45, ['archery'], { units: ['horseman'], buildings: ['stable'] }),
   fishing:         t('Fishing', 0, 35, ['sailing'], { effects: [onImprovement('boats', { gold: 1 })] }),
-  mysticism:       t('Mysticism', 0, 40, ['astrology'], { buildings: ['temple'] }),
+  mysticism:       t('Mysticism', 0, 40, ['astrology']), // (each religion's temple, in a city that holds it: religion.ts TEMPLE_TECH)
   // ---- Classical ----
   celestialNavigation: t('Celestial Navigation', 1, 40, ['sailing', 'astrology'], { buildings: ['shipyard'], wonders: ['colossus'] }),
   currency:        t('Currency', 1, 35, ['writing'], { buildings: ['market'], wonders: ['apadana'] }),
@@ -99,7 +99,7 @@ export const TECHS: Record<TechKey, TechDef> = {
   metalCasting:    t('Metal Casting', 2, 50, ['bronzeWorking', 'apprenticeship'], { units: ['longswordsman'], effects: [onImprovement('quarry', { prod: 1 })], wonders: ['leaningTower'] }),
   forestry:        t('Forestry', 2, 45, ['construction', 'animalHusbandry'], { effects: [yieldPct('prod', 5)], wonders: ['staveChurch'] }),
   drainage:        t('Drainage', 2, 45, ['engineering'], { effects: [onImprovement('wetland', { food: 1 })], wonders: ['machuPicchu'] }),
-  domes:           t('Domes', 2, 55, ['engineering', 'mathematics'], { wonders: ['hagiaSophia'] }),
+  domes:           t('Domes', 2, 55, ['engineering', 'mathematics'], { wonders: ['hagiaSophia'] }), // (and each religion's cathedral: CATHEDRAL_TECH)
   compass:         t('Compass', 2, 50, ['shipbuilding', 'mathematics'], { units: ['galleass', 'cog'], effects: [onImprovement('boats', { food: 1 })] }),
   craftGuilds:     t('Craft Guilds', 2, 55, ['apprenticeship', 'trade'], { buildings: ['guildHall'] }),
   paper:           t('Paper', 2, 50, ['literature', 'currency'], { effects: [perSpecialist('scientist', { science: 1 })], wonders: ['chichenItza'] }),

@@ -253,7 +253,7 @@ function startGame(game: Game): void {
     ['<kbd>B</kbd>', 'found a city'], ['<kbd>I</kbd> <kbd>L</kbd> <kbd>O</kbd>', 'a worker: improve the land · lay a road · build a fort'],
     ['<kbd>V</kbd>', 'a missionary: preach in the city it stands in or beside'],
     ['<kbd>F</kbd>', 'fortify (a civilian: sleep until woken)'], ['<kbd>Space</kbd>', 'skip the unit\'s turn'],
-    ['<kbd>P</kbd>', 'pillage'], ['<kbd>R</kbd> <kbd>U</kbd>', 'a commander: rally · deploy'],
+    ['<kbd>P</kbd>', 'pillage'],
     ['<kbd>H</kbd> <kbd>Y</kbd> <kbd>M</kbd>', 'hex grid · yields · strategic view'],
     ['<kbd>Esc</kbd>', 'close, cancel, deselect; then this menu'], ['<kbd>J</kbd>', 'debug views of the land'],
   ];
@@ -391,8 +391,7 @@ function startGame(game: Game): void {
     return out;
   }
 
-  // (Units packed in an army march with their commander: no orders of their own.)
-  const needsOrders = (u: Unit) => u.owner === HUMAN && u.packedIn === null && u.moves > 0 && !u.fortified && !u.skipped && u.goal == null && u.work === null;
+  const needsOrders = (u: Unit) => u.owner === HUMAN && u.moves > 0 && !u.fortified && !u.skipped && u.goal == null && u.work === null;
 
   // Cities told to make wealth: not asked again what to build.
   const wealthy = new Set<number>();
@@ -513,12 +512,6 @@ function startGame(game: Game): void {
       case 'upgrade':
         if (unit && game.upgrade(unit)) afterUnitAction(unit);
         break;
-      case 'rally':
-        if (unit && game.rally(unit) > 0) game.updateVisibility();
-        break;
-      case 'deploy':
-        if (unit && game.deploy(unit) > 0) game.updateVisibility();
-        break;
       case 'disband':
         if (unit) { game.removeUnit(unit); game.updateVisibility(); selectNextUnit(); }
         break;
@@ -557,7 +550,7 @@ function startGame(game: Game): void {
         if (sel?.kind === 'city' && sel.city.owner === HUMAN) sel.city.focus = a.focus;
         break;
       case 'missionary':
-        if (sel?.kind === 'city') game.trainMissionary(HUMAN, sel.city);
+        if (sel?.kind === 'city') game.trainMissionary(HUMAN, sel.city, a.religion);
         break;
       case 'buyMode':
         if (sel?.kind === 'city' && sel.city.owner === HUMAN) placing = 'buy';
@@ -571,10 +564,10 @@ function startGame(game: Game): void {
       case 'next':
         nextStep().go();
         break;
-      // (From the military panel: the unit, or the commander carrying it, selected and brought into view.)
+      // (From the military panel: the unit selected and brought into view.)
       case 'selectUnit': {
         const u = game.units.find((x) => x.id === a.id && x.owner === HUMAN && !x.dead);
-        const at = u && u.packedIn !== null ? game.units.find((x) => x.id === u.packedIn) ?? u : u;
+        const at = u;
         if (at) { sel = { kind: 'unit', unit: at }; placing = null; view.focusOn(at.tile); }
         break;
       }
@@ -647,7 +640,7 @@ function startGame(game: Game): void {
     if (e.target instanceof HTMLInputElement) return;
     const keyActions: Record<string, Action> = {
       ' ': { type: 'skip' }, f: { type: 'fortify' }, b: { type: 'found' }, i: { type: 'improve' }, p: { type: 'pillage' },
-      r: { type: 'rally' }, u: { type: 'deploy' }, l: { type: 'road' }, o: { type: 'fort' }, v: { type: 'preach' },
+      l: { type: 'road' }, o: { type: 'fort' }, v: { type: 'preach' },
     };
     if (e.key === 'Enter') { e.preventDefault(); if (!menuBox.classList.contains('hidden')) openMenu(false); else act({ type: e.shiftKey ? 'endTurn' : 'next' }); return; }
     if (!menuBox.classList.contains('hidden')) { if (e.key === 'Escape') openMenu(false); return; }

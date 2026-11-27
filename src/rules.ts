@@ -31,7 +31,7 @@ export interface UnitDef {
   sight?: number;
   desc?: string;
   needs?: StrategicKey; // a strategic resource the civ must own (resources.ts)
-  siege?: boolean;  // twice as strong against a city's walls, weaker against units (game.ts SIEGE_VS_UNITS)
+  siege?: boolean;  // its fire reaches a city's garrison (no other land unit's does: game.ts breaches), twice as strong; weaker against units (SIEGE_VS_UNITS)
   mounted?: boolean; // on horseback or wheels (anti-cavalry holds them off; some bonuses are theirs)
   armored?: boolean; // armour (mounted, but spears and pikes can't hold it: only anti-tank guns)
   // Counters (game.ts matchup): extra strength, a fraction, against
@@ -68,40 +68,40 @@ export const domainOf = (d: UnitDef): Domain => d.domain ?? 'land';
 // aircraft to sea.
 export const UNITS = {
   settler:  { name: 'Settler',  icon: 'S', melee: 1, rangedDef: 1, mv: 1, cost: 30, civilian: true, desc: 'Founds a city. Costs 1 population.' },
-  worker:   { name: 'Worker',   icon: 'B', melee: 1, rangedDef: 1, mv: 2, cost: 20, civilian: true, improves: true, desc: 'Improves the land: farms, mines, pastures, camps and the rest, a few turns on the tile.' },
+  worker:   { name: 'Worker',   icon: 'B', melee: 1, rangedDef: 1, mv: 2, cost: 20, civilian: true, improves: true, desc: 'Improves the tile it stands on: farms, mines, pastures, camps and the rest, a few turns each. Embarked, it builds fishing boats on the water it floats on.' },
   missionary: { name: 'Missionary', icon: 'M', melee: 1, rangedDef: 1, mv: 2, cost: 30, civilian: true, preaches: true, desc: 'Preaches its civ\'s religion in a city it stands in or beside, anyone\'s, and is spent. Raised with faith by the founder of a religion.' },
   scout:    { name: 'Scout',    icon: 'R', melee: 1, rangedDef: 1, mv: 2, cost: 30, sight: 3, desc: 'Fast explorer. Cannot attack.' },
   // ---- Ancient ----
   warrior:  { name: 'Warrior',  icon: 'W', melee: 1, rangedDef: 1, mv: 1, cost: 30 },
   spearman: { name: 'Spearman', icon: 'P', melee: 1.5, rangedDef: 2, mv: 1, cost: 50, vsMounted: 0.5, desc: 'Good defender; +50% against mounted units.' },
-  slinger:  { name: 'Slinger',  icon: 'A', melee: 0.5, rangedAtk: 1.5, rangedDef: 0.7, mv: 1, cost: 35, desc: 'Ranged: slings stones from the next tile, unanswered. Weak at close quarters.' },
-  archer:   { name: 'Archer',   icon: 'A', melee: 0.7, rangedAtk: 1.9, reach: 2, rangedDef: 1.2, mv: 1, cost: 60, desc: 'Ranged: shoots from the next tile, unanswered. Weak at close quarters.' },
+  slinger:  { name: 'Slinger',  icon: 'A', melee: 0.5, rangedAtk: 1.5, rangedDef: 0.7, mv: 1, cost: 35, desc: 'Ranged: slings stones at units in the field, unanswered; they do not reach a city\'s garrison. Weak at close quarters.' },
+  archer:   { name: 'Archer',   icon: 'A', melee: 0.7, rangedAtk: 1.9, reach: 2, rangedDef: 1.2, mv: 1, cost: 60, desc: 'Ranged: shoots units in the field, unanswered; its fire does not reach a city\'s garrison. Weak at close quarters.' },
   horseman: { name: 'Horseman', icon: 'H', melee: 1.5, rangedDef: 1.2, mv: 2, cost: 65, needs: 'horses', mounted: true, vsRanged: 0.5, desc: 'Fast; +50% attacking ranged and siege units. Needs Horses.' },
   chariotArcher: { name: 'Chariot Archer', icon: 'A', melee: 1.2, rangedAtk: 2, rangedDef: 1.2, mv: 2, cost: 70, mounted: true, needs: 'horses', desc: 'Fast ranged: shoots without moving in. Needs Horses.' },
   // ---- Classical ----
   horseArcher: { name: 'Horse Archer', icon: 'A', melee: 2, rangedAtk: 3.5, rangedDef: 2.2, mv: 2, cost: 110, mounted: true, needs: 'horses', desc: 'Fast ranged: shoots from the saddle without moving in. Needs Horses.' },
   swordsman: { name: 'Swordsman', icon: 'W', melee: 2.5, rangedDef: 2.5, mv: 1, cost: 80, needs: 'iron', desc: 'Strong infantry. Needs Iron.' },
-  compositeBowman: { name: 'Composite Bowman', icon: 'A', melee: 1, rangedAtk: 2.7, reach: 2, rangedDef: 1.8, mv: 1, cost: 90, desc: 'Ranged: shoots from the next tile, unanswered. Weak at close quarters.' },
-  catapult: { name: 'Catapult', icon: 'G', melee: 0.5, rangedAtk: 4, reach: 2, rangedDef: 1, mv: 1, cost: 90, siege: true, desc: 'Ranged siege: twice as strong against a city, weaker against units.' },
+  compositeBowman: { name: 'Composite Bowman', icon: 'A', melee: 1, rangedAtk: 2.7, reach: 2, rangedDef: 1.8, mv: 1, cost: 90, desc: 'Ranged: shoots units in the field, unanswered; its fire does not reach a city\'s garrison. Weak at close quarters.' },
+  catapult: { name: 'Catapult', icon: 'G', melee: 0.5, rangedAtk: 4, reach: 2, rangedDef: 1, mv: 1, cost: 90, siege: true, desc: 'Siege: the only fire from land that reaches a city\'s garrison, and twice as strong against it; weaker against units.' },
   // ---- Medieval ----
   manAtArms: { name: 'Man-at-Arms', icon: 'W', melee: 4, rangedDef: 4, mv: 1, cost: 110, desc: 'Armoured infantry with sword and shield.' },
   longswordsman: { name: 'Longswordsman', icon: 'W', melee: 5, rangedDef: 4, mv: 1, cost: 140, needs: 'iron', desc: 'Heavy infantry. Needs Iron.' },
   pikeman: { name: 'Pikeman', icon: 'P', melee: 3, rangedDef: 4, mv: 1, cost: 100, vsMounted: 1, desc: 'Holds the line; +100% against mounted units.' },
-  crossbowman: { name: 'Crossbowman', icon: 'A', melee: 1.6, rangedAtk: 4.2, reach: 2, rangedDef: 2.8, mv: 1, cost: 110, desc: 'Ranged: shoots from the next tile, unanswered. Weak at close quarters.' },
+  crossbowman: { name: 'Crossbowman', icon: 'A', melee: 1.6, rangedAtk: 4.2, reach: 2, rangedDef: 2.8, mv: 1, cost: 110, desc: 'Ranged: shoots units in the field, unanswered; its fire does not reach a city\'s garrison. Weak at close quarters.' },
   knight: { name: 'Knight', icon: 'K', melee: 4.5, rangedDef: 3, mv: 2, cost: 150, needs: 'horses', mounted: true, vsRanged: 0.5, desc: 'Heavy cavalry; +50% attacking ranged and siege units. Needs Horses.' },
-  trebuchet: { name: 'Trebuchet', icon: 'G', melee: 1, rangedAtk: 6.5, reach: 2, rangedDef: 1.5, mv: 1, cost: 140, siege: true, desc: 'Ranged siege: twice as strong against a city, weaker against units.' },
+  trebuchet: { name: 'Trebuchet', icon: 'G', melee: 1, rangedAtk: 6.5, reach: 2, rangedDef: 1.5, mv: 1, cost: 140, siege: true, desc: 'Siege: the only fire from land that reaches a city\'s garrison, and twice as strong against it; weaker against units.' },
   // ---- Renaissance ----
   explorer: { name: 'Explorer', icon: 'R', melee: 2, rangedDef: 2, mv: 3, cost: 70, sight: 3, desc: 'A fast explorer that sees far. Cannot attack.' },
   fieldCannon: { name: 'Field Cannon', icon: 'A', melee: 3, rangedAtk: 6, reach: 2, rangedDef: 5, mv: 1, cost: 180, desc: 'Ranged: a light gun against units.' },
   musketman: { name: 'Musketman', icon: 'M', melee: 7, rangedAtk: 5, rangedDef: 7, mv: 1, cost: 170, desc: 'Gunpowder infantry.' },
   lancer: { name: 'Lancer', icon: 'K', melee: 7, rangedDef: 5, mv: 2, cost: 200, needs: 'horses', mounted: true, vsMounted: 0.25, vsRanged: 0.5, desc: 'Shock cavalry; +25% against mounted units, +50% attacking ranged and siege units. Needs Horses.' },
-  cannon: { name: 'Cannon', icon: 'G', melee: 2, rangedAtk: 10, reach: 2, rangedDef: 3, mv: 1, cost: 210, siege: true, needs: 'niter', desc: 'Ranged siege: twice as strong against a city, weaker against units. Needs Niter.' },
+  cannon: { name: 'Cannon', icon: 'G', melee: 2, rangedAtk: 10, reach: 2, rangedDef: 3, mv: 1, cost: 210, siege: true, needs: 'niter', desc: 'Siege: the only fire from land that reaches a city\'s garrison, and twice as strong against it; weaker against units. Needs Niter.' },
   // ---- Industrial ----
   greatWarInfantry: { name: 'Great War Infantry', icon: 'I', melee: 13.5, rangedAtk: 9, rangedDef: 14, mv: 1, cost: 310, desc: 'Trench infantry.' },
   rifleman: { name: 'Rifleman', icon: 'R', melee: 10.5, rangedAtk: 7, rangedDef: 11, mv: 1, cost: 250, desc: 'Line infantry.' },
   gatlingGun: { name: 'Gatling Gun', icon: 'A', melee: 6, rangedAtk: 8.5, rangedDef: 9, reach: 2, mv: 1, cost: 230, desc: 'Ranged and a stout defender.' },
   cavalry: { name: 'Cavalry', icon: 'K', melee: 10.5, rangedDef: 8, mv: 3, cost: 280, needs: 'horses', mounted: true, vsRanged: 0.5, desc: 'Fast; +50% attacking ranged and siege units. Needs Horses.' },
-  artillery: { name: 'Artillery', icon: 'G', melee: 3, rangedAtk: 14, reach: 2, rangedDef: 5, mv: 1, cost: 330, siege: true, needs: 'niter', desc: 'Ranged siege: twice as strong against a city, weaker against units. Needs Niter.' },
+  artillery: { name: 'Artillery', icon: 'G', melee: 3, rangedAtk: 14, reach: 2, rangedDef: 5, mv: 1, cost: 330, siege: true, needs: 'niter', desc: 'Siege: the only fire from land that reaches a city\'s garrison, and twice as strong against it; weaker against units. Needs Niter.' },
   machineGun: { name: 'Machine Gun', icon: 'A', melee: 7, rangedAtk: 10, reach: 2, rangedDef: 11, mv: 1, cost: 310, vsAir: 0.5, aaRange: 1, desc: 'Ranged and a stout defender. Fires on aircraft passing over it and the tiles next to it.' },
   // ---- Modern ----
   marine: { name: 'Marine', icon: 'I', melee: 15.5, rangedAtk: 11, rangedDef: 15, mv: 2, cost: 410, amphibious: true, desc: 'Amphibious: attacks straight from the water onto the shore.' },
@@ -114,7 +114,7 @@ export const UNITS = {
   trireme: { name: 'Trireme', icon: 'N', melee: 3.5, rangedDef: 3, mv: 3, cost: 100, domain: 'sea', desc: 'A ramming warship.' },
   galleass: { name: 'Galleass', icon: 'N', melee: 4, rangedAtk: 6, reach: 2, rangedDef: 4, mv: 3, cost: 130, domain: 'sea', desc: 'Ranged: its guns bombard ships and the coast.' },
   cog: { name: 'Cog', icon: 'N', melee: 5, rangedDef: 5, mv: 3, cost: 130, domain: 'sea', desc: 'A sturdy sailing warship with fighting castles.' },
-  caravel: { name: 'Caravel', icon: 'N', melee: 6.5, rangedDef: 6, mv: 4, cost: 170, domain: 'sea', sight: 3, desc: 'A fast ocean-going ship; sees far.' },
+  caravel: { name: 'Caravel', icon: 'N', melee: 6.5, rangedDef: 6, mv: 4, cost: 170, domain: 'sea', sight: 3, desc: 'A fast ship for the open ocean; sees far.' },
   frigate: { name: 'Frigate', icon: 'N', melee: 7, rangedAtk: 10, reach: 2, rangedDef: 7, mv: 4, cost: 210, domain: 'sea', needs: 'iron', desc: 'Ranged: broadsides against ships and the coast. Needs Iron.' },
   ironclad: { name: 'Ironclad', icon: 'N', melee: 13, rangedDef: 12, mv: 4, cost: 290, domain: 'sea', needs: 'coal', desc: 'A steam warship in armour. Needs Coal.' },
   destroyer: { name: 'Destroyer', icon: 'N', melee: 16.5, rangedDef: 15, mv: 5, cost: 390, domain: 'sea', needs: 'oil', desc: 'A fast steel warship. Needs Oil.' },
@@ -125,10 +125,10 @@ export const UNITS = {
   carrier: { name: 'Carrier', icon: 'N', melee: 14, rangedDef: 14, mv: 4, cost: 410, domain: 'sea', carries: 3, needs: 'oil', desc: 'Carries up to 3 aircraft: they base on it and go where it goes. Cannot attack. Needs Oil.' },
   battleship: { name: 'Battleship', icon: 'N', melee: 18, rangedAtk: 22, reach: 3, rangedDef: 18, mv: 4, cost: 490, domain: 'sea', needs: 'oil', desc: 'Ranged: great guns against ships and the coast. Needs Oil.' },
   // ---- in the air ----
-  airship: { name: 'Airship', icon: 'B', melee: 0, rangedAtk: 10, rangedDef: 4, mv: 1, cost: 290, domain: 'air', siege: true, range: 5, desc: 'An early bomber: strikes from its city out to 5 tiles; twice as strong against a city.' },
+  airship: { name: 'Airship', icon: 'B', melee: 0, rangedAtk: 10, rangedDef: 4, mv: 1, cost: 290, domain: 'air', siege: true, range: 5, desc: 'An early bomber: strikes from its city out to 5 tiles; its bombs reach a city\'s garrison, twice as strong against it.' },
   fighter: { name: 'Fighter', icon: 'F', melee: 0, rangedAtk: 12, rangedDef: 10, mv: 1, cost: 370, domain: 'air', range: 5, needs: 'oil', desc: 'Strikes from its city out to 5 tiles; intercepts enemy bombers striking near it. Only fighters can reach aircraft. Needs Oil.' },
-  bomber: { name: 'Bomber', icon: 'B', melee: 0, rangedAtk: 22, rangedDef: 6, mv: 1, cost: 450, domain: 'air', siege: true, range: 7, needs: 'oil', desc: 'Strikes from its city out to 7 tiles; twice as strong against a city. Needs Oil.' },
-  heavyBomber: { name: 'Heavy Bomber', icon: 'B', melee: 0, rangedAtk: 30, rangedDef: 8, mv: 1, cost: 570, domain: 'air', siege: true, range: 9, needs: 'oil', desc: 'Strikes from its city out to 9 tiles; twice as strong against a city. Needs Oil.' },
+  bomber: { name: 'Bomber', icon: 'B', melee: 0, rangedAtk: 22, rangedDef: 6, mv: 1, cost: 450, domain: 'air', siege: true, range: 7, needs: 'oil', desc: 'Strikes from its city out to 7 tiles; its bombs reach a city\'s garrison, twice as strong against it. Needs Oil.' },
+  heavyBomber: { name: 'Heavy Bomber', icon: 'B', melee: 0, rangedAtk: 30, rangedDef: 8, mv: 1, cost: 570, domain: 'air', siege: true, range: 9, needs: 'oil', desc: 'Strikes from its city out to 9 tiles; its bombs reach a city\'s garrison, twice as strong against it. Needs Oil.' },
   jetFighter: { name: 'Jet Fighter', icon: 'F', melee: 0, rangedAtk: 20, rangedDef: 16, mv: 1, cost: 530, domain: 'air', range: 7, vsAir: 0.5, needs: 'oil', desc: 'Strikes out to 7 tiles; intercepts enemy aircraft striking near it, +50% against aircraft. Needs Oil.' },
   helicopter: { name: 'Helicopter', icon: 'F', melee: 0, rangedAtk: 18, rangedDef: 10, mv: 1, cost: 450, domain: 'air', range: 3, vsArmor: 0.5, needs: 'oil', desc: 'Strikes out to 3 tiles; +50% against armour. Needs Oil.' },
   antiAircraft: { name: 'Anti-Aircraft Gun', icon: 'P', melee: 8.5, rangedAtk: 6, reach: 2, rangedDef: 12, mv: 2, cost: 310, vsAir: 1, aaRange: 2, desc: 'Guards the sky: fires on enemy aircraft flying within 2 tiles of it (+100% against aircraft).' },
@@ -137,18 +137,17 @@ export const UNITS = {
   specialForces: { name: 'Special Forces', icon: 'I', melee: 18, rangedAtk: 14, reach: 2, rangedDef: 16, mv: 3, cost: 490, sight: 3, desc: 'Fast elite infantry that sees far.' },
   paratrooper: { name: 'Paratrooper', icon: 'I', melee: 19, rangedAtk: 14, reach: 2, rangedDef: 18, mv: 2, cost: 530, paradrop: 6, desc: 'From its own city, drops on any free land within 6 tiles.' },
   modernArmor: { name: 'Modern Armour', icon: 'T', melee: 26, rangedDef: 22, mv: 4, cost: 650, needs: 'oil', mounted: true, armored: true, vsRanged: 0.5, desc: 'Armour; +50% attacking ranged and siege units. Needs Oil.' },
-  rocketArtillery: { name: 'Rocket Artillery', icon: 'G', melee: 5, rangedAtk: 26, reach: 3, rangedDef: 8, mv: 2, cost: 570, siege: true, desc: 'Ranged siege: twice as strong against a city, weaker against units.' },
+  rocketArtillery: { name: 'Rocket Artillery', icon: 'G', melee: 5, rangedAtk: 26, reach: 3, rangedDef: 8, mv: 2, cost: 570, siege: true, desc: 'Siege: the only fire from land that reaches a city\'s garrison, and twice as strong against it; weaker against units.' },
   mobileSAM: { name: 'Mobile SAM', icon: 'P', melee: 12.5, rangedAtk: 10, reach: 3, rangedDef: 18, mv: 3, cost: 490, vsAir: 1, aaRange: 3, desc: 'Guards the sky: fires on enemy aircraft flying within 3 tiles of it (+100% against aircraft).' },
   missileCruiser: { name: 'Missile Cruiser', icon: 'N', melee: 24, rangedAtk: 30, reach: 3, rangedDef: 24, mv: 5, cost: 650, domain: 'sea', needs: 'oil', desc: 'Ranged: missiles against ships and the coast. Needs Oil.' },
   nuclearSubmarine: { name: 'Nuclear Submarine', icon: 'N', melee: 20, rangedDef: 12, mv: 5, cost: 610, domain: 'sea', vsShips: 0.5, desc: 'Attacks only ships, +50% against them.' },
   stealthFighter: { name: 'Stealth Fighter', icon: 'F', melee: 0, rangedAtk: 28, rangedDef: 20, mv: 1, cost: 670, domain: 'air', range: 8, vsAir: 0.5, stealth: true, needs: 'oil', desc: 'Strikes out to 8 tiles; intercepts enemy aircraft (+50% against them); fighters can\'t intercept it. Needs Oil.' },
-  stealthBomber: { name: 'Stealth Bomber', icon: 'B', melee: 0, rangedAtk: 36, rangedDef: 10, mv: 1, cost: 690, domain: 'air', siege: true, range: 10, stealth: true, needs: 'oil', desc: 'Strikes out to 10 tiles, twice as strong against a city; fighters can\'t intercept it. Needs Oil.' },
+  stealthBomber: { name: 'Stealth Bomber', icon: 'B', melee: 0, rangedAtk: 36, rangedDef: 10, mv: 1, cost: 690, domain: 'air', siege: true, range: 10, stealth: true, needs: 'oil', desc: 'Strikes out to 10 tiles; its bombs reach a city\'s garrison, twice as strong; fighters can\'t intercept it. Needs Oil.' },
   attackHelicopter: { name: 'Attack Helicopter', icon: 'F', melee: 0, rangedAtk: 28, rangedDef: 14, mv: 1, cost: 610, domain: 'air', range: 4, vsArmor: 0.5, needs: 'oil', desc: 'Strikes out to 4 tiles; +50% against armour. Needs Oil.' },
   drone: { name: 'Drone', icon: 'F', melee: 0, rangedAtk: 18, rangedDef: 4, mv: 1, cost: 310, domain: 'air', range: 6, desc: 'A cheap unmanned aircraft: strikes out to 6 tiles.' },
   guidedMissile: { name: 'Guided Missile', icon: 'B', melee: 0, rangedAtk: 34, rangedDef: 1, mv: 1, cost: 250, domain: 'air', range: 8, missile: true, desc: 'Strikes once out to 8 tiles, and is spent. Fighters can\'t catch it; anti-aircraft fire can.' },
   atomicBomb: { name: 'Atomic Bomb', icon: 'B', melee: 0, rangedAtk: 40, rangedDef: 2, mv: 1, cost: 910, domain: 'air', range: 8, nuke: 1, desc: 'Flown out to 8 tiles and dropped: wrecks every unit on and round the target, halves a city, burns its land for years. Fighters and anti-aircraft fire can stop it. Spent.' },
   nuclearMissile: { name: 'Nuclear Missile', icon: 'B', melee: 0, rangedAtk: 60, rangedDef: 2, mv: 1, cost: 1210, domain: 'air', range: 12, nuke: 2, missile: true, desc: 'Strikes out to 12 tiles: a blast two tiles round the target, wrecking units, halving cities and burning the land. Only anti-aircraft fire can stop it. Spent.' },
-  commander: { name: 'Commander', icon: 'C', melee: 2, rangedDef: 2, mv: 2, cost: 90, desc: 'Leads an army. Your land units on its tile and the tiles next to it fight 15% stronger, attacking and defending. It rallies up to 4 units from its tile and the tiles next to it, which then march with it as one, and deploys them again there. A fighting unit may share its tile. Its army defends it; if it falls, its army is lost.' },
 } satisfies Record<string, UnitDef>;
 export type UnitKey = keyof typeof UNITS;
 // What each unit can be upgraded to (game.ts upgrade), once unlocked.

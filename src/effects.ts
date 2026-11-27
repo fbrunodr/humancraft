@@ -27,9 +27,8 @@ import { OUTPUT_KEYS, out, ZERO, addOut, type Output, type OutputKey, type Impro
 //   resource       flat yields on every worked tile with a resource of a kind
 //   specialist     flat yields for every specialist of a kind
 //   luxury         flat yields to the whole civ for each kind of luxury it has
-//   follower       flat yields in each city following a religion (religion.ts)
-//   pressure       +pct% to the religious pressure of its cities
-//   tithe          +n gold to a religion's founder per city following it
+//   missions       +pct% zeal: its missionaries cost that much less faith (the cost over 1 + pct/100)
+//   tithe          +n gold to the holder of a holy city per city holding its religion
 //   fortified      every city defends as if walled; walls no longer built
 //                  (and those standing come down: game.ts)
 export type ProdTarget = 'military' | 'melee' | 'ranged' | 'mounted' | 'siege' | 'settler' | 'building' | 'wonder' | 'all';
@@ -56,12 +55,11 @@ export type Effect =
   | { readonly k: 'resource'; readonly kind: ResourceKindTarget; readonly o: Output }
   | { readonly k: 'specialist'; readonly kind: SpecialistKind; readonly o: Output }
   | { readonly k: 'luxury'; readonly o: Output }
-  | { readonly k: 'follower'; readonly o: Output }
-  | { readonly k: 'pressure'; readonly pct: number }
+  | { readonly k: 'missions'; readonly pct: number }
   | { readonly k: 'tithe'; readonly n: number }
   | { readonly k: 'fortified' };
 
-type Pct = 'combat' | 'homeDefense' | 'vsCities' | 'cityStrength' | 'upkeep' | 'buildingUpkeep' | 'tilePrice' | 'buyCost' | 'growth' | 'border' | 'wealth' | 'pressure';
+type Pct = 'combat' | 'homeDefense' | 'vsCities' | 'cityStrength' | 'upkeep' | 'buildingUpkeep' | 'tilePrice' | 'buyCost' | 'growth' | 'border' | 'wealth' | 'missions';
 type Count = 'freeUnits' | 'heal' | 'tithe';
 
 // Builders, for the tables.
@@ -104,7 +102,7 @@ export function movesBonus(effects: readonly Effect[], mounted: boolean): number
   return n;
 }
 // Flat yields of a kind, summed.
-export function flat(effects: readonly Effect[], k: 'capital' | 'follower' | 'luxury'): Output {
+export function flat(effects: readonly Effect[], k: 'capital' | 'luxury'): Output {
   let sum = ZERO;
   for (const e of effects) if (e.k === k) sum = addOut(sum, e.o);
   return sum;
@@ -154,9 +152,8 @@ export function describe(e: Effect): string {
     case 'resource': return `${flats(e.o)} on each worked ${e.kind} resource`;
     case 'specialist': return `${flats(e.o)} per ${SPECIALIST_NAME[e.kind]}`;
     case 'luxury': return `${flats(e.o)} to the civilization per kind of luxury it has`;
-    case 'follower': return `${flats(e.o)} in each city following it`;
-    case 'pressure': return `${sign(e.pct)}% religious pressure`;
-    case 'tithe': return `${sign(e.n)} gold per city following your religion`;
+    case 'missions': return `${sign(e.pct)}% missionary zeal (they cost that much less faith)`;
+    case 'tithe': return `${sign(e.n)} gold per city holding the religion of a holy city you hold`;
     case 'fortified': return 'Every city defends as if walled; Walls obsolete';
   }
 }

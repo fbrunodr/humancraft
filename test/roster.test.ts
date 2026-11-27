@@ -67,9 +67,9 @@ describe('R2: counters', () => {
 });
 
 describe('R3: classes say which attacks can be made, and how', () => {
-  it('every unit has a class; civilians, scouts and commanders never attack', () => {
+  it('every unit has a class; civilians and scouts never attack', () => {
     for (const k of KEYS) expect(UNIT_CLASS[k], k).toBeDefined();
-    for (const k of ['settler', 'scout', 'commander'] as const) expect(attackStyle(k, 'warrior')).toBeNull();
+    for (const k of ['settler', 'scout'] as const) expect(attackStyle(k, 'warrior')).toBeNull();
   });
   it('blocks are about where units are, not strength: a spearman may attack a tank (and lose)', () => {
     expect(attackBlock('spearman', 'tank')).toBeNull();
@@ -246,8 +246,8 @@ describe('R6: the Information era and its mechanics', () => {
     const { g, coast, inland } = waterWorld();
     const city = g.foundCity(g.createUnit('settler', 0, coast))!;
     const m = g.createUnit('guidedMissile', 0, city.tile);
+    g.declareWar(0, 1); // (at peace its land is closed to their units)
     const foe = g.createUnit('warrior', 1, inland);
-    g.declareWar(0, 1);
     g.goTo(m, inland);
     expect(m.dead).toBe(true);
     expect(foe.hp < 100 || foe.dead).toBe(true);

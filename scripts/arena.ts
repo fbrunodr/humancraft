@@ -8,7 +8,7 @@
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { Game, FAITH_VICTORY } from '../src/game.ts';
+import { Game } from '../src/game.ts';
 import { unitDef, type MapSizeKey, type GameSpeedKey } from '../src/rules.ts';
 import { LEVELS, type AiPolicy } from '../src/aiPolicy.ts';
 
@@ -34,15 +34,14 @@ export function playMatch(m: Match): Result {
   };
 }
 // How near a civ came to the victories the score says nothing of: the
-// other civs' first capitals it holds (conquest: two thirds of all, its own among them) and the
-// world's people in its faith (religion: FAITH_VICTORY of them). Up to
-// twice the score for each, so a policy on the way to either is bred
+// other civs' first capitals it holds (conquest: two thirds of all, its own among them). Up to
+// twice the score for it, so a policy on the way to either is bred
 // from, not only one that got there: without it nothing leads a
 // population of builders toward a conquest five capitals away.
 function nearness(g: Game, id: number): number {
   const own = g.players[id]!.firstCapital, holdsOwn = own !== null && g.cityById.get(own)?.owner === id;
   const taken = Math.min(1, Math.max(0, g.capitalsHeld(id) - (holdsOwn ? 1 : 0)) / Math.max(1, g.capitalsToWin - 1));
-  return (1 + taken) * (1 + Math.min(1, g.faithShare(id) / FAITH_VICTORY));
+  return 1 + taken;
 }
 // How many civs a map of a size seats.
 export const seats = (size: MapSizeKey): number => new Game({ size, seed: 1 }).players.length;

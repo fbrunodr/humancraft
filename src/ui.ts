@@ -1,12 +1,12 @@
 import { floraLabel } from './flora.ts';
 import { unitDef, buildDef, isUnitKey, isWonder, BUILDINGS, WONDERS, type BuildKey } from './rules.ts';
 import { terrainName } from './terrain.ts';
-import { HUMAN, BUILDABLE, PILLAGE_GOLD, COMMANDER_CAPACITY, UNITS_PER_SOURCE, VICTORIES, FORT_TURNS, FORT_DEFENSE, type Game, type City, type Unit } from './game.ts';
+import { HUMAN, BUILDABLE, PILLAGE_GOLD, UNITS_PER_SOURCE, VICTORIES, FORT_TURNS, FORT_DEFENSE, type Game, type City, type Unit } from './game.ts';
 import type { Selection } from './render.ts';
 import { canAssault, canShoot, type AttackMode } from './unitClasses.ts';
 import { techDef } from './techs.ts';
 import { politicsDef } from './politics.ts';
-import { RELIGIONS, DEVOUT_TURNS, CONVERT_PER_POP } from './religion.ts';
+import { RELIGIONS, RELIGION_KEYS, type ReligionKey } from './religion.ts';
 import { resourceDef, empireBonus } from './resources.ts';
 import { BORDER_AT, BORDER_MAX, OUTPUT_KEYS } from './cities.ts';
 import { icon, unitIcon, resourceIcon, YIELD_ICON, type IconKey } from './icons.ts';
@@ -30,9 +30,7 @@ export type Action =
   | { type: 'wake' }
   | { type: 'skip' }
   | { type: 'disband' }
-  | { type: 'rally' }
   | { type: 'upgrade' }
-  | { type: 'deploy' }
   | { type: 'pillage' }
   | { type: 'raze' }
   | { type: 'build'; key: BuildKey | null }
@@ -41,7 +39,7 @@ export type Action =
   | { type: 'governorPlace' }
   | { type: 'focus'; focus: FocusKey }
   | { type: 'buyMode' }
-  | { type: 'missionary' }
+  | { type: 'missionary'; religion: ReligionKey }
   | { type: 'buy'; currency: 'gold' | 'faith' }
   | { type: 'selectUnit'; id: number }
   | { type: 'selectCity'; id: number }
@@ -64,11 +62,15 @@ const isBuildKey = (s: string): s is BuildKey => (BUILDABLE as string[]).include
 function parseAction(el: HTMLElement): Action | null {
   const type = el.dataset['act'];
   switch (type) {
-    case 'found': case 'improve': case 'stop': case 'road': case 'fort': case 'fortify': case 'wake': case 'skip': case 'disband': case 'endTurn': case 'next': case 'governorPlace': case 'pillage': case 'raze': case 'buyMode': case 'missionary': case 'preach': case 'rally': case 'deploy': case 'upgrade':
+    case 'found': case 'improve': case 'stop': case 'road': case 'fort': case 'fortify': case 'wake': case 'skip': case 'disband': case 'endTurn': case 'next': case 'governorPlace': case 'pillage': case 'raze': case 'buyMode': case 'preach': case 'upgrade':
       return { type };
     case 'selectUnit': case 'selectCity': {
       const id = Number(el.dataset['id']);
       return Number.isInteger(id) ? { type, id } : null;
+    }
+    case 'missionary': {
+      const r = el.dataset['religion'] ?? '';
+      return (RELIGION_KEYS as readonly string[]).includes(r) ? { type, religion: r as ReligionKey } : null;
     }
     case 'buy': {
       const c = el.dataset['currency'];
@@ -248,7 +250,6 @@ export class UI {
       const told = !w ? 'Your civilization has fallen.'
         : w.how === 'conquest' ? (g.over === 'victory' ? `${g.capitalsToWin} of the ${g.players.length} first capitals are yours.` : `The ${esc(who)} hold ${g.capitalsToWin} of the ${g.players.length} first capitals.`)
         : w.how === 'science' ? (g.over === 'victory' ? 'Your people know all there is to know.' : `The ${esc(who)} were the first to know every technology.`)
-        : w.how === 'religion' ? (g.over === 'victory' ? 'Two thirds of the world\'s people follow your faith.' : `Two thirds of the world's people follow the faith of the ${esc(who)}.`)
         : g.over === 'victory' ? `Time is up, and yours is the greatest civilization: ${g.score(HUMAN)} points.` : `Time is up. The ${esc(who)} stand first with ${g.score(w.player)} points; you have ${g.score(HUMAN)}.`;
       this.set(this.el.overlay, `<div class="card"><h1>${g.over === 'victory' ? 'Victory' : 'Defeat'}</h1>
         <p>${w ? `<b>${VICTORIES[w.how].name}.</b> ` : ''}${told} (Turn ${g.turn})</p>
@@ -320,7 +321,6 @@ export class UI {
     const upkeepOf = (u: Unit) => (unitDef(u.type).civilian ? 0 : (unitDef(u.type).cost / UNIT_UPKEEP_PER) * paying * g.inflation);
     const n1 = (x: number) => (Math.round(10 * x) / 10).toLocaleString();
     const where = (u: Unit): string => {
-      if (u.packedIn !== null) return 'with its commander';
       const here = g.cityByTile.get(u.tile);
       if (here) return `in ${esc(here.name)}`;
       const near = cities.reduce<City | null>((a, c) => (!a || g.approxDist(u.tile, c.tile) < g.approxDist(u.tile, a.tile) ? c : a), null);
@@ -399,8 +399,8 @@ export class UI {
     if (mine) {
       if (T.preaches) {
         const c = g.preachTarget(u), why = c ? g.preachBlock(u, c) : 'It must stand in a city or beside one.';
-        const mine = g.foundedBy(u.owner);
-        orders.push(order('preach', 'faith', c ? `Preach in ${c.name}` : 'Preach', c && mine ? `${c.name} takes up ${RELIGIONS[mine.religion].name} for ${g.preachCost(c)} faith (${g.paced(CONVERT_PER_POP)} a citizen), and keeps to it for ${DEVOUT_TURNS} turns. The missionary is spent` : 'Converts the city it stands in or beside to your religion', 'V', why));
+        const creed = u.religion ? RELIGIONS[u.religion].name : 'its religion';
+        orders.push(order('preach', 'faith', c ? `Preach ${creed} in ${c.name}` : `Preach ${creed}`, c ? `${g.preachChance(u, c)} in 100 that ${creed} takes root there (a city holding fewer religions takes a new one more readily, and your own more readily than another's). The missionary is spent either way` : `Brings ${creed} to the city it stands in or beside`, 'V', why));
       }
       if (u.type === 'settler') {
         // (Its bill, before it exists: what a city here would cost a turn now.)
@@ -410,18 +410,13 @@ export class UI {
           'B', g.canFoundCity(u.tile, u.owner) ? null : 'Too close to another city, or no ground for one'));
       }
       if (T.improves) {
-        // (On its own tile; fishing boats on the water beside it.)
+        // (On its own tile: embarked, the water it floats on.)
         const t = g.improveTarget(u) ?? u.tile, k = g.improvementAt(t, u.owner), why = g.improveBlock(u, t);
         const mend = k !== null && g.builtAt(t) === k && g.pillaged[t]! > 0;
         orders.push(order('improve', 'hammer', k ? `${mend ? 'Repair the' : 'Build a'} ${IMPROVEMENTS[k].name.toLowerCase()}` : 'Improve the land',
           k ? `${plural(g.improveTurns(t, u.owner), 'turn')}${mend ? ' · free' : ` · one of the ${plural(u.charges, 'improvement')} it can still build`}` : '', 'I', why));
         orders.push(order('fort', 'fort', 'Build a fort', `${plural(FORT_TURNS, 'turn')} · one of the ${plural(u.charges, 'improvement')} it can still build. A unit in it defends ${Math.round(100 * FORT_DEFENSE)}% stronger, (a city's walls give more). It stands in the tile's improvement's place: the tile has one or the other`, 'O', g.fortBlock(u)));
         orders.push(order('road', 'road', 'Lay a road', `${plural(g.roadTurns(u.tile), 'turn')} · free. Units move twice as far along roads; a city joined to the capital by road trades with it`, 'L', g.roadBlock(u)));
-      }
-      if (u.type === 'commander') {
-        const can = g.rallyable(u).length, army = g.armyOf(u).length;
-        orders.push(order('rally', 'star', `Rally${can ? ` ${plural(can, 'unit')}` : ''}`, 'Take the units on its tile and beside it into its army', 'R', can ? null : army >= COMMANDER_CAPACITY ? 'The army is full' : 'No units of yours on its tile or the tiles next to it'));
-        if (army) orders.push(order('deploy', 'out', 'Deploy', 'Its army steps out onto the tiles around it', 'U'));
       }
       // (What it was told on an earlier turn can be taken back: its work left, its journey forgotten.)
       if (u.work !== null) orders.push(order('stop', 'stop', 'Stop work', 'It leaves this work and asks for orders again; what is done of it stays, for whoever takes it up'));
@@ -439,10 +434,6 @@ export class UI {
     const status = u.work !== null ? (u.job === 'road' ? `Laying a road: ${plural(g.roadTurns(u.work), 'turn')} left` : u.job === 'fort' ? `Building a fort: ${plural(g.fortLeft[u.work] || FORT_TURNS, 'turn')} left`
       : `${u.job === 'repair' ? 'Repairing' : 'Building'} ${(() => { const k = g.improvementAt(u.work, u.owner); return k ? `a ${IMPROVEMENTS[k].name.toLowerCase()}` : ''; })()}: ${plural(g.improveTurns(u.work, u.owner), 'turn')} left`)
       : u.fortified ? (T.civilian ? 'Asleep' : 'Fortified') : u.goal != null ? 'On its way' : '';
-    const armyUnits = u.type === 'commander' ? g.armyOf(u) : [];
-    const army = u.type === 'commander'
-      ? `<div class="desc"><b>Army ${armyUnits.length}/${COMMANDER_CAPACITY}</b>${armyUnits.length ? ` ${armyUnits.map((v) => `<span class="tag">${icon(unitIcon(v.type))}${esc(unitDef(v.type).name)} <small>${v.hp}</small></span>`).join(' ')}` : ' · rally units from its tile and the tiles next to it'}</div>`
-      : '';
     const stat = (ic: IconKey, value: string, title: string, sub = '') => `<span class="chipstat" ${tip(title, sub)}>${icon(ic)}${value}</span>`;
     const stats = [
       stat('moves', `${u.moves}/${g.maxMoves(u.type, u.owner)}`, 'Moves', 'Left this turn, of its most'),
@@ -458,7 +449,6 @@ export class UI {
       <div class="ustats">${stats}</div>
       ${status ? `<div class="status">${status}</div>` : ''}
       ${T.desc ? `<div class="desc">${esc(T.desc)}</div>` : ''}
-      ${army}
       ${mine ? `<div class="desc">Right-click a tile to move or attack${canShoot(u.type) && canAssault(u.type) ? ' (it shoots; Shift + right-click closes in instead)' : ''}.</div>` : ''}
       ${orders.length ? `<div class="actions">${orders.join('')}</div>` : ''}</div>`;
   }
@@ -504,15 +494,14 @@ export class UI {
     const facts = `<div class="facts">
       <span>Citizens</span><b>${rural} on the land${specialists ? ` · ${plural(specialists, 'specialist')}` : ''}${mine && rural ? '<br><small>the gold tiles: click one to move its citizen</small>' : ''}</b>
       <span>Upkeep</span><b>${capital ? 'none (capital)' : `${g.upkeepOf(c).toFixed(1)} gold a turn${c.buildings.has('courthouse') ? ' · courthouse' : ''}`}</b>
-      <span>Religion</span><b>${c.religion ? esc(RELIGIONS[c.religion].name) : 'none'}</b>
+      <span>Religions</span><b>${c.religions.size ? [...c.religions].map((r) => `<span class="creed" style="--c:${RELIGIONS[r].color}">${esc(RELIGIONS[r].name)}${g.players[c.owner]!.stateReligion === r ? ' <small>state</small>' : ''}</span>`).join(' ') : 'none'}</b>
       <span>Borders</span><b>${c.ring} tiles out${c.ring < BORDER_MAX ? ` · next at ${BORDER_AT[c.ring + 1]} culture (${Math.floor(c.culture)})` : ''}</b></div>`;
     const more: string[] = [];
     if (mine && placing !== 'buy' && g.buyableTiles(c).length) more.push(`<button data-act="buyMode" ${tip('Buy tiles', 'A city grows into the ring beyond its first by buying it')}>${icon('grid')} Buy tiles <small>${g.tilePrice(c)} gold</small></button>`);
-    // (The founder of a religion raises missionaries with faith, in its cities that follow it.)
-    const mineFaith = g.foundedBy(HUMAN);
-    if (mineFaith && mine && c.religion === mineFaith.religion) {
-      const why = g.missionaryBlock(HUMAN, c);
-      more.push(`<button data-act="missionary" class="${why ? 'off' : ''}" ${tip('Send a missionary', why ?? `It goes where you send it and preaches ${RELIGIONS[mineFaith.religion].name} in a city, anyone's, for ${g.paced(CONVERT_PER_POP)} faith a citizen there`)}>${icon('faith')} Missionary <small>${g.missionaryCost} faith</small></button>`);
+    // (A missionary of each religion the city holds, raised with faith.)
+    if (mine) for (const r of c.religions) {
+      const why = g.missionaryBlock(HUMAN, c, r);
+      more.push(`<button data-act="missionary" data-religion="${r}" class="${why ? 'off' : ''}" ${tip(`Send a missionary of ${RELIGIONS[r].name}`, why ?? 'It goes where you send it and preaches in a city that does not hold its religion, yours or another\'s; it is spent whether the city takes it or not')}>${icon('faith')} ${esc(RELIGIONS[r].name)} <small>${g.missionaryCostOf(HUMAN)} faith</small></button>`);
     }
     if (mine && g.canRaze(c)) more.push(`<button data-act="raze" class="danger" ${tip(`Raze ${esc(c.name)}`, 'Burn the city down, a citizen a turn; ruins remain')}>${icon('fire')} Raze</button>`);
     const left = `<div class="cityhead" style="--civ:${p.color};--on:${inkOn(p.color)}"><div class="pop" ${tip('Citizens')}>${c.pop}</div>

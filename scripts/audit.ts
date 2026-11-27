@@ -50,7 +50,7 @@ for (let k = 0; k < GAMES; k++) {
 const med = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]! : NaN);
 const per = (n: number) => (n / GAMES).toFixed(1);
 console.log(`\n${level.name} against itself, ${GAMES} ${speed} games on ${size} maps\n`);
-const units = (Object.keys(UNITS) as UnitKey[]).filter((u) => !unitDef(u).civilian && u !== 'commander');
+const units = (Object.keys(UNITS) as UnitKey[]).filter((u) => !unitDef(u).civilian);
 const byDomain = (d: string) => units.filter((u) => domainOf(unitDef(u)) === d);
 for (const d of ['land', 'sea', 'air']) {
   console.log(`${d} units built a game (attacks, kills, lost):`);
@@ -58,7 +58,7 @@ for (const d of ['land', 'sea', 'air']) {
   const never = byDomain(d).filter((u) => !(built.get(u) ?? 0) && unlockedEver.has(u));
   console.log(`  NEVER BUILT though unlocked: ${never.join(', ') || 'none'}`);
 }
-console.log(`civilians a game: settler ${per(built.get('settler') ?? 0)}, worker ${per(built.get('worker') ?? 0)}, commander ${per(built.get('commander') ?? 0)}, missionaries ${per(built.get('missionary') ?? 0)}`);
+console.log(`civilians a game: settler ${per(built.get('settler') ?? 0)}, worker ${per(built.get('worker') ?? 0)}, missionaries ${per(built.get('missionary') ?? 0)}`);
 const bs = Object.keys(BUILDINGS);
 console.log(`buildings never built though unlocked: ${bs.filter((b) => !(built.get(b) ?? 0) && unlockedEver.has(b)).join(', ') || 'none'}`);
 console.log(`buildings a game: ${bs.map((b) => `${b} ${per(built.get(b) ?? 0)}`).join(' · ')}`);

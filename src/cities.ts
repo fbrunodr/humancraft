@@ -32,6 +32,7 @@
 //
 // Pure rules only: the state lives in Game, the look in render.ts.
 
+import { RELIGION_KEYS, RELIGIONS, type ReligionKey } from './religion.ts';
 import { BIOMES, FEATURES, RIVER_GOLD, terrainYield, type TileTerrain, type Yields } from './terrain.ts';
 
 // ---------- city output: the terrain's yields plus science, culture, faith ----------
@@ -171,13 +172,21 @@ export const specialistYield = (k: SpecialistKind): Output => SPECIALISTS[k].yie
 
 // ---------- buildings ----------
 
-export const BUILDING_KEYS = [
-  'monument', 'granary', 'shrine', 'temple', 'library', 'academy', 'market', 'countingHouse', 'workshop', 'smithy',
+// (Each religion's own: its temple and its cathedral, religion.ts. The same for all but the name.)
+export type TempleKey = `${ReligionKey}Temple`;
+export type CathedralKey = `${ReligionKey}Cathedral`;
+export const templeOf = (r: ReligionKey): TempleKey => `${r}Temple`;
+export const cathedralOf = (r: ReligionKey): CathedralKey => `${r}Cathedral`;
+export const TEMPLE_KEYS: readonly TempleKey[] = RELIGION_KEYS.map(templeOf), CATHEDRAL_KEYS: readonly CathedralKey[] = RELIGION_KEYS.map(cathedralOf);
+const CIVIC_KEYS = [
+  'monument', 'granary', 'shrine', 'library', 'academy', 'market', 'countingHouse', 'workshop', 'smithy',
   'lighthouse', 'shipyard', 'amphitheater', 'odeon', 'waterMill', 'aqueduct', 'barracks', 'stable', 'walls', 'courthouse',
   'university', 'bank', 'factory', 'hospital', 'stockExchange', 'researchLab', 'broadcastTower',
   'forum', 'caravanserai', 'harbor', 'guildHall', 'observatory', 'chancery', 'railwayStation', 'museum', 'publicSchool', 'powerPlant', 'ministry',
 ] as const;
-export type BuildingKey = (typeof BUILDING_KEYS)[number];
+type CivicKey = (typeof CIVIC_KEYS)[number];
+export type BuildingKey = CivicKey | TempleKey | CathedralKey;
+export const BUILDING_KEYS: readonly BuildingKey[] = [...CIVIC_KEYS, ...TEMPLE_KEYS, ...CATHEDRAL_KEYS];
 
 export interface BuildingDef {
   readonly name: string;
@@ -191,16 +200,16 @@ export interface BuildingDef {
   readonly needs?: 'river' | 'coast';                             // where the city must be
   readonly resource?: 'horses' | 'iron' | 'niter' | 'coal' | 'oil'; // a strategic resource its civ must own (resources.ts)
   readonly lostOnCapture?: true;
+  readonly religion?: ReligionKey;                                // the city must hold it (its temple, its cathedral)
   readonly desc: string;
 }
 
 // (Lean numbers, after Civ IV's: flat yields small; what scales with the
 // city's size or adds a percentage is what grows a tall city.)
-export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
+const CIVIC: Record<CivicKey, BuildingDef> = {
   monument:      { name: 'Monument',       cost: 30, yields: out({ culture: 1, cohesion: 1 }), desc: '+1 culture, +1 cohesion.' },
   granary:       { name: 'Granary',        cost: 40, yields: out({ food: 1 }), desc: '+1 food.' },
   shrine:        { name: 'Shrine',         cost: 35, yields: out({ faith: 1 }), lostOnCapture: true, desc: '+1 faith.' },
-  temple:        { name: 'Temple',         cost: 60, yields: out({ faith: 2 }), requires: 'shrine', lostOnCapture: true, desc: '+2 faith. Needs a Shrine.' },
   library:       { name: 'Library',        cost: 45, yields: ZERO, perCitizens: { per: 2, yields: out({ science: 1 }) }, specialists: { kind: 'scientist', slots: 1 }, desc: '+1 science per 2 citizens. 1 scientist slot.' },
   academy:       { name: 'Academy',        cost: 80, yields: out({ science: 1 }), percent: { science: 25 }, specialists: { kind: 'scientist', slots: 2 }, requires: 'library', desc: '+1 science, +25% science. 2 scientist slots. Needs a Library.' },
   market:        { name: 'Market',         cost: 45, yields: out({ gold: 1 }), percent: { gold: 20 }, specialists: { kind: 'merchant', slots: 1 }, desc: '+1 gold, +20% gold. 1 merchant slot.' },
@@ -236,15 +245,23 @@ export const BUILDINGS: Record<BuildingKey, BuildingDef> = {
   powerPlant:    { name: 'Power plant',    cost: 260, yields: out({ prod: 3 }), percent: { prod: 20 }, requires: 'factory', resource: 'oil', desc: '+3 production, +20% production. Needs a Factory, and Oil.' },
   ministry:      { name: 'Ministry',       cost: 240, yields: out({ cohesion: 4 }), percent: { cohesion: 25 }, requires: 'chancery', desc: '+4 cohesion, +25% cohesion. Needs a Chancery.' },
 };
+// A religion's buildings: the same for every religion.
+const sacred = (r: ReligionKey): [BuildingKey, BuildingDef][] => [
+  [templeOf(r), { name: RELIGIONS[r].temple, cost: 60, yields: out({ faith: 2, cohesion: 1 }), requires: 'shrine', lostOnCapture: true, religion: r, desc: `+2 faith, +1 cohesion. A city that holds ${RELIGIONS[r].name}, with a Shrine.` }],
+  [cathedralOf(r), { name: RELIGIONS[r].cathedral, cost: 150, yields: out({ faith: 2, culture: 3 }), percent: { culture: 10 }, requires: templeOf(r), lostOnCapture: true, religion: r, desc: `+2 faith, +3 culture, +10% culture. A city that holds ${RELIGIONS[r].name}, with its ${RELIGIONS[r].temple}.` }],
+];
+export const BUILDINGS: Record<BuildingKey, BuildingDef> = { ...CIVIC, ...Object.fromEntries(RELIGION_KEYS.flatMap(sacred)) } as Record<BuildingKey, BuildingDef>;
 const def = (k: BuildingKey): BuildingDef => BUILDINGS[k];
 // The share of its food a city with an Aqueduct keeps when it grows.
 export const AQUEDUCT_KEEP = 0.4;
 
 // Whether a city may build k now: not yet built, what it needs first
 // there, by a river or on the coast if it must be.
-export function buildingAllowed(k: BuildingKey, has: ReadonlySet<BuildingKey>, river: boolean, coast: boolean): boolean {
+// (`faiths`: the religions the city holds: a religion's buildings are built only where it is held.)
+export function buildingAllowed(k: BuildingKey, has: ReadonlySet<BuildingKey>, river: boolean, coast: boolean, faiths?: ReadonlySet<ReligionKey>): boolean {
   const d = def(k);
   if (has.has(k) || (d.requires && !has.has(d.requires))) return false;
+  if (d.religion && !faiths?.has(d.religion)) return false;
   return d.needs === 'river' ? river : d.needs === 'coast' ? coast : true;
 }
 

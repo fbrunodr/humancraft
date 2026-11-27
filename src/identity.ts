@@ -58,7 +58,7 @@ export interface TraitDef {
   readonly religion?: ReligionKey;   // a faith: the first to adopt it founds this religion
 }
 const tr = (name: string, path: PathKey, tier: Tier, ...effects: Effect[]): TraitDef => ({ name, path, tier, era: TIER_ERA[tier], effects });
-const faith = (name: string, era: EraIndex, religion: ReligionKey): TraitDef => ({ name, path: 'devotion', tier: 1, era, effects: [pct('pressure', 25)], religion });
+const faith = (name: string, era: EraIndex, religion: ReligionKey): TraitDef => ({ name, path: 'devotion', tier: 1, era, effects: [pct('missions', 25)], religion });
 
 export const TRAITS = {
   // ---- Martial ----
@@ -88,12 +88,12 @@ export const TRAITS = {
   ethics:           faith('Ethics', 1, 'confucianism'),
   theology:         faith('Theology', 2, 'christianity'),
   revelation:       faith('Revelation', 2, 'islam'),
-  pilgrims:         tr('Pilgrims', 'devotion', 1, pct('pressure', 30), count('tithe', 1)),
+  pilgrims:         tr('Pilgrims', 'devotion', 1, pct('missions', 30), count('tithe', 1)),
   templeBuilders:   tr('Temple Builders', 'devotion', 1, capital({ faith: 2 }), yieldPct('faith', 10)),
   holyLand:         tr('Holy Land', 'devotion', 2, capital({ faith: 3, culture: 2 })),
   zealotry:         tr('Zealotry', 'devotion', 3, pct('vsCities', 15), pct('combat', 5)),
   mysticOrders:     tr('Mystic Orders', 'devotion', 3, yieldPct('faith', 25), yieldPct('culture', 10)),
-  missionaries:     tr('Missionaries', 'devotion', 4, pct('pressure', 50), count('tithe', 1)),
+  missionaries:     tr('Missionaries', 'devotion', 4, pct('missions', 50), count('tithe', 1)),
   divineMandate:    tr('Divine Mandate', 'devotion', 5, yieldPct('cohesion', 20), yieldPct('faith', 20)),
   // ---- Reason ----
   inquiry:          tr('Inquiry', 'reason', 0, yieldPct('science', 8)),

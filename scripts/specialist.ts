@@ -22,7 +22,7 @@ for (let k = 0; k < GAMES; k++) {
   let capPeak = 0, faithPeak = 0;
   while (!g.winner && g.turn <= g.turnLimit + 1) {
     g.endTurn();
-    if (g.turn % 5 === 0) { capPeak = Math.max(capPeak, g.capitalsHeld(me)); faithPeak = Math.max(faithPeak, g.faithShare(me)); }
+    if (g.turn % 5 === 0) { capPeak = Math.max(capPeak, g.capitalsHeld(me)); faithPeak = Math.max(faithPeak, (g.players[me]!.stateReligion ? g.followers(g.players[me]!.stateReligion!).share : 0)); }
   }
   const w = g.winner, rank = [...g.players].sort((a, b) => g.score(b.id) - g.score(a.id)).findIndex((p) => p.id === me) + 1;
   if (w?.player === me) wins++;

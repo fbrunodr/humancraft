@@ -1468,7 +1468,7 @@ export function hairModel(style: HairStyle): THREE.BufferGeometry {
 }
 // Whether a type's figures wear helmets (their hair then mostly hidden).
 // (Always: knights, lancers and modern soldiers; others as their civ goes.)
-const HELMETED: ReadonlySet<UnitKey> = new Set<UnitKey>(['horseArcher', 'spearman', 'horseman', 'commander', 'swordsman', 'compositeBowman', 'longswordsman', 'pikeman', 'crossbowman', 'musketman', 'rifleman', 'cavalry']);
+const HELMETED: ReadonlySet<UnitKey> = new Set<UnitKey>(['horseArcher', 'spearman', 'horseman', 'swordsman', 'compositeBowman', 'longswordsman', 'pikeman', 'crossbowman', 'musketman', 'rifleman', 'cavalry']);
 export const wearsHelmet = (type: UnitKey, civ: ArchCiv): boolean =>
   type === 'knight' || type === 'lancer' || type === 'infantry' || type === 'machineGun' || type === 'manAtArms' || type === 'explorer' || type === 'greatWarInfantry' || type === 'marine' || type === 'specialForces' || type === 'paratrooper' || (HELMETED.has(type) && GEAR[civ].helmet !== 'none');
 
@@ -1504,7 +1504,6 @@ export const UNIT_LOOK: Record<UnitKey, UnitLook> = {
   archer:   { party: 'formation', count: FULL_FORMATION, spacing: [0.55, 0.6] },
   horseman: { party: 'formation', count: HORSE_COUNT, cols: 3, spacing: [0.6, 1.05] },
   scout:    { party: 'group', count: 2, spacing: [0.5, 0.5] },
-  commander: { party: 'group', count: 2, spacing: [0.75, 0.5] },
   swordsman:   { party: 'formation', count: FULL_FORMATION, spacing: [0.55, 0.6] },
   pikeman:     { party: 'formation', count: FULL_FORMATION, spacing: [0.5, 0.55] },
   crossbowman: { party: 'formation', count: FULL_FORMATION, spacing: [0.55, 0.6] },
@@ -1645,7 +1644,6 @@ export function unitModel(type: UnitKey, civ: ArchCiv, variant = 0, female = fal
       case 'worker': return figure(gear, 'hoe', false, { female, civilian: true });
       // (A missionary: robed to the ankles, bare-headed, a pilgrim's staff with its bell in hand; one of the two carries the books on its back.)
       case 'missionary': return figure(gear, 'pilgrim', false, { helmet: false, pack: variant % 2 === 0, female, civilian: true, robe: true });
-      // (Its two figures: the commander mounted, and the standard-bearer.)
       case 'swordsman': return figure(gear, 'sword', true, { armor: 'mail', helmet: true, female });
       case 'pikeman': return figure(gear, 'pike', false, { armor: 'plate', helmet: true, female });
       case 'crossbowman': return figure(gear, 'crossbow', false, { armor: 'mail', helmet: true, quiver: true, female });
@@ -1657,7 +1655,6 @@ export function unitModel(type: UnitKey, civ: ArchCiv, variant = 0, female = fal
       case 'cannon': return cannon();
       case 'artillery': return artillery();
       case 'tank': return tank();
-      case 'commander': return variant === 0 ? rider(gear, HORSE[0], female, 'officer') : figure(gear, 'banner', false, { helmet: true, female });
     }
   })();
   // (Every part tagged, none with a leaf mask: their attributes must match.)
@@ -1671,14 +1668,13 @@ export function unitModel(type: UnitKey, civ: ArchCiv, variant = 0, female = fal
 }
 // How many variants of a type's model there are (instances pick among them).
 const HORSED: ReadonlySet<UnitKey> = new Set<UnitKey>(['horseman', 'chariotArcher', 'horseArcher', 'knight', 'lancer', 'cavalry']);
-export const unitVariants = (type: UnitKey): number => (HORSED.has(type) ? HORSE.length : type === 'settler' || type === 'commander' ? 2 : 1);
-// The model variant of a unit's i-th figure (a commander's are set: first
-// the commander, then the standard-bearer; others drawn).
-export const variantOf = (type: UnitKey, i: number, rand: () => number): number =>
-  type === 'commander' ? i % 2 : Math.floor(rand() * unitVariants(type));
+export const unitVariants = (type: UnitKey): number => (HORSED.has(type) ? HORSE.length : type === 'settler' ? 2 : 1);
+// The model variant of a unit's i-th figure (drawn).
+export const variantOf = (type: UnitKey, _i: number, rand: () => number): number =>
+  Math.floor(rand() * unitVariants(type));
 // Whether a figure is horsed (its shadow longer), and where its head is
 // (hair: over a figure on foot's, up and forward or back in model units):
 // a rider's up in the saddle, a chariot archer's back in the car.
-export const rides = (type: UnitKey, variant: number): boolean => HORSED.has(type) || (type === 'commander' && variant === 0);
+export const rides = (type: UnitKey, _variant: number): boolean => HORSED.has(type);
 export const headOffset = (type: UnitKey, variant: number): readonly [number, number] =>
   type === 'chariotArcher' ? [CAR_FLOOR, CAR_Z] : rides(type, variant) ? [RIDER_HEAD, 0] : [0, 0];

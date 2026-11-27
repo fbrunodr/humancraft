@@ -18,18 +18,22 @@ import {
   BIOMES,
 } from './terrain.ts';
 import { LEVELS, DEFAULT_LEVEL, type AiPolicy } from './aiPolicy.ts';
-import { aiTurn, aiPickTech, aiPickPolitics, aiGovern, aiAcceptsPeace, aiAcceptsDeal, aiPickTraits } from './ai.ts';
+import { power as armyOf } from './ai.ts';
+import { aiTurn, aiPickTech, aiPickPolitics, aiGovern, aiAcceptsPeace, aiPickTraits, aiFaith } from './ai.ts';
+import { DEAL_TURNS, DEAL_MIN, isLasting, isMutual, sameItem, givenBy, partyTo, between, type Item, type LastingItem, type Offer, type Treaty } from './deals.ts';
+import { MEMOS, MEMO_KEYS, aiAnswers, aiVote, noteDeal, regard, itemText, FRIENDLY, type MemoKey, type Memos } from './diplomacy.ts';
+export { DEAL_TURNS };
 import {
   USE, FOOD_PER_CITIZEN, ZERO, CITY_REACH, START_REACH, tileCost, GROWTH_TURNS, SPECIALIST_KINDS, AQUEDUCT_KEEP, BUILDINGS as CITY_BUILDINGS,
   addOut, scaleOut, centerYield, ruralYield, improvementFor, governorScore, specialistsWanted, borderRing,
-  buildingsYield, withPercents, wonderBeside, MAX_CITY_WONDERS, specialistYield, specialistSlots, buildingAllowed, weigh, WONDERS, WONDER_KEYS, ERAS,
+  buildingsYield, withPercents, TEMPLE_KEYS, CATHEDRAL_KEYS, wonderBeside, MAX_CITY_WONDERS, specialistYield, specialistSlots, buildingAllowed, weigh, WONDERS, WONDER_KEYS, ERAS,
   type FocusKey, type GrowthOption, type TileUse, type Output, type SpecialistKind, type WonderKey, type WonderSite, type EraIndex, type ImprovementKey,
 } from './cities.ts';
 import { IMPROVEMENTS, IMPROVEMENT_KEYS, IMPROVE_TURNS, drained, out, OUTPUT_KEYS } from './cities.ts';
 import { techDef, techPath, improvementStage, STAGE_TECHS, TECHS, type TechKey, FINAL_TECH } from './techs.ts';
 import { politicsDef, politicsPath, GOVERNMENTS, governmentDef, policyDef, fits, SLOT_KINDS, type PoliticsKey, type GovernmentKey, type PolicyKey, type PolicySlot } from './politics.ts';
 import { traitDef, traitBlock, traitCost, type TraitKey } from './identity.ts';
-import { FAITH_SAME, FAITH_RIVAL, HOLY_STRIFE, MISSIONARY_FAITH, CONVERT_PER_POP, DEVOUT_TURNS, religionDef, PRESSURE_REACH, HOLY_PRESSURE, CITY_PRESSURE, BUILDING_PRESSURE, CONVERT_AT, TITHE, type ReligionKey } from './religion.ts';
+import { MISSIONARY_FAITH, MISSIONARIES_MOST, religionDef, spreadChance, STATE_BONUS, SECULAR_BONUS, CONVERSION_TURNS, CONVERSION_COST, TITHE, TEMPLE_TECH, CATHEDRAL_TECH, type ReligionKey } from './religion.ts';
 import { placeResources, resourceDef, empireBonus, RESOURCE_IMPROVEMENT, type ResourceKey } from './resources.ts';
 import { total, yieldBonus, prodBonus, flat, tileBonus, specialistBonus, movesBonus, type Effect, type ProdTarget } from './effects.ts';
 import { cityUpkeep, unitUpkeep, buildingUpkeep, inflation, arrearsOf, WEALTH_RATE } from './economy.ts';
@@ -63,6 +67,7 @@ export interface Player {
   // after it), progress toward each (kept if it switches away), and what it
   // made with nothing chosen (spent on the next one chosen).
   techs: Set<TechKey>;
+  bought: Set<TechKey>;      // those it got in a deal (for the record: they are its own to pass on)
   research: TechKey | null;
   researchQueue: TechKey[];
   techProgress: Partial<Record<TechKey, number>>;
@@ -81,6 +86,11 @@ export interface Player {
   arrears: number;
   // Turns left of the dishonour of a broken truce (declareWar): its cities make less cohesion.
   dishonor: number;
+  // The state's religion (religion.ts): one a city of its own holds, or none (a secular state); whether it ever had
+  // one (its first costs nothing); and the turns left of the upheaval of changing it (its cities make less cohesion).
+  stateReligion: ReligionKey | null;
+  hadStateReligion: boolean;
+  conversion: number;
   government: GovernmentKey;
   policies: Record<PolicySlot, (PolicyKey | null)[]>;
   capital: number | null;    // the city with its palace (the first it founded, or the oldest left)
@@ -94,9 +104,9 @@ export interface Ledger {
   readonly income: Output;       // what its cities made (gold before upkeep)
   readonly cityUpkeep: number;
   readonly unitUpkeep: number;
-  readonly tithes: number;       // from cities following its religion
+  readonly tithes: number;       // from the cities holding the religions whose holy cities it holds
   readonly luxuries: Output;     // its luxuries' empire bonus (in income too)
-  readonly trade: number;        // gold a turn from its deals (paid: negative)
+  readonly trade: number;        // gold a turn from its lasting deals (paid: negative)
 }
 const EMPTY_LEDGER: Ledger = { income: ZERO, cityUpkeep: 0, unitUpkeep: 0, tithes: 0, luxuries: ZERO, trade: 0 };
 
@@ -104,29 +114,34 @@ const EMPTY_LEDGER: Ledger = { income: ZERO, cityUpkeep: 0, unitUpkeep: 0, tithe
 export interface Relation { war: boolean; since: number; asked?: number } // (asked: the turn peace was last offered, by the first of the two)
 // War, peace: a war lasts at least MIN_WAR turns before peace can be made.
 // How the game is won (game.ts checkVictory).
-export type Victory = 'conquest' | 'science' | 'religion' | 'time';
+export type Victory = 'conquest' | 'science' | 'diplomacy' | 'time';
 export const VICTORIES: Record<Victory, { name: string; rule: string }> = {
   conquest: { name: 'Conquest', rule: 'Hold the first capitals of two thirds of the civilizations (your own among them).' },
   science: { name: 'Science', rule: 'Be the first to discover Artificial Superintelligence, the last technology.' },
-  religion: { name: 'Religion', rule: 'Found a religion that more than two thirds of the world\'s people follow (the citizens of the cities that follow it).' },
+  diplomacy: { name: 'Diplomacy', rule: 'Be voted leader of the world by the United Nations: three fifths of the votes of the rest of the world (a vote a citizen; no one votes for itself, and those who abstain count against).' },
   time: { name: 'Time', rule: 'Have the best score when the last turn ends, if no one has won before.' },
 };
-export const FAITH_VICTORY = 2 / 3;
 export const TURN_LIMIT = 300;
 export const MIN_WAR = 8;
 // A peace is a truce for this many turns: war may be declared again before, at a price (declareWar).
 export const TRUCE_TURNS = 20;
 export const TRUCE_BREAK = 0.5;
 
-// A trade between two civs at peace, for DEAL_TURNS: what each side gives,
-// a resource (a spare copy: it keeps one for itself) and gold a turn, or
-// either. The resource counts as the taker's while the deal holds (a
-// luxury's empire bonus, a strategic's units and buildings) but yields
-// nothing on a tile. A war between them, a spare copy lost, or a payer
-// out of gold ends it.
-export interface DealSide { readonly civ: number; readonly resource: ResourceKey | null; readonly gold: number }
-export interface Deal { readonly sides: readonly [DealSide, DealSide]; readonly until: number }
-export const DEAL_TURNS = 30;
+// The United Nations (Civ IV's): founded when the first civ learns UN_TECH; from then its council sits every
+// UN_EVERY turns and votes on a leader of the world between the two civs with the most votes (a vote a
+// citizen). Each civ gives all its votes to one of the two, or abstains; no one votes for itself. A candidate
+// with UN_SHARE of the votes of the rest of the world (every civ but itself, abstentions counted against) wins
+// the game: it is the world that makes a leader, not the leader's own numbers.
+export const UN_TECH: TechKey = 'telecommunications';
+export const UN_EVERY = 10;
+export const UN_SHARE = 0.6;
+export interface UNSession { readonly turn: number; readonly candidates: readonly [number, number]; readonly votes: readonly { civ: number; weight: number; for: number | null }[]; readonly winner: number | null }
+// What is kept of every civ turn by turn, for the charts of its history (the Victory sheet): one figure a turn each.
+export const HISTORY = {
+  score: 'Score', citizens: 'Citizens', cities: 'Cities', army: 'Army', science: 'Science a turn', prod: 'Production a turn', gold: 'Gold a turn', culture: 'Culture a turn', cohesion: 'Cohesion a turn',
+} as const;
+export type HistoryKey = keyof typeof HISTORY;
+export const HISTORY_KEYS = Object.keys(HISTORY) as HistoryKey[];
 // The capital's palace.
 export const PALACE = { prod: 1, gold: 2, science: 2, culture: 2 } as const;
 // A rival city takes a border tile when its culture presses this much harder.
@@ -137,7 +152,7 @@ export const GROWTH_CUT_MAX = 40;
 export const GOLD_PER_PROD = 3;
 export const UPGRADE_GOLD = 2.5;
 export const FAITH_PER_PROD = 2;
-const FAITH_BUYS: readonly BuildKey[] = ['shrine', 'temple'];
+const FAITH_BUYS: ReadonlySet<BuildKey> = new Set<BuildKey>(['shrine', ...TEMPLE_KEYS, ...CATHEDRAL_KEYS]);
 // What anyone can build from the start (the rest: techs.ts, politics.ts).
 const STARTING: readonly BuildKey[] = ['warrior', 'slinger', 'scout', 'settler', 'worker', 'monument'];
 
@@ -222,30 +237,25 @@ export function fightRounds(hpA: number, hpD: number, A: number, D: number, kind
   return { attacker: hpA, defender: hpD };
 }
 
-// ---- one unit per tile, and commanders ----
+// ---- one unit per tile ----
 // A tile holds at most one military unit and one civilian of a player (a
-// unit's slot). A commander leads an army: up to COMMANDER_CAPACITY military
-// units rallied from its tile and the tiles next to it, carried with it
-// (packed: off the map, on its tile) until it deploys them there again. It
-// takes the civilian slot, so a fighting unit may stand with it.
+// unit's slot): armies are spread over the land, never stacked (Civ V's).
 // Ships have a slot of their own (a ship in port beside the garrison, a
 // ship escorting a unit embarked on the water), and aircraft theirs: up
 // to AIR_PER_CITY in each of their civ's cities.
 export type Slot = 'military' | 'civilian' | 'naval' | 'air';
 export const slotOf = (type: UnitKey): Slot => {
   const d = unitDef(type), dom = domainOf(d);
-  return d.civilian || type === 'commander' ? 'civilian' : dom === 'sea' ? 'naval' : dom === 'air' ? 'air' : 'military';
+  return d.civilian ? 'civilian' : dom === 'sea' ? 'naval' : dom === 'air' ? 'air' : 'military';
 };
-export const COMMANDER_CAPACITY = 4;
-// What a commander adds to the strength of its civ's units on its tile and
-// the tiles next to it, attacking and defending (one commander's worth,
-// however many stand by): an army fights better under its general's eye.
-export const COMMANDER_AURA = 0.15;
 export const AIR_PER_CITY = 4;
 // A land unit embarked on the water (its civ has Shipbuilding) defends at
 // this share of its strength, and can't attack.
 export const EMBARKED_DEF = 0.5;
 export const EMBARK_TECH = 'shipbuilding';
+// The deep ocean is closed to every ship and embarked unit until its civ knows this (the Renaissance's first: Civ V's
+// Astronomy): before it they keep to the shallows, the coasts and the lakes, and what lies over the ocean is not theirs to find.
+export const OCEAN_TECH = 'astronomy';
 // Turns a nuclear strike's burnt land takes to recover (as a pillaged tile's).
 export const FALLOUT = 12;
 
@@ -254,7 +264,6 @@ export interface Unit {
   type: UnitKey;
   owner: number;
   tile: number;
-  packedIn: number | null;             // the commander carrying it (its tile is the commander's)
   moves: number;
   hp: number;
   fortified: boolean;
@@ -263,9 +272,10 @@ export interface Unit {
   goalMode: AttackMode | null;          // how it attacks at its goal (null: as it does unless told: defaultMode)
   dead: boolean;
   aiTarget: number | null;
-  work: number | null;                  // a worker's: the tile it is working on (it stays there, or by it for boats)
+  work: number | null;                  // a worker's: the tile it is working on (it stays there)
   job: WorkerJob | null;                // and what it does there
   charges: number;                      // a worker's: the improvements it can still build (roads and repairs cost none)
+  religion: ReligionKey | null;         // a missionary's: the religion it preaches
 }
 // What a worker does on a tile: builds its improvement (a charge, of
 // WORKER_CHARGES), repairs it when pillaged, or lays a road (both free, as
@@ -301,8 +311,7 @@ export interface City {
   hp: number;                          // the center's hit points (0: a melee unit can take it)
   founder: number;                     // the civ that founded it
   razing: boolean;                     // burning down, a citizen a turn
-  religion: ReligionKey | null;        // the religion it follows
-  devout: number;                      // the turn until which no pressure changes it (it was converted by faith: convert)
+  religions: Set<ReligionKey>;         // the religions it holds (never lost: religion.ts)
   blessed: boolean;                    // what it is building was bought with faith
   culture: number;                     // culture it made so far (its borders grow with it)
   ring: number;                        // how far its borders reach (cities.ts borderRing)
@@ -428,8 +437,13 @@ export class Game {
   readonly relations: Relation[][];             // [a][b], symmetric
   readonly met: Uint8Array[];                   // [a][b]: a has met b
   readonly peaceOffers = new Set<string>();     // "from>to": peace offered, not yet answered
-  readonly deals: Deal[] = [];                  // trades in force
-  readonly dealOffers: Deal[] = [];             // trades the computer offered the human, for this turn (sides[0]: the offerer)
+  readonly deals: Treaty[] = [];                // lasting deals in force (deals.ts)
+  readonly dealOffers: Offer[] = [];            // what the computer's civs offered the human, for this turn
+  readonly memos: Memos[][];                    // [a][b]: what a remembers of b, for and against (diplomacy.ts MEMOS)
+  un: { since: number | null; next: number; last: UNSession | null } = { since: null, next: 0, last: null };
+  // Each civ's history: [metric][player] is a figure a turn, from turn 1 (HISTORY).
+  readonly history: Record<HistoryKey, number[][]>;
+  ballot: number | null = null;                  // the player's standing vote in the United Nations: a civ, if it stands (never itself), or to abstain
   readonly events: GameEvent[] = [];            // everything every player did (gameLog.ts)
 
   constructor({ size, seed, script = 'continents', everyCiv = false, policies, level = DEFAULT_LEVEL, turnLimit, speed = DEFAULT_SPEED, civ: playAs, trueStarts = false }: GameOptions) {
@@ -477,15 +491,17 @@ export class Game {
     this.players = (everyCiv ? civs : civs.slice(0, this.world.starts.length)).map((civ, id) => ({
       id, name: civ.name, color: civ.color, cityNames: civ.cities,
       isHuman: id === HUMAN, alive: true, gold: 0, science: 0, culture: 0, cohesion: 0, faith: 0, era: 0, citiesFounded: 0, offensive: false,
-      techs: new Set(), research: null, researchQueue: [], techProgress: {}, scienceBank: 0,
+      techs: new Set(), bought: new Set(), research: null, researchQueue: [], techProgress: {}, scienceBank: 0,
       politics: new Set(), studying: null, politicsQueue: [], politicsProgress: {}, cohesionBank: 0,
-      identity: new Set(), identityPoints: 0, arrears: 0, dishonor: 0,
+      identity: new Set(), identityPoints: 0, arrears: 0, dishonor: 0, stateReligion: null, hadStateReligion: false, conversion: 0,
       government: 'chiefdom', policies: emptySlots('chiefdom'), capital: null, firstCapital: null, goldFrac: 0, ledger: EMPTY_LEDGER,
     }));
     const n = this.players.length;
     this.aiPolicies = this.players.map((_, i) => policies?.[i] ?? LEVELS[Math.min(LEVELS.length - 1, Math.max(0, level))]!.policy);
     this.relations = Array.from({ length: n }, () => Array.from({ length: n }, () => ({ war: false, since: 0 })));
     this.met = Array.from({ length: n }, () => new Uint8Array(n));
+    this.memos = Array.from({ length: n }, () => Array.from({ length: n }, () => ({})));
+    this.history = Object.fromEntries(HISTORY_KEYS.map((k) => [k, Array.from({ length: n }, () => [])])) as unknown as Record<HistoryKey, number[][]>;
     this.resources = placeResources(this.globe, this.map, this.world.starts, seed).at;
 
     this.known = this.players.map((p) => (p.id === HUMAN ? this.explored : new Uint8Array(this.N)));
@@ -546,32 +562,52 @@ export class Game {
     return c < 0 ? -1 : this.cityById.get(c)!.owner;
   }
 
-  // The units standing on a tile (not those packed in an army there).
-  unitsAt(t: number): Unit[] { return this.units.filter((u) => u.tile === t && u.packedIn === null); }
-
-  // A commander's army: the units packed in it.
-  armyOf(c: Unit): Unit[] { return this.units.filter((u) => u.packedIn === c.id); }
+  // The units standing on a tile.
+  unitsAt(t: number): Unit[] { return this.units.filter((u) => u.tile === t); }
 
   // ---- domains ----
   // Whether a civ's land units may embark on the water.
   canEmbark(owner: number): boolean { return this.players[owner]!.techs.has(EMBARK_TECH); }
+  // Whether a civ's ships and embarked units may go out on the deep ocean (OCEAN_TECH).
+  canCrossOcean(owner: number): boolean { return this.players[owner]!.techs.has(OCEAN_TECH); }
+  // (Water a civ's ships and embarked units may be on.)
+  private sails(owner: number, t: number): boolean { return this.isWater(t) && (this.biome[t] !== 'ocean' || this.canCrossOcean(owner)); }
   // A land unit on the water: embarked.
   isEmbarked(u: Unit): boolean { return domainOf(unitDef(u.type)) === 'land' && this.isWater(u.tile); }
   // Whether a unit may go onto a tile at all: land units on land (and the
   // water, once embarking), ships on the water and their civ's coastal
-  // cities, aircraft only into their civ's cities.
+  // cities, aircraft only into their civ's cities. (The deep ocean: only once its civ can cross it, OCEAN_TECH.)
   canEnter(u: { type: UnitKey; owner: number }, t: number): boolean {
     const city = this.cityByTile.get(t);
+    // (Another civ's land is closed to fighting units and ships while the two are at peace without open borders. Civilians pass.)
+    if (!unitDef(u.type).civilian && domainOf(unitDef(u.type)) !== 'air' && this.closedTo(u.owner, t)) return false;
     switch (domainOf(unitDef(u.type))) {
       // (No one walks the mountains: they are walls on the map, to go round or to hold a pass between.)
-      case 'land': return this.relief[t] !== 'mountains' && (!this.isWater(t) || this.canEmbark(u.owner));
-      case 'sea': return this.isWater(t) || (city !== undefined && city.owner === u.owner && this.cityCoast(city));
+      case 'land': return this.relief[t] !== 'mountains' && (!this.isWater(t) || (this.canEmbark(u.owner) && this.sails(u.owner, t)));
+      case 'sea': return this.sails(u.owner, t) || (city !== undefined && city.owner === u.owner && this.cityCoast(city));
       case 'air': return (city !== undefined && city.owner === u.owner) || this.carrierRoom(t, u.owner) > 0;
     }
   }
+  // Whether tile t is closed to a civ's fighting units: another's land, at peace, with no open borders between them.
+  closedTo(owner: number, t: number): boolean {
+    const c = this.tileCity[t]!;
+    if (c < 0) return false;
+    const o = this.cityById.get(c)!.owner;
+    if (o === owner) return false;
+    // (Who may walk whose land, worked out again when a war, a peace or a deal changes it.)
+    const key = `${this.diploVersion}|${this.deals.length}`;
+    if (this.passKey !== key) {
+      this.passKey = key;
+      const n = this.players.length;
+      this.pass = Array.from({ length: n }, (_, a) => Uint8Array.from({ length: n }, (_, b) => (a === b || this.atWar(a, b) || this.openBorders(a, b) ? 1 : 0)));
+    }
+    return this.pass[owner]![o] !== 1;
+  }
+  private passKey = '';
+  private pass: Uint8Array[] = [];
   // The aircraft a civ's carriers on a tile can take.
   carrierRoom(t: number, owner: number): number {
-    return this.units.reduce((n, v) => n + (v.tile === t && v.owner === owner && v.packedIn === null ? unitDef(v.type).carries ?? 0 : 0), 0);
+    return this.units.reduce((n, v) => n + (v.tile === t && v.owner === owner ? unitDef(v.type).carries ?? 0 : 0), 0);
   }
 
   // Whether a unit could stand on a tile: one it may enter, and its slot
@@ -580,7 +616,7 @@ export class Game {
   canStand(u: { type: UnitKey; owner: number; id?: number }, t: number): boolean {
     if (!this.canEnter(u, t)) return false;
     const slot = slotOf(u.type);
-    const mine = this.units.filter((v) => v.tile === t && v.packedIn === null && v.id !== u.id && v.owner === u.owner && slotOf(v.type) === slot).length;
+    const mine = this.units.filter((v) => v.tile === t && v.id !== u.id && v.owner === u.owner && slotOf(v.type) === slot).length;
     const city = this.cityByTile.get(t);
     return mine < (slot === 'air' ? (city?.owner === u.owner ? AIR_PER_CITY : 0) + this.carrierRoom(t, u.owner) : 1);
   }
@@ -599,26 +635,31 @@ export class Game {
   isEnemyOccupied(t: number, owner: number): boolean {
     const city = this.cityByTile.get(t);
     if (city && city.owner !== owner && this.atWar(owner, city.owner)) return true;
-    return this.units.some((u) => u.tile === t && u.packedIn === null && u.owner !== owner && this.atWar(owner, u.owner));
+    return this.units.some((u) => u.tile === t && u.owner !== owner && this.atWar(owner, u.owner));
   }
 
   // A tile with a city or units of a civ `owner` is at peace with: no way through.
   isForeignBlocked(t: number, owner: number): boolean {
     const city = this.cityByTile.get(t);
     if (city && city.owner !== owner && !this.atWar(owner, city.owner)) return true;
-    return this.units.some((u) => u.tile === t && u.packedIn === null && u.owner !== owner && !this.atWar(owner, u.owner));
+    return this.units.some((u) => u.tile === t && u.owner !== owner && !this.atWar(owner, u.owner));
   }
 
   canAttack(u: Unit): boolean { return canAttackType(u.type); }
+  // Whether a unit's fire reaches a garrison behind a city's houses and walls: what is made to break them (siege
+  // engines and guns), and whatever fires from the sea or the air (ships' guns, aircraft, missiles). The arrows and
+  // bullets of troops on land do nothing to it: a city is taken at close quarters, and held so; bows and guns are
+  // for the field.
+  static breaches(type: UnitKey): boolean { const d = unitDef(type); return d.siege === true || domainOf(d) !== 'land'; }
+  // (An enemy's city `u` could not fire into.)
+  private shelters(u: { type: UnitKey; owner: number }, tile: number): boolean { const c = this.cityByTile.get(tile); return c !== undefined && c.owner !== u.owner && !Game.breaches(u.type); }
   // How `u` attacks `tile` unless told otherwise: by fire if it can shoot
   // and there is something there to shoot (a defender, a city's walls
   // standing); else it closes in (to take what is left: a fallen city, a
   // civilian).
   attackModeFor(u: Unit, tile: number): AttackMode {
     if (!canShoot(u.type)) return 'melee';
-    const city = this.cityByTile.get(tile);
-    void city;
-    const target = this.bestDefender(tile, u.owner, 'ranged') !== null;
+    const target = this.bestDefender(tile, u.owner, 'ranged') !== null && !this.shelters(u, tile);
     return target || !canAssault(u.type) ? 'ranged' : 'melee';
   }
   // Why `u` can't attack `tile` now, so (`mode`: its class against the
@@ -626,6 +667,7 @@ export class Game {
   attackBlockAt(u: Unit, tile: number, mode: AttackMode = this.attackModeFor(u, tile)): string | null {
     if (!this.canAttack(u)) return 'cannot attack';
     if (domainOf(unitDef(u.type)) === 'air' && !this.inRange(u, tile)) return 'out of range';
+    if (mode === 'ranged' && canShoot(u.type) && this.shelters(u, tile)) return 'cannot fire into a city (siege weapons, ships and aircraft do)';
     const d = this.bestDefender(tile, u.owner, mode), where = { atSea: this.isWater(tile), city: this.cityByTile.has(tile), embarked: this.isEmbarked(u) };
     if (d) return attackBlock(u.type, d.type, where, mode) ?? (mode === 'ranged' && !this.fireReach(u).has(tile) ? 'out of reach' : null);
     if (mode === 'melee' && !canAssault(u.type)) return 'cannot close in';
@@ -704,6 +746,14 @@ export class Game {
     const hScale = 1 / this.globe.maxEdgeAngle;
     const h = (t: number) => tiles[t].center.angleTo(goalC) * hScale;
 
+    // (Who stands where, read once: its own side's units of its slot, enemies, and those at peace with it; cities likewise.)
+    const slot = slotOf(u.type), taken = new Set<number>(), foes = new Set<number>(), barred = new Set<number>();
+    for (const v of this.units) {
+      if (v === u) continue;
+      if (v.owner === u.owner) { if (slotOf(v.type) === slot) taken.add(v.tile); }
+      else (this.atWar(u.owner, v.owner) ? foes : barred).add(v.tile);
+    }
+    for (const c of this.cities) if (c.owner !== u.owner) (this.atWar(u.owner, c.owner) ? foes : barred).add(c.tile);
     const g = new Map<number, number>([[u.tile, 0]]);
     const came = new Map<number, number>();
     const heap = new MinHeap();
@@ -716,8 +766,8 @@ export class Game {
       closed.add(cur);
       for (const nb of tiles[cur].neighbors) {
         if (closed.has(nb)) continue;
-        if (nb !== goal && (this.isEnemyOccupied(nb, u.owner) || !this.canStand(u, nb))) continue;
-        if (this.isForeignBlocked(nb, u.owner)) continue;
+        if (nb !== goal && (foes.has(nb) || taken.has(nb) || !this.canEnter(u, nb))) continue;
+        if (barred.has(nb)) continue;
         const ng = g.get(cur)! + this.stepCost(u, cur, nb) + (this.isWater(cur) !== this.isWater(nb) && domainOf(unitDef(u.type)) === 'land' ? 3 : 0);
         if (ng < (g.get(nb) ?? Infinity)) {
           g.set(nb, ng);
@@ -776,9 +826,9 @@ export class Game {
   createUnit(type: UnitKey, owner: number, tile: number): Unit {
     tile = this.freeTileNear(type, owner, tile) ?? tile;
     this.record('unitCreated', owner, { unit: type, tile });
-    const u: Unit = { id: this.nextId++, type, owner, tile, packedIn: null, moves: this.maxMoves(type, owner), hp: 100,
+    const u: Unit = { id: this.nextId++, type, owner, tile, moves: this.maxMoves(type, owner), hp: 100,
       fortified: false, skipped: false, goal: null, goalMode: null, dead: false, aiTarget: null, work: null, job: null,
-      charges: unitDef(type).improves ? WORKER_CHARGES : 0 };
+      charges: unitDef(type).improves ? WORKER_CHARGES : 0, religion: null };
     this.units.push(u);
     return u;
   }
@@ -789,14 +839,13 @@ export class Game {
     return d.mv + (d.civilian ? 0 : movesBonus(this.effectsOf(this.players[owner]!), d.mounted === true));
   }
 
-  // A unit gone (with a commander, its army: lost with it).
+  // A unit gone.
   removeUnit(u: Unit): void {
     const i = this.units.indexOf(u);
     if (i >= 0) this.units.splice(i, 1);
     u.dead = true;
     // (A carrier lost at sea takes down the aircraft it had no more room for.)
     if (unitDef(u.type).carries && !this.cityByTile.has(u.tile)) for (const v of [...this.units]) if (v.tile === u.tile && v.owner === u.owner && domainOf(unitDef(v.type)) === 'air' && !this.canStand(v, v.tile)) this.removeUnit(v);
-    if (u.type === 'commander') for (const v of this.armyOf(u)) this.removeUnit(v);
   }
 
   // A paratrooper's drop: from its own city, with its moves whole, onto free
@@ -843,7 +892,7 @@ export class Game {
     const way = this.flightPath(u.tile, tile);
     for (const v of [...this.units]) {
       const reach = unitDef(v.type).aaRange;
-      if (!reach || v.owner === u.owner || !this.atWar(u.owner, v.owner) || v.packedIn !== null) continue;
+      if (!reach || v.owner === u.owner || !this.atWar(u.owner, v.owner)) continue;
       const near = this.tilesWithinMap(v.tile, reach);
       if (!way.some((t) => near.has(t))) continue;
       const after = fightRounds(v.hp, u.hp, this.unitStrength(v, 'ranged', 'atk', tile) * matchup(v.type, u.type, 'atk'), this.unitStrength(u, 'ranged', 'def', tile), 'ranged', this.rng);
@@ -886,6 +935,7 @@ export class Game {
     u.moves = 0;
     const hit = new Set<number>([...this.units.filter((v) => v.owner !== u.owner && this.tilesWithinMap(tile, R).has(v.tile)).map((v) => v.owner), ...[...this.cities].filter((c) => this.tilesWithinMap(tile, R).has(c.tile) && c.owner !== u.owner).map((c) => c.owner)]);
     for (const o of hit) if (!this.atWar(u.owner, o)) this.declareWar(u.owner, o);
+    for (const o of hit) this.remember(o, u.owner, 'nuked');
     this.onBattle?.(u, tile, 'sortie');
     if (!this.flak(u, tile) || !this.intercept(u, tile)) return;
     const zone = this.tilesWithinMap(tile, R);
@@ -906,58 +956,15 @@ export class Game {
     this.removeUnit(u);
   }
 
-  // ---- armies ----
-
-  // The units a commander could rally now: its owner's military units on
-  // its tile and the tiles next to it, while its army has room.
-  rallyable(c: Unit, only?: (u: Unit) => boolean): Unit[] {
-    if (c.type !== 'commander') return [];
-    const room = COMMANDER_CAPACITY - this.armyOf(c).length;
-    const nbs = new Set([c.tile, ...this.tiles[c.tile].neighbors]);
-    return this.units.filter((u) => u.owner === c.owner && u.packedIn === null && nbs.has(u.tile) && slotOf(u.type) === 'military' && u.type !== 'commander' && (!only || only(u))).slice(0, Math.max(0, room));
-  }
-
-  // The commander rallies every unit it can (`only`: of those): each marches in (its turn
-  // spent) and is carried from now on.
-  rally(c: Unit, only?: (u: Unit) => boolean): number {
-    const units = this.rallyable(c, only);
-    if (units.length) this.record('rally', c.owner, { commander: c.id, units: units.map((u) => u.type) });
-    for (const u of units) {
-      u.packedIn = c.id;
-      u.tile = c.tile;
-      u.moves = 0;
-      u.fortified = false;
-      u.goal = null;
-    }
-    return units.length;
-  }
-
-  // The commander deploys its army: one unit on its own tile, the others on
-  // the free tiles round it (each spends its turn); those with no room stay
-  // packed.
-  deploy(c: Unit): number {
-    this.record('deploy', c.owner, { commander: c.id });
-    let n = 0;
-    for (const u of this.armyOf(c)) {
-      const t = [c.tile, ...this.tiles[c.tile].neighbors].find((x) => this.relief[x] !== 'mountains' && !this.isEnemyOccupied(x, c.owner) && this.canStand(u, x));
-      if (t === undefined) break;
-      u.packedIn = null;
-      u.tile = t;
-      u.moves = 0;
-      n++;
-    }
-    return n;
-  }
-
   // A unit of `u`'s side and slot on the tile next to it that could swap
-  // places with it (both with moves left; neither packed).
+  // places with it (both with moves left).
   swapPartner(u: Unit, t: number): Unit | null {
     if (u.moves <= 0) return null;
     const slot = slotOf(u.type);
-    return this.units.find((v) => v.tile === t && v.packedIn === null && v.owner === u.owner && v !== u && slotOf(v.type) === slot && v.moves > 0) ?? null;
+    return this.units.find((v) => v.tile === t && v.owner === u.owner && v !== u && slotOf(v.type) === slot && v.moves > 0) ?? null;
   }
 
-  // Moves a unit one tile (its army with it).
+  // Moves a unit one tile.
   private step(u: Unit, t: number): void {
     // (A carrier at sea takes its aircraft with it; in port they stay in the city.)
     if (unitDef(u.type).carries && !this.cityByTile.has(u.tile)) for (const v of this.units) if (v.tile === u.tile && v.owner === u.owner && domainOf(unitDef(v.type)) === 'air') v.tile = t;
@@ -966,7 +973,6 @@ export class Game {
     u.job = null;
     this.onStep?.(u, u.tile, t);
     u.tile = t;
-    for (const v of this.armyOf(u)) { this.onStep?.(v, v.tile, t); v.tile = t; }
   }
 
   // (`mode`: how it attacks there, if it is an enemy's: unless told, attackModeFor.)
@@ -1015,9 +1021,7 @@ export class Game {
 
   // A unit's strength in an attack made so (`mode`), attacking or defending.
   unitStrength(u: Unit, mode: AttackMode, role: 'atk' | 'def', tile: number): number {
-    // (Under a commander's eye: where the unit stands, attacking from its own tile, defending on the tile struck.)
-    const led = u.type !== 'commander' && domainOf(unitDef(u.type)) === 'land' && this.commanded(u.owner, role === 'atk' ? u.tile : tile) ? COMMANDER_AURA : 0;
-    const fx = this.effectsOf(this.players[u.owner]!), combat = 1 + total(fx, 'combat') / 100 + led, stat = statOf(mode, role);
+    const fx = this.effectsOf(this.players[u.owner]!), combat = 1 + total(fx, 'combat') / 100, stat = statOf(mode, role);
     if (role === 'atk') return combatStrength(u.type, stat, u.hp, 0) * (combat + (this.cityByTile.has(tile) ? total(fx, 'vsCities') / 100 : 0));
     let bonus = this.defenseBonus(tile) + (this.ownerOf(tile) === u.owner ? total(fx, 'homeDefense') / 100 : 0);
     const city = this.cityByTile.get(tile);
@@ -1028,25 +1032,14 @@ export class Game {
     return combatStrength(u.type, stat, u.hp, bonus) * combat;
   }
 
-  // Whether one of a civ's commanders stands on a tile or next to it (COMMANDER_AURA).
-  private leaders: { key: string; of: Unit[] } = { key: '', of: [] };
-  commanded(owner: number, tile: number): boolean {
-    const key = `${this.units.length}|${this.nextId}`;
-    if (this.leaders.key !== key) this.leaders = { key, of: this.units.filter((c) => c.type === 'commander') };
-    for (const c of this.leaders.of) if (c.owner === owner && c.packedIn === null && !c.dead && (c.tile === tile || this.tiles[c.tile]!.neighbors.includes(tile))) return true;
-    return false;
-  }
-
   // The unit that defends a tile against an attack made so (the strongest against it).
   bestDefender(tile: number, attackerOwner: number, mode: AttackMode = 'melee'): Unit | null {
     let best: Unit | null = null, bestS = -1;
-    // (An army's units defend their commander, on its tile; the commander
-    // itself only once none is left.)
     for (const d of this.units) {
       // (Aircraft never defend a tile, nor ships in port.)
       const dom = domainOf(unitDef(d.type));
       if (d.tile !== tile || d.owner === attackerOwner || unitDef(d.type).civilian || dom === 'air' || (dom === 'sea' && !this.isWater(tile))) continue;
-      const s = this.unitStrength(d, mode, 'def', tile) + (d.type === 'commander' ? -1000 : 0);
+      const s = this.unitStrength(d, mode, 'def', tile);
       if (s > bestS) { best = d; bestS = s; }
     }
     return best;
@@ -1056,7 +1049,7 @@ export class Game {
   combatPreview(u: Unit, tile: number, mode: AttackMode = this.attackModeFor(u, tile)): CombatPreview | null {
     const d = this.bestDefender(tile, u.owner, mode);
     if (!d) return null;
-    return { atk: this.unitStrength(u, mode, 'atk', tile) * matchup(u.type, d.type, 'atk') * this.siegeEdge(u, tile) * this.faithEdge(u.owner, d.owner), def: this.unitStrength(d, mode, 'def', tile) * matchup(d.type, u.type, 'def'), defender: d, mode };
+    return { atk: this.unitStrength(u, mode, 'atk', tile) * matchup(u.type, d.type, 'atk') * this.siegeEdge(u, tile), def: this.unitStrength(d, mode, 'def', tile) * matchup(d.type, u.type, 'def'), defender: d, mode };
   }
 
   // (`mode`: by fire, or closing in: unless told, attackModeFor.)
@@ -1076,7 +1069,7 @@ export class Game {
     if (!d) this.onBattle?.(u, tile, style);
     if (d) {
       // (The counters: pikes against horse, a charge against archers...)
-      const A = this.unitStrength(u, mode, 'atk', tile) * matchup(u.type, d.type, 'atk') * this.siegeEdge(u, tile) * this.faithEdge(u.owner, d.owner);
+      const A = this.unitStrength(u, mode, 'atk', tile) * matchup(u.type, d.type, 'atk') * this.siegeEdge(u, tile);
       const D = this.unitStrength(d, mode, 'def', tile) * matchup(d.type, u.type, 'def');
       const before = { a: u.hp, d: d.hp };
       // (An aircraft striking troops is fired back on; a missile or a bomb is not: it is spent.)
@@ -1105,14 +1098,13 @@ export class Game {
     // by whoever walks in.
     const city = this.cityByTile.get(tile);
     if (ranged) return; // fire never moves in
-    // Civilians are captured and the attacker moves in (its army with it).
+    // Civilians are captured and the attacker moves in.
     for (const v of this.unitsAt(tile)) {
       if (v.owner === u.owner) continue;
       if (v.owner === HUMAN || u.owner === HUMAN) this.log(`${this.players[v.owner].name} ${unitDef(v.type).name} was captured.`);
       this.removeUnit(v);
     }
     u.tile = tile;
-    for (const v of this.armyOf(u)) v.tile = tile;
     if (city && city.owner !== u.owner) this.captureCity(city, u.owner);
   }
 
@@ -1130,22 +1122,6 @@ export class Game {
   cityStrength(c: City): number {
     const d = this.bestDefender(c.tile, -1, 'melee');
     return d ? this.unitStrength(d, 'melee', 'def', c.tile) : 0;
-  }
-  // What faith makes of an attack (religion.ts), by the two civs'
-  // religions: the same, the attacker fights with a bad conscience
-  // (FAITH_SAME); another, with zeal (FAITH_RIVAL). Either with none: nothing.
-  faithEdge(attacker: number, defender: number): number {
-    const a = this.faithOf(attacker), d = this.faithOf(defender);
-    return !a || !d ? 1 : a === d ? 1 - FAITH_SAME : 1 + FAITH_RIVAL;
-  }
-  // The civs of its own religion a civ is at war with (they trouble its people: HOLY_STRIFE).
-  private holyCache: { key: string; of: number[] } = { key: '', of: [] };
-  holyWars(id: number): number {
-    const key = `${this.faiths().key}|${this.diploVersion}`;
-    if (this.holyCache.key !== key) {
-      this.holyCache = { key, of: this.players.map((p) => { const f = this.faithOf(p.id); return f ? this.players.filter((o) => o.id !== p.id && o.alive && this.atWar(p.id, o.id) && this.faithOf(o.id) === f).length : 0; }) };
-    }
-    return this.holyCache.of[id] ?? 0;
   }
   // An engine against a garrison: built for it (SIEGE_VS_CITY over what
   // engines lose against units, so twice as strong as its attack says).
@@ -1205,6 +1181,7 @@ export class Game {
     this.cityById.delete(c.id);
     this.cityByTile.delete(c.tile);
     this.record('cityDestroyed', c.owner, { city: c.name, tile: c.tile });
+    if (c.founder !== c.owner) this.remember(c.founder, c.owner, 'razed');
     const owner = this.players[c.owner]!;
     if (owner.capital === c.id) owner.capital = this.cities.filter((x) => x.owner === owner.id).sort((a, b) => a.founded - b.founded)[0]?.id ?? null;
     for (const f of this.religions.values()) if (f.holyCity === c.id) f.holyCity = null;
@@ -1219,11 +1196,17 @@ export class Game {
     p.citiesFounded++;
     const city: City = { id: this.nextId++, name, owner: u.owner, tile: u.tile, pop: 1, food: 0, prod: 0,
       building: null, buildings: new Set(), founded: this.turn, focus: 'balanced', growth: 0, specialists: noSpecialists(), wonderTile: null, bought: 0,
-      hp: CITY_HP, founder: u.owner, razing: false, religion: null, devout: 0, blessed: false, culture: 0, ring: START_REACH };
+      hp: CITY_HP, founder: u.owner, razing: false, religions: new Set(), blessed: false, culture: 0, ring: START_REACH };
     this.cities.push(city);
     this.cityById.set(city.id, city);
     this.cityByTile.set(city.tile, city);
     this.tileCity[city.tile] = city.id;
+    // (What was built on its tile is built over: the improvement, work begun, a fort.)
+    const at = city.tile;
+    this.improved[at] = this.underway[at] = -1;
+    this.buildLeft[at] = this.pillaged[at] = this.fortLeft[at] = this.roadLeft[at] = 0;
+    if (this.fort[at]) { this.fort[at] = 0; this.fortVersion++; }
+    for (const w of this.units) if (w.work === at) { w.work = null; w.job = null; }
     this.setUse(city.tile, USE.center);
     this.claimTerritory(city);
     this.removeUnit(u);
@@ -1231,7 +1214,7 @@ export class Game {
       p.capital = city.id;
       if (p.firstCapital === null) p.firstCapital = city.id;
       // (A religion founded before it had a city: its holy city now.)
-      for (const [r, f] of this.religions) if (f.founder === p.id && f.holyCity === null) { f.holyCity = city.id; city.religion = r; }
+      for (const [r, f] of this.religions) if (f.founder === p.id && f.holyCity === null) { f.holyCity = city.id; city.religions.add(r); }
     }
     this.record('cityFounded', p.id, { city: name, tile: city.tile, capital: p.capital === city.id });
     if (p.isHuman) this.log(`Founded ${name}.`);
@@ -1272,6 +1255,7 @@ export class Game {
         }
         this.useVersion++;
         this.record('tileFlipped', c.owner, { tile: t, from: o.owner, city: c.name });
+        this.remember(o.owner, c.owner, 'borderFlip');
         if (o.owner === HUMAN) this.log(`${c.name}'s culture took a tile from ${o.name}.`);
         else if (c.owner === HUMAN) this.log(`${c.name}'s culture won a tile from ${o.name}.`);
       }
@@ -1320,29 +1304,35 @@ export class Game {
     return true;
   }
 
-  private captureCity(city: City, newOwner: number): void {
+  // A city changes hands: taken (plundered, a citizen lost, its temples and barracks gone), or `ceded` in a deal (whole).
+  private captureCity(city: City, newOwner: number, ceded = false): void {
     const old = this.players[city.owner];
     const p = this.players[newOwner];
-    this.record('cityCaptured', newOwner, { city: city.name, from: city.owner, tile: city.tile });
+    this.record(ceded ? 'cityCeded' : 'cityCaptured', newOwner, { city: city.name, from: city.owner, tile: city.tile });
     // (Its plunder.)
-    if (old && p) { const loot = plunder(city.pop); old.gold = Math.max(0, old.gold - loot); p.gold += loot; }
+    if (old && p && !ceded) { const loot = plunder(city.pop); old.gold = Math.max(0, old.gold - loot); p.gold += loot; }
+    // (What it remembers: a city taken from it; a city of its own founding given back.)
+    if (!ceded) this.remember(old.id, newOwner, 'tookCity');
+    else if (city.founder === newOwner) this.remember(newOwner, old.id, 'liberated');
+    // (Ceded: the old owner's units in it march out.)
+    if (ceded) for (const u of this.units.filter((x) => x.tile === city.tile && x.owner === old.id)) { const home = this.cities.find((c) => c.owner === old.id && c !== city); const t = home ? this.freeTileNear(u.type, u.owner, home.tile, 4) : null; if (t !== null) u.tile = t; else this.removeUnit(u); }
     city.ring = Math.min(city.ring, borderRing(city.culture));
     if (old && old.capital === city.id) old.capital = this.cities.filter((c) => c.owner === old.id && c !== city).sort((a, b) => a.founded - b.founded)[0]?.id ?? null;
     if (p && p.capital === null) p.capital = city.id;
     city.owner = newOwner;
     city.razing = false;
-    if (city.pop > 1) this.removeCitizen(city);
+    if (city.pop > 1 && !ceded) this.removeCitizen(city);
     city.growth = 0;
     city.wonderTile = null;
     // Temples and garrisons do not survive a conquest; the rest change hands.
-    for (const b of [...city.buildings]) if (CITY_BUILDINGS[b].lostOnCapture) this.removeBuilding(city, b);
+    if (!ceded) for (const b of [...city.buildings]) if (CITY_BUILDINGS[b].lostOnCapture) this.removeBuilding(city, b);
     this.useVersion++;
     city.food = 0;
     city.prod = 0;
     // (Nothing chosen for the player: what a new city builds is theirs to say, and they are asked.)
     city.building = null;
     if (newOwner === HUMAN || old.id === HUMAN || this.explored[city.tile]) {
-      this.log(`${p.name} captured ${city.name} from ${old.name}!`);
+      this.log(ceded ? `${old.name} ceded ${city.name} to ${p.name}.` : `${p.name} captured ${city.name} from ${old.name}!`);
     }
     this.checkElimination();
   }
@@ -1552,22 +1542,18 @@ export class Game {
 
   // ---------- workers ----------
 
-  // The tiles a worker could improve: its own, and (fishing boats) the
-  // water next to it.
-  improveTiles(u: Unit): number[] {
-    return this.isWater(u.tile) ? [] : [u.tile, ...this.tiles[u.tile].neighbors.filter((n) => this.isWater(n))];
-  }
+  // The tiles a worker could improve: the one it stands on, land or (embarked: fishing boats, an offshore well) water.
+  improveTiles(u: Unit): number[] { return [u.tile]; }
   // Why worker u can't improve tile t now (null: it can). `started`: it is
   // already at work there (its moves don't matter).
   improveBlock(u: Unit, t: number, started = false): string | null {
     if (!unitDef(u.type).improves) return 'Only workers improve the land.';
-    if (u.packedIn !== null || !this.improveTiles(u).includes(t)) return 'Out of reach.';
+    if (!this.improveTiles(u).includes(t)) return 'A worker improves the tile it stands on.';
     if (!started && u.moves <= 0) return 'No moves left.';
     if (this.ownerOf(t) !== u.owner) return 'Not your land.';
     if (this.use[t] === USE.center || this.wondersAt(t).length) return 'Nothing to build here.';
     const k = this.improvementAt(t, u.owner);
-    // (Water is worked from the shore: boats, an offshore well.)
-    if (!k || (t !== u.tile && !this.isWater(t))) return 'Nothing to build here.';
+    if (!k) return 'Nothing to build here.';
     // (Pillaged: it mends it, as often as it takes.)
     if (this.builtAt(t) === k) return this.pillaged[t] ? null : 'Already improved.';
     const need = this.improvementTech(u.owner, k);
@@ -1579,7 +1565,7 @@ export class Game {
   roadBlock(u: Unit, started = false): string | null {
     const t = u.tile;
     if (!unitDef(u.type).improves) return 'Only workers lay roads.';
-    if (u.packedIn !== null || this.isWater(t) || this.relief[t] === 'mountains') return 'No road can run here.';
+    if (this.isWater(t) || this.relief[t] === 'mountains') return 'No road can run here.';
     if (!started && u.moves <= 0) return 'No moves left.';
     if (this.hasRoad(t)) return 'A road runs here already.';
     const o = this.ownerOf(t);
@@ -1592,7 +1578,7 @@ export class Game {
   fortBlock(u: Unit, started = false): string | null {
     const t = u.tile;
     if (!unitDef(u.type).improves) return 'Only workers build forts.';
-    if (u.packedIn !== null || this.isWater(t) || this.relief[t] === 'mountains') return 'No fort can stand here.';
+    if (this.isWater(t) || this.relief[t] === 'mountains') return 'No fort can stand here.';
     if (this.use[t] === USE.center || this.wondersAt(t).length) return 'No fort can stand here.';
     if (this.fort[t]) return 'A fort stands here already.';
     const o = this.ownerOf(t);
@@ -1645,18 +1631,18 @@ export class Game {
     const need = STAGE_TECHS(k)[0];
     return need && !this.players[owner]!.techs.has(need) ? need : null;
   }
-  // How many of its tiles civ `owner` could improve now (land, not improved
-  // yet, its techs knowing how; and `keep` them).
+  // How many of its tiles civ `owner` could improve now (not improved yet,
+  // its techs knowing how, the water once its workers can embark; and `keep` them).
   openWork(owner: number, keep: (t: number) => boolean = () => true): number {
     let n = 0;
     for (let t = 0; t < this.N; t++) {
-      if (this.ownerOf(t) !== owner || this.isWater(t) || this.use[t] === USE.center || !keep(t)) continue;
+      if (this.ownerOf(t) !== owner || (this.isWater(t) && !this.canEnter({ type: 'worker', owner }, t)) || this.use[t] === USE.center || !keep(t)) continue;
       const k = this.improvementAt(t, owner);
-      if (k && k !== 'boats' && this.builtAt(t) !== k && !this.wondersAt(t).length && !this.improvementTech(owner, k)) n++;
+      if (k && this.builtAt(t) !== k && !this.wondersAt(t).length && !this.improvementTech(owner, k)) n++;
     }
     return n;
   }
-  // The tile the worker would improve (its own first), or null.
+  // The tile the worker would improve (its own), or null.
   improveTarget(u: Unit): number | null {
     return this.improveTiles(u).find((t) => this.improveBlock(u, t) === null) ?? null;
   }
@@ -1788,16 +1774,23 @@ export class Game {
     const p = this.players[city.owner]!, fx = this.effectsOf(p);
     if (p.capital === city.id) sum = addOut(addOut(sum, out(PALACE)), flat(fx, 'capital'));
     else if (this.roadLinked(city)) sum = addOut(sum, connectionBonus(city.pop));
-    if (city.religion) sum = addOut(sum, flat(religionDef(city.religion).follower, 'follower'));
+    sum = addOut(sum, this.religionYield(city));
     let strife = 0;
     if (p.dishonor > 0) strife += TRUCE_BREAK;
-    // (At war with civs of its own religion: the cities that follow it are troubled.)
-    if (city.religion && city.religion === this.faithOf(p.id)) strife += HOLY_STRIFE[Math.min(HOLY_STRIFE.length - 1, this.holyWars(p.id))]!;
+    // (Its state's religion changed of late: its people unsettled.)
+    if (p.conversion > 0) strife += CONVERSION_COST;
     if (strife) sum = { ...sum, cohesion: sum.cohesion * (1 - Math.min(0.9, strife)) };
     // (In arrears: what it could not pay of its upkeep, its cities make less by, in production, science and culture.)
     const paid = (y: keyof Output) => (y === 'prod' || y === 'science' || y === 'culture' ? 1 - p.arrears : 1);
     sum = out(Object.fromEntries(OUTPUT_KEYS.map((y) => [y, Math.max(0, Math.floor(sum[y] * paid(y) * (100 + yieldBonus(fx, y)) / 100))])));
     return { ...sum, surplus: sum.food - FOOD_PER_CITIZEN * city.pop };
+  }
+
+  // What a city's religions give it, by its civ's state (religion.ts): under a state religion, STATE_BONUS if it
+  // holds that one; in a secular state, SECULAR_BONUS for each it holds past its first.
+  religionYield(city: City, state: ReligionKey | null = this.players[city.owner]!.stateReligion): Output {
+    if (state) return city.religions.has(state) ? out(STATE_BONUS) : ZERO;
+    return scaleOut(out(SECULAR_BONUS), Math.max(0, city.religions.size - 1));
   }
 
   // A city's yields taken apart, for the panels (cityYields is the rule;
@@ -1821,7 +1814,7 @@ export class Game {
     }
     const capital = p.capital === city.id ? addOut(out(PALACE), flat(fx, 'capital')) : ZERO;
     const roads = p.capital !== city.id && this.roadLinked(city) ? connectionBonus(city.pop) : ZERO;
-    const religion = city.religion ? flat(religionDef(city.religion).follower, 'follower') : ZERO;
+    const religion = this.religionYield(city);
     const { surplus: _, ...total } = this.cityYields(city);
     return { land, center, buildings, wonders, specialists, capital, roads, religion, total };
   }
@@ -1968,7 +1961,7 @@ export class Game {
     if (isWonder(key)) return !this.wondersBuilt.has(key) && this.wonderRoom(city) && (this.wonderSpots(city, key).length > 0 || city.wonderTile !== null && city.building === key);
     if (key === 'walls' && this.wallsObsolete(city.owner)) return false;
     const need = CITY_BUILDINGS[key].resource;
-    return (!need || anyResource || this.hasResource(p.id, need)) && buildingAllowed(key, city.buildings, this.cityRiver(city), this.cityCoast(city));
+    return (!need || anyResource || this.hasResource(p.id, need)) && buildingAllowed(key, city.buildings, this.cityRiver(city), this.cityCoast(city), city.religions);
   }
 
   private processCity(city: City): void {
@@ -2104,6 +2097,9 @@ export class Game {
     };
     for (const k of p.techs) add(techDef(k));
     for (const k of p.politics) add(politicsDef(k));
+    // (Each religion's buildings: a city that holds it builds them, offers.)
+    if (p.techs.has(TEMPLE_TECH)) for (const k of TEMPLE_KEYS) out.add(k);
+    if (p.techs.has(CATHEDRAL_TECH)) for (const k of CATHEDRAL_KEYS) out.add(k);
     return out;
   }
   governmentsOf(p: Player): GovernmentKey[] {
@@ -2118,7 +2114,7 @@ export class Game {
     if (isUnitKey(key)) {
       if (key === 'settler') return ['settler'];
       const d = unitDef(key);
-      if (d.civilian || key === 'commander' || key === 'scout') return [];
+      if (d.civilian || key === 'scout') return [];
       const out: ProdTarget[] = ['military', d.siege ? 'siege' : isShooter(key) ? 'ranged' : d.mounted ? 'mounted' : 'melee'];
       return out;
     }
@@ -2180,12 +2176,18 @@ export class Game {
 
   // ---------- trade ----------
 
+  // Whether open borders stand between two civs, a defensive pact; whether either has sworn off trading with the other.
+  openBorders(a: number, b: number): boolean { return this.deals.some((t) => between(t, a, b) && t.give.some((i) => i.k === 'openBorders')); }
+  pact(a: number, b: number): boolean { return this.deals.some((t) => between(t, a, b) && t.give.some((i) => i.k === 'pact')); }
+  embargoed(a: number, b: number): boolean {
+    return this.deals.some((t) => (partyTo(t, a) && givenBy(t, a).some((i) => i.k === 'embargo' && i.civ === b)) || (partyTo(t, b) && givenBy(t, b).some((i) => i.k === 'embargo' && i.civ === a)));
+  }
   // What its deals bring it, and what it sends away (one entry a deal).
   imports(owner: number): ResourceKey[] {
-    return this.deals.flatMap((d) => { const [a, b] = d.sides; const from = a.civ === owner ? b : b.civ === owner ? a : null; return from?.resource ? [from.resource] : []; });
+    return this.deals.flatMap((t) => (partyTo(t, owner) ? givenBy(t, t.a === owner ? t.b : t.a).flatMap((i) => (i.k === 'resource' ? [i.resource] : [])) : []));
   }
   exports(owner: number): ResourceKey[] {
-    return this.deals.flatMap((d) => d.sides.filter((s) => s.civ === owner && s.resource).map((s) => s.resource!));
+    return this.deals.flatMap((t) => givenBy(t, owner).flatMap((i) => (i.k === 'resource' ? [i.resource] : [])));
   }
   // The copies it could still trade away: past the one it keeps and those already sent.
   spareResources(owner: number): Map<ResourceKey, number> {
@@ -2196,9 +2198,9 @@ export class Game {
     }
     return out;
   }
-  // Whether two civs may trade: met, at peace, both alive.
+  // Whether two civs may trade: met, at peace, both alive, no embargo between them.
   canTrade(a: number, b: number): boolean {
-    return a !== b && this.players[a]!.alive && this.players[b]!.alive && !!this.met[a]![b] && !this.atWar(a, b);
+    return a !== b && this.players[a]!.alive && this.players[b]!.alive && !!this.met[a]![b] && !this.atWar(a, b) && !this.embargoed(a, b);
   }
   // What `from` could give `to`: a spare copy of something `to` has
   // revealed (a strategic) and lacks.
@@ -2206,81 +2208,245 @@ export class Game {
     const has = this.availableResources(to), techs = this.players[to]!.techs;
     return [...this.spareResources(from).keys()].filter((r) => !has.has(r) && (!resourceDef(r).reveal || techs.has(resourceDef(r).reveal!)));
   }
-  // Why a deal can't be made now, or null.
-  dealBlock(sides: readonly [DealSide, DealSide]): string | null {
-    const [a, b] = sides;
-    if (!this.canTrade(a.civ, b.civ)) return 'Only civilizations at peace can trade.';
-    if (!a.resource && !b.resource && !a.gold && !b.gold) return 'Nothing is traded.';
-    if (a.gold < 0 || b.gold < 0) return 'Gold is given, not taken.';
-    for (const [s, o] of [[a, b], [b, a]] as const) {
-      if (s.resource && !this.tradeable(s.civ, o.civ).includes(s.resource)) return `The ${this.players[s.civ]!.name} have no spare ${resourceDef(s.resource).name} the ${this.players[o.civ]!.name} could use.`;
-      if (s.gold > this.players[s.civ]!.gold + this.goldRate(s.civ)) return `The ${this.players[s.civ]!.name} cannot pay ${s.gold} gold a turn.`;
-    }
-    return null;
-  }
   // A civ's gold a turn, last turn, before its deals.
   goldRate(owner: number): number {
     const l = this.players[owner]!.ledger;
     return Math.max(0, Math.floor(l.income.gold + l.tithes - l.cityUpkeep - l.unitUpkeep));
   }
-  // Proposes a deal (sides[0]: the proposer): a computer answers at once
-  // (ai.ts), the human in the diplomacy panel. Whether it was signed (or offered).
-  proposeDeal(sides: readonly [DealSide, DealSide]): boolean {
-    if (this.dealBlock(sides) !== null) return false;
-    const [from, to] = sides;
-    const deal: Deal = { sides, until: this.turn + DEAL_TURNS };
-    if (this.players[to.civ]!.isHuman) {
-      if (this.dealOffers.some((d) => d.sides[0].civ === from.civ)) return false;
-      this.dealOffers.push(deal);
-      this.log(`The ${this.players[from.civ]!.name} offer a trade (Diplomacy).`);
-      return true;
+  // Why civ `giver` can't give item i to civ `taker` now, or null.
+  itemBlock(giver: number, taker: number, i: Item): string | null {
+    const G = this.players[giver]!, T = this.players[taker]!;
+    const third = (x: number): string | null => (x === giver || x === taker || !this.players[x]?.alive ? 'No such civilization.' : !this.met[giver]![x] ? `The ${G.name} have not met the ${this.players[x]!.name}.` : null);
+    switch (i.k) {
+      case 'gold': case 'goldPerTurn': return Number.isInteger(i.n) && i.n > 0 ? null : 'Gold is given, not taken.';
+      case 'resource': return this.tradeable(giver, taker).includes(i.resource) ? null : `The ${G.name} have no spare ${resourceDef(i.resource).name} the ${T.name} could use.`;
+      case 'tech':
+        if (!G.techs.has(i.tech) || T.techs.has(i.tech)) return `${techDef(i.tech).name} is not the ${G.name}' to teach the ${T.name}.`;
+        return techDef(i.tech).needs.every((n) => T.techs.has(n)) ? null : `The ${T.name} lack what ${techDef(i.tech).name} rests on.`;
+      case 'map': return null;
+      case 'city': { const c = this.cityById.get(i.city); return !c || c.owner !== giver ? 'Not their city.' : G.capital === c.id ? 'A capital is not given away.' : c.razing ? 'It is burning.' : null; }
+      case 'warOn': return third(i.civ) ?? (this.atWar(giver, i.civ) ? `The ${G.name} are at war with the ${this.players[i.civ]!.name} already.` : this.pact(giver, i.civ) ? `The ${G.name} are sworn to defend the ${this.players[i.civ]!.name}.` : this.truceLeft(giver, i.civ) > 0 ? `A truce binds the ${G.name} and the ${this.players[i.civ]!.name}.` : null);
+      case 'peaceWith': {
+        const why = third(i.civ);
+        if (why) return why;
+        if (!this.canMakePeace(giver, i.civ)) return `The ${G.name} and the ${this.players[i.civ]!.name} cannot make peace now.`;
+        // (The third civ must want it too: the computer's is asked; the player's is the player's to make.)
+        return this.players[i.civ]!.isHuman ? `Peace with the ${this.players[i.civ]!.name} is theirs to make.` : aiAcceptsPeace(this, this.players[i.civ]!, giver) ? null : `The ${this.players[i.civ]!.name} will not make peace.`;
+      }
+      case 'convert': return G.stateReligion === i.religion ? 'It is their state religion already.' : this.stateBlock(G, i.religion);
+      case 'openBorders': return this.openBorders(giver, taker) ? 'Your borders are open to each other already.' : null;
+      case 'pact': return this.pact(giver, taker) ? 'You are sworn to each other already.' : this.players.some((o) => o.alive && (this.atWar(giver, o.id) || this.atWar(taker, o.id))) ? 'A pact is sworn in peace: not while either is at war.' : null;
+      case 'embargo': return third(i.civ) ?? (this.deals.some((t) => givenBy(t, giver).some((x) => x.k === 'embargo' && x.civ === i.civ)) ? `The ${G.name} have sworn off that trade already.` : null);
     }
-    if (!aiAcceptsDeal(this, this.players[to.civ]!, sides)) return false;
-    this.signDeal(deal);
-    return true;
   }
-  // The human answers an offer.
-  answerDeal(i: number, yes: boolean): boolean {
-    const d = this.dealOffers[i];
-    if (!d) return false;
+  // Why an offer can't be made now, or null.
+  offerBlock(o: Offer): string | null {
+    const A = this.players[o.from], B = this.players[o.to];
+    if (!A || !B || o.from === o.to || !A.alive || !B.alive || !this.met[o.from]![o.to]) return 'You have not met.';
+    const items = [...o.give, ...o.get];
+    if (o.peace) {
+      if (!this.atWar(o.from, o.to)) return 'You are not at war.';
+      if (!this.canMakePeace(o.from, o.to)) return `Peace can be made once a war has lasted ${MIN_WAR} turns.`;
+      if (items.some(isLasting)) return 'A peace is settled at once: nothing in it runs for turns.';
+    } else {
+      if (this.atWar(o.from, o.to)) return 'At war, only a peace can be agreed.';
+      if (!items.length) return 'Nothing is traded.';
+      if (this.embargoed(o.from, o.to) && items.some((i) => i.k === 'resource' || i.k === 'goldPerTurn')) return 'An embargo stands between you.';
+    }
+    if (items.some(isLasting) && items.some((i) => !isLasting(i))) return 'A deal is either settled at once or runs for turns: the two are not mixed.';
+    for (const [giver, taker, list, back] of [[o.from, o.to, o.give, o.get], [o.to, o.from, o.get, o.give]] as const) {
+      let gold = 0, rate = 0;
+      for (let n = 0; n < list.length; n++) {
+        const i = list[n]!;
+        if (list.findIndex((x) => sameItem(x, i)) !== n) return 'The same thing is in it twice.';
+        const why = this.itemBlock(giver, taker, i);
+        if (why) return why;
+        if (isMutual(i) && !back.some((x) => x.k === i.k)) return `${i.k === 'pact' ? 'A defensive pact' : 'Open borders'} binds both sides.`;
+        if (i.k === 'gold') gold += i.n;
+        if (i.k === 'goldPerTurn') rate += i.n;
+      }
+      if (gold > this.players[giver]!.gold) return `The ${this.players[giver]!.name} do not have ${gold} gold.`;
+      if (rate > this.players[giver]!.gold + this.goldRate(giver)) return `The ${this.players[giver]!.name} cannot pay ${rate} gold a turn.`;
+    }
+    return null;
+  }
+  // Proposes a deal: a computer civ answers at once (diplomacy.ts: by how
+  // the deal balances for it and what it thinks of the proposer), the
+  // human in the Diplomacy sheet.
+  propose(o: Offer): 'blocked' | 'declined' | 'offered' | 'signed' {
+    if (this.offerBlock(o) !== null) return 'blocked';
+    this.record('tradeProposed', o.from, { to: o.to, give: o.give, get: o.get, peace: o.peace === true, demand: o.demand === true });
+    if (this.players[o.to]!.isHuman) {
+      if (this.dealOffers.some((d) => d.from === o.from)) return 'declined';
+      this.dealOffers.push(o);
+      this.log(`The ${this.players[o.from]!.name} ${o.demand ? 'make a demand' : o.peace ? 'offer peace, with terms' : 'offer a deal'} (Diplomacy).`);
+      return 'offered';
+    }
+    if (!aiAnswers(this, o)) return 'declined';
+    this.sign(o);
+    return 'signed';
+  }
+  // The human answers an offer. (A demand refused is remembered.)
+  answerOffer(i: number, yes: boolean): boolean {
+    const o = this.dealOffers[i];
+    if (!o) return false;
     this.dealOffers.splice(i, 1);
-    if (!yes || this.dealBlock(d.sides) !== null) return false;
-    this.signDeal({ ...d, until: this.turn + DEAL_TURNS });
+    if (!yes) { if (o.demand) this.remember(o.from, o.to, 'demandRefused'); return false; }
+    if (this.offerBlock(o) !== null) return false;
+    this.sign(o);
     return true;
   }
-  private signDeal(d: Deal): void {
-    this.deals.push(d);
-    const [a, b] = d.sides;
-    this.record('trade', a.civ, { with: b.civ, gives: a.resource, gold: a.gold, gets: b.resource, theirGold: b.gold, until: d.until });
-    if (a.civ === HUMAN || b.civ === HUMAN) this.log(`Trade with the ${this.players[a.civ === HUMAN ? b.civ : a.civ]!.name} signed, for ${DEAL_TURNS} turns.`);
+  private sign(o: Offer): void {
+    const A = this.players[o.from]!, B = this.players[o.to]!;
+    this.record('trade', o.from, { with: o.to, give: o.give, get: o.get, peace: o.peace === true });
+    noteDeal(this, o);
+    const said = (list: readonly Item[]) => (list.length ? list.map((i) => itemText(this, i)).join(', ') : 'nothing');
+    if (A.isHuman || B.isHuman) this.log(`Deal with the ${(A.isHuman ? B : A).name} signed: you give ${said(A.isHuman ? o.give : o.get)}; you get ${said(A.isHuman ? o.get : o.give)}.`);
+    if (o.peace) this.makePeace(o.from, o.to);
+    if ([...o.give, ...o.get].some(isLasting)) {
+      this.deals.push({ a: o.from, b: o.to, give: o.give as readonly LastingItem[], get: o.get as readonly LastingItem[], since: this.turn, until: this.turn + DEAL_TURNS });
+      // (An embargo sworn: its deals with that civ end.)
+      for (const [s, list] of [[o.from, o.give], [o.to, o.get]] as const) for (const i of list) if (i.k === 'embargo') for (const t of this.deals.filter((x) => between(x, s, i.civ))) this.endDeal(t, 'an embargo');
+      this.diploVersion++;
+      return;
+    }
+    for (const [giver, taker, list] of [[o.from, o.to, o.give], [o.to, o.from, o.get]] as const) for (const i of list) this.settle(giver, taker, i);
+    this.diploVersion++;
   }
-  private endDeal(d: Deal, why: string): void {
-    const i = this.deals.indexOf(d);
+  // A thing settled at once: handed over, or done.
+  private settle(giver: number, taker: number, i: Item): void {
+    const G = this.players[giver]!, T = this.players[taker]!;
+    switch (i.k) {
+      case 'gold': { const n = Math.min(i.n, G.gold); G.gold -= n; T.gold += n; break; }
+      case 'tech': if (!T.techs.has(i.tech)) { T.bought.add(i.tech); this.learn(T, i.tech); } break;
+      case 'map': {
+        const from = this.known[giver]!, to = this.known[taker]!;
+        for (let t = 0; t < this.N; t++) if (from[t]) to[t] = 1;
+        for (let o = 0; o < this.players.length; o++) if (this.met[giver]![o] && o !== taker && this.players[o]!.alive) this.met[taker]![o] = this.met[o]![taker] = 1;
+        break;
+      }
+      case 'city': { const c = this.cityById.get(i.city); if (c && c.owner === giver) this.captureCity(c, taker, true); break; }
+      case 'warOn': if (!this.atWar(giver, i.civ)) { this.declareWar(giver, i.civ); this.remember(taker, giver, 'joinedWar'); } break;
+      case 'peaceWith': this.makePeace(giver, i.civ); break;
+      case 'convert': if (this.setStateReligion(G, i.religion)) this.remember(taker, giver, 'converted'); break;
+      default: break;
+    }
+  }
+  private endDeal(t: Treaty, why: string): void {
+    const i = this.deals.indexOf(t);
     if (i < 0) return;
     this.deals.splice(i, 1);
-    const [a, b] = d.sides;
-    this.record('tradeEnded', a.civ, { with: b.civ, why });
-    if (a.civ === HUMAN || b.civ === HUMAN) this.log(`Trade with the ${this.players[a.civ === HUMAN ? b.civ : a.civ]!.name} ended: ${why}.`);
+    this.diploVersion++;
+    this.record('tradeEnded', t.a, { with: t.b, why });
+    if (t.a === HUMAN || t.b === HUMAN) this.log(`A deal with the ${this.players[t.a === HUMAN ? t.b : t.a]!.name} ended: ${why}.`);
   }
-  // Each turn: deals that ran out, lost their goods or their peace end; the gold is paid.
+  // Either side ends a lasting deal once it has run DEAL_MIN turns.
+  canCancel(t: Treaty): boolean { return this.deals.includes(t) && this.turn - t.since >= DEAL_MIN; }
+  cancelTreaty(t: Treaty, by: number): boolean {
+    if (!partyTo(t, by) || !this.canCancel(t)) return false;
+    this.endDeal(t, `the ${this.players[by]!.name} ended it`);
+    return true;
+  }
+  // Each turn: deals that ran out, lost their goods or their peace end; the gold is paid; what trade does for regard grows.
   private settleDeals(): void {
-    for (const d of [...this.deals]) {
-      const [a, b] = d.sides;
-      if (this.turn >= d.until) { this.endDeal(d, 'its term is over'); continue; }
-      if (!this.canTrade(a.civ, b.civ)) { this.endDeal(d, 'no longer at peace'); continue; }
-      const lost = d.sides.find((s) => s.resource && (this.resourceCopies(s.civ).get(s.resource) ?? 0) <= this.exports(s.civ).filter((x) => x === s.resource).length);
-      if (lost) { this.endDeal(d, `the ${this.players[lost.civ]!.name} lost their spare ${resourceDef(lost.resource!).name}`); continue; }
-      const broke = d.sides.find((s) => s.gold > this.players[s.civ]!.gold);
-      if (broke) { this.endDeal(d, `the ${this.players[broke.civ]!.name} could not pay`); continue; }
-      for (const [s, o] of [[a, b], [b, a]] as const) {
-        this.players[s.civ]!.gold -= s.gold;
-        this.players[o.civ]!.gold += s.gold;
-      }
+    for (const t of [...this.deals]) {
+      const A = this.players[t.a]!, B = this.players[t.b]!;
+      if (this.turn >= t.until) { this.endDeal(t, 'its term is over'); continue; }
+      if (!A.alive || !B.alive || this.atWar(t.a, t.b)) { this.endDeal(t, 'no longer at peace'); continue; }
+      const goods = [...t.give, ...t.get].some((i) => i.k === 'resource' || i.k === 'goldPerTurn');
+      if (goods && this.embargoed(t.a, t.b)) { this.endDeal(t, 'an embargo'); continue; }
+      const lost = ([[t.a, t.give], [t.b, t.get]] as const).find(([s, list]) => list.some((i) => i.k === 'resource' && (this.resourceCopies(s).get(i.resource) ?? 0) <= this.exports(s).filter((x) => x === i.resource).length));
+      if (lost) { this.endDeal(t, `the ${this.players[lost[0]]!.name} lost their spare goods`); continue; }
+      const rate = (list: readonly LastingItem[]) => list.reduce((n, i) => n + (i.k === 'goldPerTurn' ? i.n : 0), 0);
+      const ra = rate(t.give), rb = rate(t.get);
+      if (ra > A.gold || rb > B.gold) { this.endDeal(t, `the ${(ra > A.gold ? A : B).name} could not pay`); continue; }
+      A.gold += rb - ra;
+      B.gold += ra - rb;
+      if (goods) { this.remember(t.a, t.b, 'trade'); this.remember(t.b, t.a, 'trade'); }
     }
   }
   // Its net gold a turn from deals.
   dealGold(owner: number): number {
-    return this.deals.reduce((n, d) => n + d.sides.reduce((m, s) => m + (s.civ === owner ? -s.gold : d.sides.some((x) => x.civ === owner) ? s.gold : 0), 0), 0);
+    let n = 0;
+    for (const t of this.deals) {
+      if (!partyTo(t, owner)) continue;
+      const mine = givenBy(t, owner), theirs = givenBy(t, t.a === owner ? t.b : t.a);
+      for (const i of theirs) if (i.k === 'goldPerTurn') n += i.n;
+      for (const i of mine) if (i.k === 'goldPerTurn') n -= i.n;
+    }
+    return n;
+  }
+
+  // ---------- what civs remember of each other ----------
+
+  // Civ `of` remembers a thing of civ `about` (diplomacy.ts MEMOS): `times` instances of it, up to its most.
+  remember(of: number, about: number, key: MemoKey, times = 1): void {
+    if (of === about || of < 0 || about < 0 || !this.memos[of]?.[about]) return;
+    const d = MEMOS[key], m = this.memos[of]![about]!, v = (m[key] ?? 0) + d.each * times;
+    m[key] = d.each > 0 ? Math.min(d.most, v) : Math.max(d.most, v);
+    this.memoVersion++;
+  }
+  memoVersion = 0; // (bumped whenever something is remembered)
+  // A turn passes: what is remembered fades; peace and a shared enemy add up.
+  private fadeMemos(): void {
+    const n = this.players.length;
+    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
+      if (a === b) continue;
+      const m = this.memos[a]![b]!;
+      for (const k of MEMO_KEYS) {
+        const v = m[k];
+        if (!v) continue;
+        const step = 1 / MEMOS[k].fade, next = v > 0 ? Math.max(0, v - step) : Math.min(0, v + step);
+        if (next === 0) delete m[k]; else m[k] = next;
+      }
+      if (!this.players[a]!.alive || !this.players[b]!.alive || !this.met[a]![b]) continue;
+      if (this.atWar(a, b)) { delete m.peace; continue; }
+      this.remember(a, b, 'peace');
+      if (this.players.some((o) => o.alive && o.id !== a && o.id !== b && this.atWar(a, o.id) && this.atWar(b, o.id))) this.remember(a, b, 'sharedWar');
+    }
+  }
+  // Fighting units left on land that has closed to them (a deal ended, a border grown over them, a peace made) go home.
+  private expel(): void {
+    for (const u of this.units) {
+      if (unitDef(u.type).civilian || domainOf(unitDef(u.type)) === 'air' || !this.closedTo(u.owner, u.tile)) continue;
+      const t = this.freeTileNear(u.type, u.owner, u.tile, 8) ?? (() => { const home = this.cities.find((c) => c.owner === u.owner); return home ? this.freeTileNear(u.type, u.owner, home.tile, 4) : null; })();
+      if (t !== null) { u.tile = t; u.goal = null; u.work = null; u.job = null; }
+    }
+  }
+
+  // ---------- the United Nations ----------
+
+  // A civ's votes: a vote a citizen.
+  unVotes(id: number): number { return this.cities.reduce((n, c) => n + (c.owner === id ? c.pop : 0), 0); }
+  // The two civs the council votes between: those with the most votes.
+  unCandidates(): [number, number] | null {
+    const by = this.players.filter((p) => p.alive).map((p) => ({ id: p.id, v: this.unVotes(p.id) })).sort((a, b) => b.v - a.v || a.id - b.id);
+    return by.length >= 2 ? [by[0]!.id, by[1]!.id] : null;
+  }
+  // The player's vote as it stands, between two candidates.
+  ballotFor(candidates: readonly [number, number]): number | null {
+    return this.ballot !== null && this.ballot !== HUMAN && candidates.includes(this.ballot) ? this.ballot : null;
+  }
+  // The votes a candidate needs: UN_SHARE of everyone's but its own.
+  unNeeds(c: number): number { return Math.max(1, Math.ceil(UN_SHARE * this.players.reduce((s, p) => s + (p.alive && p.id !== c ? this.unVotes(p.id) : 0), 0))); }
+  // The council sits when its turn has come: every civ votes (not for itself), and a candidate with UN_SHARE of the others' votes leads the world.
+  private convene(): void {
+    if (this.un.since === null || this.turn < this.un.next) return;
+    const candidates = this.unCandidates();
+    this.un = { ...this.un, next: this.turn + UN_EVERY };
+    if (!candidates) return;
+    const votes = this.players.filter((p) => p.alive).map((p) => ({ civ: p.id, weight: this.unVotes(p.id), for: p.isHuman ? this.ballotFor(candidates) : aiVote(this, p, candidates) }));
+    const tally = (c: number) => votes.reduce((s, v) => s + (v.for === c && v.civ !== c ? v.weight : 0), 0);
+    const winner = candidates.find((c) => tally(c) >= this.unNeeds(c)) ?? null;
+    // (A vote is remembered by the candidates: for by the one it went to, against by the other.)
+    for (const v of votes) for (const c of candidates) {
+      if (v.civ === c || v.for === null) continue;
+      this.remember(c, v.civ, v.for === c ? 'votedFor' : 'votedAgainst');
+    }
+    this.un = { ...this.un, last: { turn: this.turn, candidates, votes, winner } };
+    this.record('unVote', -1, { candidates, votes, winner });
+    const [x, y] = candidates, name = (c: number) => this.players[c]!.name;
+    this.log(`The United Nations voted: the ${name(x)} ${tally(x)} of the ${this.unNeeds(x)} they need, the ${name(y)} ${tally(y)} of ${this.unNeeds(y)}.${winner !== null ? ` The ${name(winner)} lead the world!` : ''}`);
   }
 
   // ---------- research and politics ----------
@@ -2311,22 +2477,35 @@ export class Game {
     if (!p.research) { p.scienceBank += amount; return; }
     const k = p.research, got = (p.techProgress[k] ?? 0) + amount;
     if (got < this.techCost(k)) { p.techProgress[k] = got; return; }
+    this.learn(p, k);
+    this.addScience(p, got - this.techCost(k), false);
+  }
+  // A civ comes to know a tech (researched, or got in a deal): what it was researching moves on if this was it.
+  private learn(p: Player, k: TechKey): void {
     p.techs.add(k);
     delete p.techProgress[k];
     // (A tech that improves the land restyles it: rural/stages.)
     if ((techDef(k).effects ?? []).some((e) => e.k === 'improvement')) this.useVersion++;
-    this.record('researched', p.id, { tech: k });
-    if (p.isHuman) this.log(`Researched ${techDef(k).name}.`);
+    this.record('researched', p.id, { tech: k, bought: p.bought.has(k) });
+    if (p.isHuman) this.log(`${p.bought.has(k) ? 'Learned' : 'Researched'} ${techDef(k).name}.`);
     const era = Math.max(...[...p.techs].map((t) => techDef(t).era)) as EraIndex;
     if (era > p.era) {
       p.era = era;
       this.useVersion++; // towns restyle
       if (p.isHuman) this.log(`${p.name} entered the ${ERAS[era].name} era.`);
     }
+    if (k === UN_TECH && this.un.since === null) {
+      this.un = { since: this.turn, next: this.turn + UN_EVERY, last: null };
+      // (A body of the whole world: every civ comes to know of every other through it.)
+      for (const a of this.players) for (const b of this.players) if (a.id !== b.id && a.alive && b.alive) this.met[a.id]![b.id] = 1;
+      this.record('unFounded', p.id, {});
+      this.log(`The United Nations are founded: their council votes on a leader of the world every ${UN_EVERY} turns (Diplomacy).`);
+    }
+    p.researchQueue = p.researchQueue.filter((x) => x !== k);
+    if (p.research !== k) return;
     const next = p.researchQueue.shift() ?? null;
     p.research = next;
     if (!next && !p.isHuman) { const pick = aiPickTech(this, p); if (pick) this.setResearch(p, pick); }
-    this.addScience(p, got - this.techCost(k), false);
   }
   private addCohesion(p: Player, amount: number, tally = true): void {
     if (tally) p.cohesion += amount;
@@ -2406,10 +2585,12 @@ export class Game {
   private foundReligion(p: Player, r: ReligionKey): void {
     const holy = p.capital;
     this.religions.set(r, { founder: p.id, holyCity: holy, turn: this.turn });
-    if (holy !== null) this.cityById.get(holy)!.religion = r;
+    if (holy !== null) this.cityById.get(holy)!.religions.add(r);
     this.faithVersion++;
+    this.useVersion++;
     this.record('religionFounded', p.id, { religion: r, holyCity: holy });
     this.log(`${p.name} founded ${religionDef(r).name}.`);
+    if (!p.isHuman) aiFaith(this, p);
   }
 
   // The religion a civ founded, and its holy city (null: it founded none).
@@ -2417,28 +2598,81 @@ export class Game {
     for (const [r, f] of this.religions) if (f.founder === id) return { religion: r, holy: f.holyCity === null ? undefined : this.cityById.get(f.holyCity) };
     return null;
   }
-  // A missionary (religion.ts): the founder of a religion raises one with
-  // faith in a city of its own that follows it.
-  missionaryBlock(id: number, city: City): string | null {
-    const mine = this.foundedBy(id);
-    if (!mine) return 'Only the founder of a religion sends missionaries.';
-    if (city.owner !== id) return 'Not your city.';
-    if (city.religion !== mine.religion) return `${city.name} does not follow ${religionDef(mine.religion).name}.`;
-    if (this.musterTile(city, 'missionary') === null) return 'No room: the city and every tile around it hold a civilian.';
-    return this.players[id]!.faith < this.missionaryCost ? `Needs ${this.missionaryCost} faith.` : null;
+  // The religions whose holy cities a civ holds (their tithes are its).
+  holySeats(id: number): ReligionKey[] {
+    return [...this.religions].filter(([, f]) => f.holyCity !== null && this.cityById.get(f.holyCity)?.owner === id).map(([r]) => r);
   }
-  trainMissionary(id: number, city: City): Unit | null {
-    if (this.missionaryBlock(id, city) !== null) return null;
-    this.players[id]!.faith -= this.missionaryCost;
-    this.record('bought', id, { city: city.name, item: 'missionary', currency: 'faith', cost: this.missionaryCost });
-    return this.createUnit('missionary', id, this.musterTile(city, 'missionary') ?? city.tile);
+  // How many of the world's cities hold a religion, and the share of its people living in them.
+  followers(r: ReligionKey): { cities: number; share: number } {
+    let cities = 0, all = 0, pop = 0;
+    for (const c of this.cities) { all += c.pop; if (c.religions.has(r)) { cities++; pop += c.pop; } }
+    return { cities, share: pop / Math.max(1, all) };
   }
-  // It preaches in a city it stands in or beside, anyone's: the city
-  // takes up its civ's religion for faith by its size, and keeps to it
-  // for DEVOUT_TURNS whatever presses on it or is preached to it; the
-  // missionary is spent. (Not another religion's holy city.)
+
+  // ---- the state's religion ----
+  // The religions a civ could take for its state's: those its own cities hold.
+  stateOptions(id: number): ReligionKey[] {
+    const out = new Set<ReligionKey>();
+    for (const c of this.cities) if (c.owner === id) for (const r of c.religions) out.add(r);
+    return [...out];
+  }
+  // What a civ's cities would make of their religions under a state religion (or none: null), in all.
+  stateWorth(id: number, state: ReligionKey | null): Output {
+    let sum = ZERO;
+    for (const c of this.cities) if (c.owner === id) sum = addOut(sum, this.religionYield(c, state));
+    return sum;
+  }
+  stateBlock(p: Player, r: ReligionKey | null): string | null {
+    if (p.stateReligion === r) return r ? 'It is the state religion already.' : 'The state is secular already.';
+    if (r && !this.stateOptions(p.id).includes(r)) return `None of your cities holds ${religionDef(r).name}.`;
+    return p.conversion > 0 ? `Your people are still unsettled by the last change: ${p.conversion} more turns.` : null;
+  }
+  // Whether changing it now would unsettle its people (every change but its first religion).
+  conversionCosts(p: Player): boolean { return p.hadStateReligion; }
+  setStateReligion(p: Player, r: ReligionKey | null): boolean {
+    if (this.stateBlock(p, r) !== null) return false;
+    const costs = this.conversionCosts(p);
+    p.stateReligion = r;
+    if (r) p.hadStateReligion = true;
+    if (costs) p.conversion = CONVERSION_TURNS;
+    this.faithVersion++;
+    this.diploVersion++;
+    this.record('stateReligion', p.id, { religion: r, upheaval: costs });
+    if (p.isHuman) this.log(`${r ? `${religionDef(r).name} is now the state religion` : 'The state is now secular'}${costs ? `: your cities make ${Math.round(100 * CONVERSION_COST)}% less cohesion for ${CONVERSION_TURNS} turns` : ''}.`);
+    else if (this.met[HUMAN]?.[p.id]) this.log(`The ${p.name} ${r ? `made ${religionDef(r).name} their state religion` : 'became a secular state'}.`);
+    return true;
+  }
+  // A civ's religion: its state's (none: secular).
+  faithVersion = 0; // (bumped whenever a city takes a religion or a state changes its own)
+  faithOf(id: number): ReligionKey | null { return this.players[id]?.stateReligion ?? null; }
+
+  // ---- missionaries ----
+  // A missionary of a religion is raised with faith in a city of its civ
+  // that holds it (any civ's, not only the founder's); MISSIONARIES_MOST of a religion out at once.
   get missionaryCost(): number { return this.paced(MISSIONARY_FAITH); }
-  preachCost(city: City): number { return this.paced(CONVERT_PER_POP * city.pop); }
+  missionaryCostOf(id: number): number { return Math.max(1, Math.round(this.missionaryCost / (1 + Math.max(0, total(this.effectsOf(this.players[id]!), 'missions')) / 100))); }
+  missionaryBlock(id: number, city: City, r: ReligionKey): string | null {
+    if (city.owner !== id) return 'Not your city.';
+    if (!city.religions.has(r)) return `${city.name} does not hold ${religionDef(r).name}.`;
+    if (this.units.filter((u) => u.owner === id && u.religion === r).length >= MISSIONARIES_MOST) return `You have ${MISSIONARIES_MOST} missionaries of ${religionDef(r).name} out already.`;
+    if (this.musterTile(city, 'missionary') === null) return 'No room: the city and every tile around it hold a civilian.';
+    const cost = this.missionaryCostOf(id);
+    return this.players[id]!.faith < cost ? `Needs ${cost} faith.` : null;
+  }
+  trainMissionary(id: number, city: City, r: ReligionKey): Unit | null {
+    if (this.missionaryBlock(id, city, r) !== null) return null;
+    const cost = this.missionaryCostOf(id);
+    this.players[id]!.faith -= cost;
+    this.record('bought', id, { city: city.name, item: 'missionary', religion: r, currency: 'faith', cost });
+    const u = this.createUnit('missionary', id, this.musterTile(city, 'missionary') ?? city.tile);
+    u.religion = r;
+    return u;
+  }
+  // It preaches in a city it stands in or beside, anyone's it is at peace
+  // with, that does not hold its religion yet: the city takes it with
+  // the odds of spreadChance (Civ IV's), and the missionary is spent
+  // whether it does or not.
+  preachChance(u: Unit, city: City): number { return spreadChance(city.religions.size, city.owner === u.owner); }
   preachTarget(u: Unit): City | null {
     const here = this.cityByTile.get(u.tile);
     if (here && this.preachBlock(u, here) === null) return here;
@@ -2447,58 +2681,27 @@ export class Game {
     return best ?? here ?? this.tiles[u.tile]!.neighbors.map((t) => this.cityByTile.get(t)).find((c) => c !== undefined) ?? null;
   }
   preachBlock(u: Unit, city: City): string | null {
-    if (!unitDef(u.type).preaches) return 'Only missionaries preach.';
-    const mine = this.foundedBy(u.owner);
-    if (!mine) return 'Its religion has no founder.';
+    if (!unitDef(u.type).preaches || !u.religion) return 'Only missionaries preach.';
     if (u.tile !== city.tile && !this.tiles[u.tile]!.neighbors.includes(city.tile)) return 'It must stand in the city or beside it.';
-    if (city.religion === mine.religion) return 'It follows your religion already.';
-    if ([...this.religions.values()].some((x) => x.holyCity === city.id)) return 'A holy city keeps its faith.';
-    if (city.devout > this.turn) return `It was converted lately: it keeps to its faith for ${city.devout - this.turn} more turns.`;
-    return this.players[u.owner]!.faith < this.preachCost(city) ? `Needs ${this.preachCost(city)} faith.` : null;
+    if (city.religions.has(u.religion)) return `It holds ${religionDef(u.religion).name} already.`;
+    return city.owner !== u.owner && this.atWar(u.owner, city.owner) ? 'No one listens to an enemy\'s preacher.' : null;
   }
   preach(u: Unit, city: City): boolean {
     if (this.preachBlock(u, city) !== null) return false;
-    const r = this.foundedBy(u.owner)!.religion;
-    this.players[u.owner]!.faith -= this.preachCost(city);
-    city.religion = r;
-    city.devout = this.turn + DEVOUT_TURNS;
-    this.useVersion++;
-    this.faithVersion++;
-    this.record('converted', city.owner, { city: city.name, religion: r, by: u.owner });
-    if (city.owner === HUMAN || u.owner === HUMAN) this.log(`${city.name} was converted to ${religionDef(r).name}.`);
+    const r = u.religion!, chance = this.preachChance(u, city), took = this.rng() * 100 < chance;
+    this.record('preached', u.owner, { city: city.name, cityOwner: city.owner, religion: r, chance, took });
+    if (took) {
+      city.religions.add(r);
+      this.useVersion++;
+      this.faithVersion++;
+      if (city.owner === HUMAN || u.owner === HUMAN) this.log(`${religionDef(r).name} took root in ${city.name}.`);
+      // (Its owner remembers whose missionary it was: its own state's faith spread, or a rival's brought in.)
+      const creed = this.players[city.owner]!.stateReligion;
+      if (city.owner !== u.owner && creed) this.remember(city.owner, u.owner, creed === r ? 'preachedOurs' : 'preachedRival');
+      if (!this.players[city.owner]!.isHuman) aiFaith(this, this.players[city.owner]!);
+    } else if (u.owner === HUMAN) this.log(`The missionary's preaching found no ears in ${city.name} (${chance} in 100).`);
     this.removeUnit(u);
     return true;
-  }
-
-  // Each city takes up the religion pressed on it hardest, once that beats
-  // what it follows (holy cities keep theirs).
-  private spreadReligions(): void {
-    if (!this.religions.size) return;
-    const holy = new Set([...this.religions.values()].map((f) => f.holyCity).filter((c): c is number => c !== null));
-    const changes: [City, ReligionKey][] = [];
-    for (const c of this.cities) {
-      if (holy.has(c.id) || c.devout > this.turn) continue;
-      const pressure = new Map<ReligionKey, number>();
-      for (const o of this.cities) {
-        if (!o.religion || o === c) continue;
-        const d = this.approxDist(c.tile, o.tile);
-        if (d > PRESSURE_REACH) continue;
-        const strength = ((holy.has(o.id) ? HOLY_PRESSURE : CITY_PRESSURE)
-          + BUILDING_PRESSURE * (Number(o.buildings.has('shrine')) + Number(o.buildings.has('temple'))))
-          * (1 + total(this.effectsOf(this.players[o.owner]!), 'pressure') / 100);
-        pressure.set(o.religion, (pressure.get(o.religion) ?? 0) + strength * (1 - d / (PRESSURE_REACH + 1)));
-      }
-      let best: ReligionKey | null = null, bestP = 0;
-      for (const [r, v] of pressure) if (v > bestP) { best = r; bestP = v; }
-      const own = c.religion ? (pressure.get(c.religion) ?? 0) + CONVERT_AT : 0;
-      if (best && best !== c.religion && bestP >= CONVERT_AT && bestP > own) changes.push([c, best]);
-    }
-    for (const [c, r] of changes) {
-      c.religion = r;
-      this.faithVersion++;
-      this.record('converted', c.owner, { city: c.name, religion: r });
-      if (c.owner === HUMAN) this.log(`${c.name} now follows ${religionDef(r).name}.`);
-    }
   }
 
   // ---------- accounts ----------
@@ -2547,8 +2750,7 @@ export class Game {
   // (under what buying the new unit outright costs, GOLD_PER_PROD, but not
   // by so much that an army is best made of the cheapest units, upgraded).
   upgradeCost(u: Unit, to: UnitKey): number { return Math.max(10, Math.round(UPGRADE_GOLD * (UNITS[to].cost - UNITS[u.type].cost) * this.pace)); }
-  // Upgrades a unit that stands in its own territory (or is packed in an
-  // army there), with moves left; it keeps its HP share and spends its turn.
+  // Upgrades a unit that stands in its own territory, with moves left; it keeps its HP share and spends its turn.
   canUpgrade(u: Unit): boolean {
     const to = this.upgradeTarget(u);
     return to !== null && u.moves > 0 && this.ownerOf(u.tile) === u.owner && this.players[u.owner]!.gold >= this.upgradeCost(u, to);
@@ -2562,7 +2764,7 @@ export class Game {
     u.moves = 0;
     return true;
   }
-  // The turn's accounts: upkeep paid, tithes received. What it cannot pay
+  // The turn's accounts: upkeep paid, tithes received (from every city holding a religion whose holy city it holds). What it cannot pay
   // it loses in proportion (economy.ts arrearsOf): next turn its cities
   // make that share less production, science and culture, and a unit it
   // cannot keep deserts. No floor: every city more that cannot be paid for
@@ -2571,7 +2773,7 @@ export class Game {
     const up = this.upkeep(p);
     let tithes = 0;
     const tithe = TITHE + total(this.effectsOf(p), 'tithe');
-    for (const [r, f] of this.religions) if (f.founder === p.id) tithes += tithe * this.cities.filter((c) => c.religion === r).length;
+    for (const r of this.holySeats(p.id)) tithes += tithe * this.followers(r).cities;
     p.goldFrac += tithes - up.cities - up.units;
     const whole = Math.trunc(p.goldFrac);
     p.gold += whole;
@@ -2587,7 +2789,7 @@ export class Game {
       let gone: Unit | null = null;
       if (up.units > 0) {
         for (const u of this.units) {
-          if (u.owner !== p.id || unitDef(u.type).civilian || u.packedIn !== null) continue;
+          if (u.owner !== p.id || unitDef(u.type).civilian) continue;
           const better = !gone || Number(this.cityByTile.has(u.tile)) - Number(this.cityByTile.has(gone.tile)) < 0
             || (this.cityByTile.has(u.tile) === this.cityByTile.has(gone.tile) && unitDef(u.type).cost < unitDef(gone.type).cost);
           if (better) gone = u;
@@ -2599,6 +2801,15 @@ export class Game {
     p.ledger = { income: this.turnIncome[p.id] ?? ZERO, cityUpkeep: up.cities, unitUpkeep: up.units, tithes, luxuries: this.turnLuxuries[p.id] ?? ZERO, trade: this.dealGold(p.id) };
   }
 
+  // The turn's figures, kept for the charts (a civ gone: noughts from then on).
+  private chronicle(): void {
+    for (const p of this.players) {
+      const mine = this.cities.filter((c) => c.owner === p.id), y = p.ledger.income;
+      const row: Record<HistoryKey, number> = { score: this.score(p.id), citizens: mine.reduce((s, c) => s + c.pop, 0), cities: mine.length, army: p.alive ? Math.round(armyOf(this, p.id)) : 0,
+        science: y.science, prod: y.prod, gold: Math.round(y.gold + p.ledger.tithes + p.ledger.trade - p.ledger.cityUpkeep - p.ledger.unitUpkeep), culture: y.culture, cohesion: y.cohesion };
+      for (const k of HISTORY_KEYS) this.history[k]![p.id]!.push(p.alive ? row[k] : 0);
+    }
+  }
   // What a civ has, for the record.
   private summary(p: Player): Record<string, unknown> {
     const cities = this.cities.filter((c) => c.owner === p.id);
@@ -2606,7 +2817,7 @@ export class Game {
       cities: cities.length, pop: cities.reduce((s, c) => s + c.pop, 0), units: this.units.filter((u) => u.owner === p.id).length,
       gold: p.gold, techs: p.techs.size, politics: p.politics.size, traits: [...p.identity], era: p.era, government: p.government,
       income: p.ledger.income, upkeep: +(p.ledger.cityUpkeep + p.ledger.unitUpkeep).toFixed(2), tithes: p.ledger.tithes, luxuries: p.ledger.luxuries, trade: p.ledger.trade,
-      deals: this.deals.filter((d) => d.sides.some((s) => s.civ === p.id)).length,
+      deals: this.deals.filter((d) => partyTo(d, p.id)).length,
       wars: this.players.filter((o) => o.id !== p.id && this.atWar(p.id, o.id)).map((o) => o.id),
     };
   }
@@ -2614,12 +2825,12 @@ export class Game {
   // ---------- buying ----------
 
   // What finishing a city's current item costs in gold, or in faith (a
-  // Shrine or Temple only); null if it can't be bought (a wonder).
+  // Shrine or a religion's building only); null if it can't be bought (a wonder).
   buyCost(city: City, currency: 'gold' | 'faith'): number | null {
     const k = city.building;
     if (!k || isWonder(k) || (isUnitKey(k) && this.unitBlock(city, k) !== null)) return null;
-    // (Faith buys shrines and temples; and, for a civ with a faith, fighting units, raised in that faith.)
-    if (currency === 'faith' && !FAITH_BUYS.includes(k) && !(isUnitKey(k) && !unitDef(k).civilian && this.faithOf(city.owner) !== null)) return null;
+    // (Faith buys shrines and the religions' buildings; and, for a civ with a state religion, fighting units, raised in that faith.)
+    if (currency === 'faith' && !FAITH_BUYS.has(k) && !(isUnitKey(k) && !unitDef(k).civilian && this.faithOf(city.owner) !== null)) return null;
     const left = Math.max(0, this.costOf(k) - city.prod);
     const discount = currency === 'gold' ? Math.max(0.2, 1 + total(this.effectsOf(this.players[city.owner]!), 'buyCost') / 100) : 1;
     return Math.ceil(left * (currency === 'gold' ? GOLD_PER_PROD : FAITH_PER_PROD) * discount);
@@ -2647,8 +2858,16 @@ export class Game {
   // many turns as the truce had left, its people make TRUCE_BREAK less
   // cohesion (cityYields). So a war ended is not started again at once
   // for nothing; but it can be, at that price.
-  declareWar(a: number, b: number): void {
+  // (`called`: it goes to war to honour a pact, not of its own will: nothing is held against it for that.)
+  // A civ that goes to war of its own will loses its pacts (an aggressor stands alone); the civs sworn to defend
+  // the one it falls on go to war with it in their turn.
+  declareWar(a: number, b: number, called = false): void {
     if (a === b || this.atWar(a, b)) return;
+    const sworn = this.players.filter((c) => c.alive && c.id !== a && c.id !== b && this.pact(b, c.id)).map((c) => c.id);
+    const treaty = this.pact(a, b) || this.openBorders(a, b);
+    // (Who thought well of the civ fallen on: they hold it against the one that did.)
+    const friends = called ? [] : this.players.filter((c) => c.alive && c.id !== a && c.id !== b && !c.isHuman && this.met[c.id]![b] && this.met[c.id]![a] && regard(this, c.id, b).level >= FRIENDLY).map((c) => c.id);
+    if (!called) for (const t of this.deals.filter((x) => partyTo(x, a) && x.give.some((i) => i.k === 'pact'))) this.endDeal(t, `the ${this.players[a]!.name} went to war`);
     const broken = this.truceLeft(a, b);
     if (broken > 0) {
       this.players[a]!.dishonor = Math.max(this.players[a]!.dishonor, broken);
@@ -2659,12 +2878,23 @@ export class Game {
     this.met[a]![b] = this.met[b]![a] = 1;
     this.peaceOffers.delete(`${a}>${b}`);
     this.peaceOffers.delete(`${b}>${a}`);
-    for (const d of this.deals.filter((x) => x.sides.some((s) => s.civ === a) && x.sides.some((s) => s.civ === b))) this.endDeal(d, 'war');
-    for (let i = this.dealOffers.length - 1; i >= 0; i--) if (this.dealBlock(this.dealOffers[i]!.sides) !== null) this.dealOffers.splice(i, 1);
-    // (For the record: what their faiths make of it.)
+    for (const d of this.deals.filter((x) => between(x, a, b))) this.endDeal(d, 'war');
+    for (let i = this.dealOffers.length - 1; i >= 0; i--) if (this.offerBlock(this.dealOffers[i]!) !== null) this.dealOffers.splice(i, 1);
+    if (!called) {
+      this.remember(b, a, 'declaredWar');
+      if (broken > 0) this.remember(b, a, 'brokeTruce');
+      if (treaty) this.remember(b, a, 'betrayed');
+      for (const c of friends) this.remember(c, a, 'warOnFriend');
+    }
+    // (For the record: their states' religions.)
     const fa = this.faithOf(a), fb = this.faithOf(b);
     this.record('war', a, { on: b, faiths: !fa || !fb ? 'none' : fa === fb ? 'same' : 'rival' });
     if (a === HUMAN || b === HUMAN) this.log(`${this.players[a]!.name} declared war on ${this.players[b]!.name}!`);
+    for (const c of sworn) {
+      if (!this.players[c]!.alive || this.atWar(c, a)) continue;
+      if (a === HUMAN || b === HUMAN || c === HUMAN) this.log(`The ${this.players[c]!.name}, sworn to defend the ${this.players[b]!.name}, go to war with the ${this.players[a]!.name}.`);
+      this.declareWar(c, a, true);
+    }
   }
   // Whether peace can be made yet (after MIN_WAR turns of war).
   canMakePeace(a: number, b: number): boolean { return this.atWar(a, b) && this.turn - this.relations[a]![b]!.since >= MIN_WAR; }
@@ -2678,12 +2908,11 @@ export class Game {
     if (a === HUMAN || b === HUMAN) this.log(`${this.players[a]!.name} and ${this.players[b]!.name} made peace.`);
     // (Units left standing in the other's territory go home.)
     for (const u of this.units) {
-      if (u.packedIn !== null) continue;
       const o = this.ownerOf(u.tile);
       if ((u.owner === a && o === b) || (u.owner === b && o === a)) {
         const home = this.cities.find((c) => c.owner === u.owner);
         const t = home ? this.freeTileNear(u.type, u.owner, home.tile) : null;
-        if (t !== null) { u.tile = t; for (const v of this.armyOf(u)) v.tile = t; }
+        if (t !== null) u.tile = t;
       }
     }
     return true;
@@ -2698,7 +2927,7 @@ export class Game {
     this.log(`${this.players[from]!.name} offers peace.`);
     return true;
   }
-  // Civs meet once a unit or city of one comes within sight of the other's.
+  // Civs meet once a unit or city of one comes within sight of the other's, or a unit of one near the other's land.
   private updateContacts(): void {
     const n = this.players.length;
     const seen = (p: number): number[] => [...this.units.filter((u) => u.owner === p).map((u) => u.tile), ...this.cities.filter((c) => c.owner === p).map((c) => c.tile)];
@@ -2710,6 +2939,15 @@ export class Game {
         if (a === HUMAN || b === HUMAN) this.log(`Met the ${this.players[a === HUMAN ? b : a]!.name}.`);
       }
     }
+    // (And once a unit of one comes within two tiles of the other's land: borders are closed at peace, but they are seen.)
+    for (const u of this.units) {
+      for (const t of this.tilesWithin(u.tile, 2)) {
+        const o = this.ownerOf(t);
+        if (o < 0 || o === u.owner || this.met[u.owner]![o] || !this.players[o]!.alive) continue;
+        this.met[u.owner]![o] = this.met[o]![u.owner] = 1;
+        if (u.owner === HUMAN || o === HUMAN) this.log(`Met the ${this.players[u.owner === HUMAN ? o : u.owner]!.name}.`);
+      }
+    }
   }
 
   // ---------- turn flow ----------
@@ -2718,7 +2956,9 @@ export class Game {
     if (this.over) return;
     // Citizens the human left unplaced: the governor places them.
     for (const c of this.cities) if (c.growth > 0) this.autoPlace(c);
-    this.dealOffers.length = 0; // (unanswered offers lapse; the computer may make new ones)
+    // (Unanswered offers lapse, a demand ignored as one refused; the computer may make new ones.)
+    for (const o of this.dealOffers) if (o.demand) this.remember(o.from, o.to, 'demandRefused');
+    this.dealOffers.length = 0;
     for (const p of this.players) {
       if (!p.isHuman && p.alive) { this.explore(p.id); aiTurn(this, p); this.explore(p.id); }
     }
@@ -2730,7 +2970,9 @@ export class Game {
     this.settleDeals();
     for (const p of this.players) if (p.alive) this.settleAccounts(p);
     this.contestBorders();
-    this.spreadReligions();
+    this.fadeMemos();
+    this.expel();
+    this.convene();
     // (Pillaged tiles wait for a worker to repair them: advanceWork.)
     for (let t = 0; t < this.N; t++) {
       if (!this.pillaged[t]) continue;
@@ -2750,7 +2992,9 @@ export class Game {
       u.skipped = false;
     }
     for (const p of this.players) if (p.dishonor > 0) p.dishonor--;
+    for (const p of this.players) if (p.conversion > 0) p.conversion--;
     for (const p of this.players) if (p.alive) this.record('summary', p.id, this.summary(p));
+    this.chronicle();
     this.turn++;
     for (const u of this.units.filter((x) => x.owner === HUMAN && x.goal != null)) this.continueGoto(u);
     this.checkElimination();
@@ -2785,25 +3029,6 @@ export class Game {
     for (const t of this.wondersBuilt.values()) if (t >= 0 && this.ownerOf(t) === id) wonders++;
     return pop + 2 * cities + 4 * p.techs.size + 2 * p.politics.size + p.identity.size + 5 * wonders;
   }
-  // Each civ's religion: the one it founded, or else the one more than
-  // half of its people follow (none: it has none).
-  private faithCache: { key: string; of: (ReligionKey | null)[] } = { key: '', of: [] };
-  faithVersion = 0; // (bumped whenever a city's religion changes)
-  faiths(): { key: string; of: (ReligionKey | null)[] } {
-    const key = `${this.turn}|${this.cities.length}|${this.useVersion}|${this.religions.size}|${this.faithVersion}`;
-    if (this.faithCache.key === key) return this.faithCache;
-    const of = this.players.map((p): ReligionKey | null => {
-      for (const [r, f] of this.religions) if (f.founder === p.id) return r;
-      const count = new Map<ReligionKey, number>();
-      let people = 0;
-      for (const c of this.cities) { if (c.owner !== p.id) continue; people += c.pop; if (c.religion) count.set(c.religion, (count.get(c.religion) ?? 0) + c.pop); }
-      for (const [r, n] of count) if (n * 2 > people) return r;
-      return null;
-    });
-    this.faithCache = { key, of };
-    return this.faithCache;
-  }
-  faithOf(id: number): ReligionKey | null { return this.faiths().of[id] ?? null; }
   // The first capitals still standing that a civ holds, its own among them.
   capitalsHeld(id: number): number {
     let n = 0;
@@ -2820,21 +3045,9 @@ export class Game {
     for (const p of this.players) { const n = p.alive ? this.capitalsHeld(p.id) : 0; if (n > bestN) { best = p.id; bestN = n; } }
     return best;
   }
-  // The share of the world's people following the religion a civ founded
-  // (its cities' citizens over all cities'; 0: it founded none). People,
-  // not cities: founding many small cities of the faith wins nothing.
-  faithShare(id: number): number {
-    for (const [r, f] of this.religions) {
-      if (f.founder !== id) continue;
-      let all = 0, faithful = 0;
-      for (const c of this.cities) { all += c.pop; if (c.religion === r) faithful += c.pop; }
-      return faithful / Math.max(1, all);
-    }
-    return 0;
-  }
+  // (By diplomacy: voted leader of the world by the United Nations, convene.)
   // The game is won (VICTORIES): by conquest, holding two thirds of the civs' first capitals (or the last civ standing); by
-  // science, the first to know every tech; by religion, the founder of a
-  // faith most of the world's cities follow; and, if no one has won by the
+  // science, the first to know the last tech; and, if no one has won by the
   // turn limit, on time by the best score. Checked as each turn ends.
   private checkVictory(): void {
     if (this.winner) return;
@@ -2844,7 +3057,7 @@ export class Game {
     if (alive.length === 1 && this.players.length > 1) this.winner = { player: alive[0]!.id, how: 'conquest' };
     else if (lord !== null) this.winner = { player: lord, how: 'conquest' };
     else if (alive.some((p) => p.techs.has(FINAL_TECH))) this.winner = { player: best((p) => (p.techs.has(FINAL_TECH) ? 1e9 : 0) + this.score(p.id)).id, how: 'science' };
-    else if (alive.some((p) => this.faithShare(p.id) > FAITH_VICTORY)) this.winner = { player: best((p) => this.faithShare(p.id)).id, how: 'religion' };
+    else if (this.un.last?.winner != null && this.un.last.turn >= this.turn - 1 && this.players[this.un.last.winner]!.alive) this.winner = { player: this.un.last.winner, how: 'diplomacy' };
     else if (this.turn > this.turnLimit && alive.length) this.winner = { player: best((p) => this.score(p.id)).id, how: 'time' };
     if (this.winner) this.record('victory', this.winner.player, { how: this.winner.how });
     const human = this.players[HUMAN]!;

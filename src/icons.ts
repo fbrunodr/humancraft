@@ -205,7 +205,7 @@ export function drawIcon(ctx: CanvasRenderingContext2D, k: IconKey, x: number, y
 export const YIELD_ICON: Record<keyof Output, IconKey> = { food: 'food', prod: 'prod', gold: 'gold', science: 'science', culture: 'culture', faith: 'faith', cohesion: 'cohesion' };
 
 const CLASS_ICON: Record<UnitClass, IconKey> = {
-  civilian: 'flag', recon: 'eye', leader: 'star',
+  civilian: 'flag', recon: 'eye',
   melee: 'sword', antiCav: 'spear', gunline: 'rifle',
   archer: 'bow', mountedArcher: 'bow', gun: 'cannon',
   engine: 'catapult', artillery: 'cannon',

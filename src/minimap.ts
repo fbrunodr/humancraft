@@ -101,7 +101,7 @@ export class Minimap {
     const g = this.game, c = this.over.getContext('2d')!, k = this.scale;
     c.clearRect(0, 0, this.over.width, this.over.height);
     for (const u of g.units) {
-      if (!g.visible[u.tile] || u.packedIn !== null) continue;
+      if (!g.visible[u.tile]) continue;
       const [x, y] = this.at(g.tiles[u.tile]!.center);
       c.fillStyle = u.owner === HUMAN ? '#ffffff' : g.players[u.owner]!.color;
       c.fillRect(x - k, y - k, 2 * k, 2 * k);

@@ -223,6 +223,9 @@ body.military #notices { right: 504px; }
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 12.5px; color: var(--muted); }
 .facts b { color: var(--text); font-weight: 500; text-align: right; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.creed { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.creed::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.rfoot button { align-self: flex-start; }
 .tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 11px; font-size: 12px; background: rgb(var(--lift) / 0.06); border: 1px solid var(--border); }
 .tag .ic { font-size: 12px; color: var(--brass); }
 .tag.wonder { border-color: var(--brass-lo); color: var(--brass-hi); }
@@ -592,3 +595,58 @@ table.grid.ecities .ic { color: var(--brass); }
 
 .off { opacity: 0.4; cursor: not-allowed !important; }
 
+
+/* ---- diplomacy: civilization cards, the relations polygon ---- */
+.dcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 14px; }
+.dcard { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--card); border: 1px solid rgb(var(--lift) / 0.12); border-radius: 7px; box-shadow: 0 2px 6px rgba(16, 22, 34, 0.1); }
+.dcard .dhead { display: flex; align-items: center; gap: 12px; }
+.dcard .seal { flex: none; width: 34px; height: 34px; border-radius: 50%; box-shadow: 0 0 0 2px #ebe8e1, 0 0 0 3px rgb(var(--lift) / 0.3); }
+.dcard .dtells { margin: 0; color: var(--muted); line-height: 1.5; }
+.dcard .dcols { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; }
+.dcard h4 { font-size: 12.5px; font-weight: 700; color: var(--brass-hi); margin: 0 0 6px; }
+.dcard h4 small { font-weight: 600; margin-left: 6px; }
+.dscale { display: flex; gap: 2px; margin-bottom: 8px; }
+.dscale span { flex: 1; text-align: center; font-size: 10.5px; padding: 2px 0; color: var(--muted); background: rgb(var(--lift) / 0.06); border-radius: 3px; }
+.dscale span.on { background: var(--brass); color: #fff; font-weight: 700; }
+.dwhy { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.dwhy li { display: grid; grid-template-columns: 42px 1fr; gap: 6px; color: var(--text); }
+.dwhy li b { text-align: right; }
+.dwhy li.good b { color: var(--good); } .dwhy li.bad b { color: var(--bad); }
+.dpow { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+.dpow td { padding: 2px 0; } .dpow td:last-child { text-align: right; }
+.dpow tr:last-child td { border-top: 1px solid var(--border); padding-top: 5px; }
+.dties { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.dcard .dfoot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.relations { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.relations svg { width: min(100%, 860px); height: auto; }
+.rl { stroke-width: 1.4; fill: none; }
+.rl.contact { stroke: rgb(var(--lift) / 0.22); stroke-width: 1; }
+.rl.war { stroke: #c0281a; stroke-width: 2.4; }
+.rl.pact { stroke: #2f55c8; stroke-width: 2.2; }
+.rl.borders { stroke: #2b8a3e; stroke-width: 1.8; }
+.rn { stroke: #ebe8e1; stroke-width: 2.5; filter: drop-shadow(0 1px 2px rgba(16, 22, 34, 0.35)); }
+.rname { font: 700 13px var(--mono, ui-monospace, monospace); fill: var(--text); }
+.rsub { font: 11px var(--mono, ui-monospace, monospace); fill: var(--muted); }
+.rkey { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 12px; color: var(--muted); }
+.rkey span { display: inline-flex; align-items: center; gap: 7px; }
+.tfoot .swatch { margin-right: 2px; }
+
+/* ---- history charts ---- */
+.hpick { flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+.hchart { position: relative; margin: 10px 0 4px; padding: 10px 6px 2px; background: var(--card); border: 1px solid rgb(var(--lift) / 0.12); border-radius: 7px; }
+.hchart svg { display: block; width: 100%; height: auto; }
+.hgrid { stroke: rgb(var(--lift) / 0.1); stroke-width: 1; }
+.hbase { stroke: rgb(var(--lift) / 0.35); stroke-width: 1; }
+.haxis { font: 11px var(--mono, ui-monospace, monospace); fill: var(--muted); }
+.hline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.hline.me { stroke-width: 3; }
+.hcase { fill: none; stroke: rgba(16, 22, 34, 0.55); stroke-width: 3.2; stroke-linejoin: round; stroke-linecap: round; }
+.hcase.me { stroke-width: 4.4; }
+.hdot { stroke: rgba(16, 22, 34, 0.55); stroke-width: 1; }
+.hname { font: 600 12px var(--mono, ui-monospace, monospace); fill: var(--text); }
+.hcross { stroke: rgb(var(--lift) / 0.5); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.htip { position: absolute; top: 14px; min-width: 150px; padding: 8px 10px; font-size: 12px; background: var(--panel); border: 1px solid var(--brass-lo); border-radius: 6px; box-shadow: var(--shadow); pointer-events: none; }
+.htip div { display: flex; align-items: center; gap: 6px; }
+.htip div b { margin-left: auto; padding-left: 14px; }
+.htip small { display: block; margin-bottom: 4px; }
+.rkey span { white-space: nowrap; }

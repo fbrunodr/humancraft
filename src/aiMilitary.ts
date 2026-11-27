@@ -34,7 +34,7 @@
 
 import { unitDef, domainOf } from './rules.ts';
 import { canAttackType, canShoot, canAssault, isShooter } from './unitClasses.ts';
-import { VOLLEY_ROUNDS, MELEE_ROUNDS, HIT_MIN, HIT_MAX, COMMANDER_CAPACITY, type Game, type Player, type Unit, type City } from './game.ts';
+import { VOLLEY_ROUNDS, MELEE_ROUNDS, HIT_MIN, HIT_MAX, type Game, type Player, type Unit, type City } from './game.ts';
 import type { AiPolicy } from './aiPolicy.ts';
 
 // An army on its way to take a city.
@@ -64,7 +64,7 @@ export const planning = (g: Game, p: Player): boolean => stateOf(g, p.id).plan !
 // Whether its army is out to take a city (it wants engines then).
 export const onCampaign = (g: Game, p: Player): boolean => stateOf(g, p.id).op !== null || stateOf(g, p.id).plan !== null;
 
-const landFighter = (u: Unit): boolean => !u.dead && u.packedIn === null && !unitDef(u.type).civilian && u.type !== 'commander' && domainOf(unitDef(u.type)) === 'land';
+const landFighter = (u: Unit): boolean => !u.dead && !unitDef(u.type).civilian && domainOf(unitDef(u.type)) === 'land';
 // A unit's fighting strength, as hurt.
 export const strength = (u: Unit): number => { const T = unitDef(u.type); return Math.max(T.melee, T.rangedAtk ?? 0) * (0.5 + u.hp / 200); };
 const shoots = (u: Unit): boolean => canShoot(u.type) && isShooter(u.type);
@@ -301,55 +301,6 @@ export function militaryPhase(g: Game, p: Player, P: AiPolicy, cities: readonly 
     if (done.has(u.id) || u.hp >= P.retreatHp || (!(danger.get(u.tile) ?? 0) && g.ownerOf(u.tile) === p.id) || [...garrison.values()].includes(u)) continue;
     const home = cities.length ? cities.reduce((a, b) => (dist(b.tile, u.tile) < dist(a.tile, u.tile) ? b : a)) : null;
     if (home) { go(u, stand(u, home.tile, 2)); done.add(u.id); }
-  }
-
-  // ---- its commanders: with the army ----
-  // A commander's units fight the better for it (game.ts COMMANDER_AURA),
-  // and it carries a few of them at its own pace (rally, deploy). With a
-  // campaign on, it gathers with the army; on the march it takes up the
-  // slow ones next to it and carries them to within reach of the city,
-  // where it sets them down (at once if an enemy comes near: an army
-  // carried is lost with its commander); in the assault it stands behind
-  // the blades, beside as many of its own as it can, never next to an
-  // enemy. With no campaign it keeps to its civ's city nearest a rival's,
-  // where its garrison fights the better for it.
-  const held = new Set(garrison.values());
-  // (Onto the tile of the nearest of some of its units: that unit defends it.)
-  const join = (c: Unit, among: readonly Unit[]): void => {
-    let to: number | null = null, d = Infinity;
-    for (const u of among) { if (u.dead || u.tile === c.tile || !g.canStand(c, u.tile)) continue; const x = dist(u.tile, c.tile); if (x < d) { to = u.tile; d = x; } }
-    if (to !== null && c.moves > 0) g.goTo(c, to);
-  };
-  for (const c of g.units.filter((x) => x.owner === p.id && x.type === 'commander' && !x.dead && x.packedIn === null)) {
-    const foeNear = foeUnits.some((e) => !e.dead && dist(e.tile, c.tile) <= 3.5);
-    const city = op ? g.cityById.get(op.target) : undefined;
-    if (g.armyOf(c).length && (foeNear || !op || !city || op.state === 'gather' || dist(c.tile, city.tile) <= 4.5)) g.deploy(c);
-    if (!op || !city) {
-      const rivals = g.cities.filter((x) => x.owner !== p.id);
-      const post = cities.length ? cities.reduce((a, b) => (rivals.reduce((m, r) => Math.min(m, dist(b.tile, r.tile)), 99) < rivals.reduce((m, r) => Math.min(m, dist(a.tile, r.tile)), 99) ? b : a)) : null;
-      if (post && c.tile !== post.tile && c.moves > 0 && !g.armyOf(c).length) g.goTo(c, post.tile);
-      continue;
-    }
-    if (c.moves <= 0) continue;
-    // (Alone where it could be struck: to the nearest of its own units, before anything else.)
-    if (!g.armyOf(c).length && (danger.get(c.tile) ?? 0) > 0 && !mine.some((u) => !u.dead && u.tile === c.tile) && !g.cityByTile.has(c.tile)) { join(c, mine); continue; }
-    if (op.state === 'gather') { if (dist(c.tile, op.muster) > 1.5) go(c, stand(c, op.muster, 1)); continue; }
-    if (op.state === 'march') {
-      if (!foeNear && dist(c.tile, city.tile) > 5.5 && g.armyOf(c).length < COMMANDER_CAPACITY) g.rally(c, (u) => op!.units.has(u.id) && !held.has(u) && unitDef(u.type).mv <= 1 && u.hp >= 50);
-      // (Carrying its army, it goes ahead: they defend it. With none, it keeps with the army: onto the tile of one of its units, the nearest to it of those well on their way.)
-      if (g.armyOf(c).length) { if (dist(c.tile, city.tile) > 4.5) go(c, stand(c, city.tile, 5, (t) => dist(t, city.tile) >= 3.5 && !(danger.get(t) ?? 0)) ?? stand(c, city.tile, 5, (t) => dist(t, city.tile) >= 3.5)); }
-      else join(c, mine.filter((u) => op!.units.has(u.id) && dist(u.tile, city.tile) >= 3));
-      continue;
-    }
-    let spot: number | null = null, spotS = -Infinity;
-    for (const [t, d] of g.tilesWithinMap(city.tile, 3)) {
-      if (d < 2 || g.isWater(t) || (t !== c.tile && !g.canStand(c, t)) || g.isForeignBlocked(t, p.id) || g.isEnemyOccupied(t, p.id)) continue;
-      if (foeUnits.some((e) => !e.dead && dist(e.tile, t) <= 1.5)) continue;
-      // (On a tile one of its own units holds, best: that unit defends it. A commander alone falls to the first blow.)
-      const s = 2 * mine.filter((u) => !u.dead && dist(u.tile, t) <= 1.5).length + (mine.some((u) => !u.dead && u.tile === t) ? 4 : 0) - 0.5 * dist(t, c.tile) - 0.05 * (danger.get(t) ?? 0);
-      if (s > spotS) { spot = t; spotS = s; }
-    }
-    go(c, spot);
   }
 
   // ---- the operation's units: gather, march, take their places ----

@@ -38,7 +38,7 @@ export function goldenPrint(save: string): string {
   }
   for (let turn = 0; turn < GOLDEN_MORE; turn++) {
     for (const u of [...g.units].sort((a, b) => a.id - b.id)) {
-      if (u.dead || u.packedIn !== null || u.moves <= 0 || !g.canAttack(u)) continue;
+      if (u.dead || u.moves <= 0 || !g.canAttack(u)) continue;
       const foe = g.tiles[u.tile]!.neighbors.find((t) => g.isEnemyOccupied(t, u.owner) && g.attackBlockAt(u, t) === null);
       if (foe !== undefined) g.attack(u, foe);
     }

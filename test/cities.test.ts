@@ -115,7 +115,7 @@ function checkCities(g: Game): string[] {
     for (const b of c.buildings) {
       const others = new Set(c.buildings);
       others.delete(b);
-      if (!buildingAllowed(b, others, g.cityRiver(c), g.cityCoast(c))) out.push(`Q2 ${c.name}: ${b} without what it needs`);
+      if (!buildingAllowed(b, others, g.cityRiver(c), g.cityCoast(c), c.religions)) out.push(`Q2 ${c.name}: ${b} without what it needs`);
     }
     for (const k of SPECIALIST_KINDS) {
       const room = specialistSlots(c.buildings, k);

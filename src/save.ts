@@ -97,7 +97,7 @@ function unpack(p: Packed): unknown {
 }
 
 // What a game is made again from, not saved: the world (the seed makes it) and what is not state.
-const MADE = new Set(['seed', 'globe', 'tiles', 'N', 'map', 'flora', 'world', 'rng', 'options', 'onStep', 'onBattle']);
+const MADE = new Set(['seed', 'globe', 'tiles', 'N', 'map', 'flora', 'world', 'rng', 'options', 'onStep', 'onBattle', 'passKey', 'pass']);
 
 export function saveGame(g: Game): string {
   const state: Record<string, unknown> = {};
