@@ -417,6 +417,8 @@ function startGame(game: Game): void {
     const before = game.events.length;
     game.endTurn();
     flushLog();
+    // (A letter came from another civilization: it is put before the player.)
+    if (game.dealOffers.length && !game.over) sheets.showLetters();
     // (Kept at the end of every turn: the game can be gone back to from the first screen.)
     void putSave(AUTOSAVE, saveGame(game)).catch(() => {});
     sel = null;

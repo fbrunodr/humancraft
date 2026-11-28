@@ -18,7 +18,6 @@ import {
   BIOMES,
 } from './terrain.ts';
 import { LEVELS, DEFAULT_LEVEL, type AiPolicy } from './aiPolicy.ts';
-import { power as armyOf } from './ai.ts';
 import { aiTurn, aiPickTech, aiPickPolitics, aiGovern, aiAcceptsPeace, aiPickTraits, aiFaith } from './ai.ts';
 import { DEAL_TURNS, DEAL_MIN, isLasting, isMutual, sameItem, givenBy, partyTo, between, type Item, type LastingItem, type Offer, type Treaty } from './deals.ts';
 import { MEMOS, MEMO_KEYS, aiAnswers, aiVote, noteDeal, regard, itemText, FRIENDLY, type MemoKey, type Memos } from './diplomacy.ts';
@@ -136,9 +135,9 @@ export const UN_TECH: TechKey = 'telecommunications';
 export const UN_EVERY = 10;
 export const UN_SHARE = 0.6;
 export interface UNSession { readonly turn: number; readonly candidates: readonly [number, number]; readonly votes: readonly { civ: number; weight: number; for: number | null }[]; readonly winner: number | null }
-// What is kept of every civ turn by turn, for the charts of its history (the Victory sheet): one figure a turn each.
+// What is kept of every civ turn by turn, for the charts of its history (each yield's sheet, the accounts, the Victory sheet): one figure a turn each.
 export const HISTORY = {
-  score: 'Score', citizens: 'Citizens', cities: 'Cities', army: 'Army', science: 'Science a turn', prod: 'Production a turn', gold: 'Gold a turn', culture: 'Culture a turn', cohesion: 'Cohesion a turn',
+  score: 'Score', science: 'Science a turn', culture: 'Culture a turn', cohesion: 'Cohesion a turn', faith: 'Faith a turn', income: 'Gold income', expenses: 'Gold expenses', treasury: 'Treasury',
 } as const;
 export type HistoryKey = keyof typeof HISTORY;
 export const HISTORY_KEYS = Object.keys(HISTORY) as HistoryKey[];
@@ -2189,9 +2188,14 @@ export class Game {
   exports(owner: number): ResourceKey[] {
     return this.deals.flatMap((t) => givenBy(t, owner).flatMap((i) => (i.k === 'resource' ? [i.resource] : [])));
   }
-  // The copies it could still trade away: past the one it keeps and those already sent.
-  spareResources(owner: number): Map<ResourceKey, number> {
-    const out = new Map<ResourceKey, number>(), sent = this.exports(owner);
+  // The resources a civ has promised in letters not answered yet (it wrote them: what it offered is kept for the
+  // answer, and cannot be sold again meanwhile). (`but`: one letter left out, when it is that letter being weighed.)
+  promised(owner: number, but?: Offer): ResourceKey[] {
+    return this.dealOffers.flatMap((o) => (o !== but && o.from === owner ? o.give.flatMap((i) => (i.k === 'resource' ? [i.resource] : [])) : []));
+  }
+  // The copies it could still trade away: past the one it keeps, those already sent, and those promised in a letter.
+  spareResources(owner: number, but?: Offer): Map<ResourceKey, number> {
+    const out = new Map<ResourceKey, number>(), sent = [...this.exports(owner), ...this.promised(owner, but)];
     for (const [r, n] of this.resourceCopies(owner)) {
       const spare = n - 1 - sent.filter((x) => x === r).length;
       if (spare > 0) out.set(r, spare);
@@ -2204,9 +2208,9 @@ export class Game {
   }
   // What `from` could give `to`: a spare copy of something `to` has
   // revealed (a strategic) and lacks.
-  tradeable(from: number, to: number): ResourceKey[] {
+  tradeable(from: number, to: number, but?: Offer): ResourceKey[] {
     const has = this.availableResources(to), techs = this.players[to]!.techs;
-    return [...this.spareResources(from).keys()].filter((r) => !has.has(r) && (!resourceDef(r).reveal || techs.has(resourceDef(r).reveal!)));
+    return [...this.spareResources(from, but).keys()].filter((r) => !has.has(r) && (!resourceDef(r).reveal || techs.has(resourceDef(r).reveal!)));
   }
   // A civ's gold a turn, last turn, before its deals.
   goldRate(owner: number): number {
@@ -2214,12 +2218,13 @@ export class Game {
     return Math.max(0, Math.floor(l.income.gold + l.tithes - l.cityUpkeep - l.unitUpkeep));
   }
   // Why civ `giver` can't give item i to civ `taker` now, or null.
-  itemBlock(giver: number, taker: number, i: Item): string | null {
+  // (`but`: the letter the item is in, if it is one already written: what it promises does not stand in its own way.)
+  itemBlock(giver: number, taker: number, i: Item, but?: Offer): string | null {
     const G = this.players[giver]!, T = this.players[taker]!;
     const third = (x: number): string | null => (x === giver || x === taker || !this.players[x]?.alive ? 'No such civilization.' : !this.met[giver]![x] ? `The ${G.name} have not met the ${this.players[x]!.name}.` : null);
     switch (i.k) {
       case 'gold': case 'goldPerTurn': return Number.isInteger(i.n) && i.n > 0 ? null : 'Gold is given, not taken.';
-      case 'resource': return this.tradeable(giver, taker).includes(i.resource) ? null : `The ${G.name} have no spare ${resourceDef(i.resource).name} the ${T.name} could use.`;
+      case 'resource': return this.tradeable(giver, taker, but).includes(i.resource) ? null : `The ${G.name} have no spare ${resourceDef(i.resource).name} the ${T.name} could use.`;
       case 'tech':
         if (!G.techs.has(i.tech) || T.techs.has(i.tech)) return `${techDef(i.tech).name} is not the ${G.name}' to teach the ${T.name}.`;
         return techDef(i.tech).needs.every((n) => T.techs.has(n)) ? null : `The ${T.name} lack what ${techDef(i.tech).name} rests on.`;
@@ -2259,7 +2264,7 @@ export class Game {
       for (let n = 0; n < list.length; n++) {
         const i = list[n]!;
         if (list.findIndex((x) => sameItem(x, i)) !== n) return 'The same thing is in it twice.';
-        const why = this.itemBlock(giver, taker, i);
+        const why = this.itemBlock(giver, taker, i, o);
         if (why) return why;
         if (isMutual(i) && !back.some((x) => x.k === i.k)) return `${i.k === 'pact' ? 'A defensive pact' : 'Open borders'} binds both sides.`;
         if (i.k === 'gold') gold += i.n;
@@ -2804,9 +2809,10 @@ export class Game {
   // The turn's figures, kept for the charts (a civ gone: noughts from then on).
   private chronicle(): void {
     for (const p of this.players) {
-      const mine = this.cities.filter((c) => c.owner === p.id), y = p.ledger.income;
-      const row: Record<HistoryKey, number> = { score: this.score(p.id), citizens: mine.reduce((s, c) => s + c.pop, 0), cities: mine.length, army: p.alive ? Math.round(armyOf(this, p.id)) : 0,
-        science: y.science, prod: y.prod, gold: Math.round(y.gold + p.ledger.tithes + p.ledger.trade - p.ledger.cityUpkeep - p.ledger.unitUpkeep), culture: y.culture, cohesion: y.cohesion };
+      const l = p.ledger, y = l.income;
+      // (Gold in: its cities', tithes, what deals bring; out: upkeep, what deals take.)
+      const row: Record<HistoryKey, number> = { score: this.score(p.id), science: y.science, culture: y.culture, cohesion: y.cohesion, faith: y.faith,
+        income: Math.round(y.gold + l.tithes + Math.max(0, l.trade)), expenses: Math.round(l.cityUpkeep + l.unitUpkeep + Math.max(0, -l.trade)), treasury: p.gold };
       for (const k of HISTORY_KEYS) this.history[k]![p.id]!.push(p.alive ? row[k] : 0);
     }
   }

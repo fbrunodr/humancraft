@@ -20,7 +20,7 @@ const turn = (g: Game) => { for (const p of g.players) p.isHuman = true; g.endTu
 const reason = (g: Game, of: number, toward: number, text: string) => regard(g, of, toward).reasons.find((r) => r.text.includes(text))?.value ?? 0;
 
 describe('D1: regard is a sum of named reasons', () => {
-  it('the levels: Hateful, Hostile, Cautious, Friendly, Devoted, by the sum', () => {
+  it('the levels: Hateful, Hostile, Cautious, Friendly, Ally, by the sum', () => {
     expect([-20, REGARD_CUTS[0], -5, REGARD_CUTS[1], 0, 2.9, 3, 7.9, 8, 30].map(regardLevel)).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
     const { g } = world();
     const r = regard(g, 1, HUMAN);

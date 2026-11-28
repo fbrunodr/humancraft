@@ -5,7 +5,7 @@
 // the Diplomacy sheet shows line by line (Civ IV's way). Two things are
 // weighed, apart:
 //
-//   regard   how well it likes the other, from Hateful to Devoted: the sum
+//   regard   how well it likes the other, from Hateful to Ally: the sum
 //            of what it holds for and against it. A shared state religion,
 //            kindred ways, open borders, a pact, years of peace, gifts, a
 //            war fought on the same side, a vote in the United Nations
@@ -68,9 +68,9 @@ export type Memos = Partial<Record<MemoKey, number>>;
 
 // ---------- regard ----------
 
-export const REGARDS = ['Hateful', 'Hostile', 'Cautious', 'Friendly', 'Devoted'] as const;
+export const REGARDS = ['Hateful', 'Hostile', 'Cautious', 'Friendly', 'Ally'] as const;
 export type RegardLevel = 0 | 1 | 2 | 3 | 4;
-// (The sum at which each level begins: to -8 Hateful, to -3 Hostile, under 3 Cautious, under 8 Friendly, from 8 Devoted.)
+// (The sum at which each level begins: to -8 Hateful, to -3 Hostile, under 3 Cautious, under 8 Friendly, from 8 Ally.)
 export const REGARD_CUTS = [-8, -3, 3, 8] as const;
 export const regardLevel = (total: number): RegardLevel => (total <= REGARD_CUTS[0] ? 0 : total <= REGARD_CUTS[1] ? 1 : total < REGARD_CUTS[2] ? 2 : total < REGARD_CUTS[3] ? 3 : 4);
 export const FRIENDLY: RegardLevel = 3;
@@ -183,7 +183,7 @@ export function powerOf(g: Game, of: number, toward: number): Power {
 
 // ---------- mood ----------
 
-// A civ's mood toward another: its regard (rows, Hateful to Devoted)
+// A civ's mood toward another: its regard (rows, Hateful to Ally)
 // against the other's power beside its own (columns, Pathetic to
 // Overwhelming).
 export const MOODS = {

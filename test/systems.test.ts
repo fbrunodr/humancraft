@@ -306,6 +306,18 @@ describe('S7: luxuries and trade', () => {
     expect(g.offerBlock(deal(items('silk'), items(null, 1)))).not.toBeNull();
   });
 
+  it('a spare copy promised in a letter not yet answered is not sold again meanwhile', () => {
+    const g = twoCivs('silk', 'wine');
+    g.players[1]!.isHuman = true; // (the letter waits for an answer)
+    const letter = deal(items('silk'), items('wine'));
+    expect(g.propose(letter)).toBe('offered');
+    expect(g.promised(0)).toEqual(['silk']);
+    expect(g.tradeable(0, 2)).not.toContain('silk');
+    expect(g.offerBlock(letter)).toBeNull(); // (its own promise does not stand in its way)
+    expect(g.answerOffer(0, true)).toBe(true);
+    expect(g.hasResource(1, 'silk')).toBe(true);
+  });
+
   it('a deal ends with war, or when the giver loses its spare copy', () => {
     let g = twoCivs('silk', 'wine');
     g.propose(deal(items('silk'), items('wine')));
